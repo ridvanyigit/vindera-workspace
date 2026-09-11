@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.core.database import supabase
+from src.api.endpoints import deals
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,3 +40,6 @@ async def root():
         "status": "online",
         "message": "Welcome to Vindera API - Cross-Border Arbitrage Engine is running."
     }
+
+# Register Routers
+app.include_router(deals.router, prefix="/api/v1")
