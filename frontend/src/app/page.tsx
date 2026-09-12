@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box } from 'lucide-react';
+import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { format, parseISO } from 'date-fns';
+
+interface PriceHistory {
+  price_amazon: number;
+  recorded_at: string;
+}
 
 interface Opportunity {
   id: string;
@@ -15,6 +22,7 @@ interface Opportunity {
     title: string;
     asin: string;
     image_url: string | null;
+    price_history: PriceHistory[];
   };
   generated_listings: {
     generated_title: string;
@@ -31,11 +39,15 @@ export default function Dashboard() {
 
   const fetchOpportunities = async () => {
     setLoading(true);
+    // Modified to fetch price_history nested under products
     const { data, error } = await supabase
       .from('opportunities')
       .select(`
         id, buy_price, target_sell_price, profit_margin, ai_decision, status,
-        products ( title, asin, image_url ),
+        products ( 
+          title, asin, image_url,
+          price_history ( price_amazon, recorded_at )
+        ),
         generated_listings ( generated_title, generated_description )
       `)
       .order('created_at', { ascending: false });
@@ -66,7 +78,7 @@ export default function Dashboard() {
       
       if (res.ok) {
         setScanAsin('');
-        setTimeout(() => fetchOpportunities(), 5000);
+        setTimeout(() => fetchOpportunities(), 5000); // Refresh after backend processes
       }
     } catch (error) {
       console.error(error);
@@ -82,20 +94,30 @@ export default function Dashboard() {
         body: JSON.stringify({ status: newStatus })
       });
       if (res.ok) {
-        fetchOpportunities(); // Refresh UI
+        fetchOpportunities();
       }
     } catch (error) {
       console.error('Failed to update status', error);
     }
   };
 
-  // Filter deals based on active tab
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'pending') return opp.status === 'pending';
     if (activeTab === 'inventory') return ['bought', 'in_inventory', 'listed'].includes(opp.status);
     if (activeTab === 'sold') return opp.status === 'sold';
     return true;
   });
+
+  // Helper to format chart data safely
+  const formatChartData = (history: PriceHistory[]) => {
+    if (!history) return [];
+    return history
+      .sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime())
+      .map(item => ({
+        date: format(parseISO(item.recorded_at), 'MMM dd'),
+        price: item.price_amazon
+      }));
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
@@ -177,25 +199,43 @@ export default function Dashboard() {
                     <p className="text-xl font-bold text-indigo-700">€{opp.target_sell_price}</p>
                   </div>
                   
+                  {/* PRICE HISTORY CHART */}
+                  {opp.products?.price_history && opp.products.price_history.length > 0 && (
+                    <div className="col-span-2 mt-2 h-40 bg-white border border-gray-100 rounded-lg p-2">
+                      <h3 className="text-xs font-bold text-gray-400 mb-2 flex items-center gap-1 uppercase tracking-wider">
+                        <ChartIcon className="h-3 w-3" /> 5-Day Price Trend
+                      </h3>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={formatChartData(opp.products.price_history)}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                          <XAxis dataKey="date" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
+                          <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} dot={{r: 4, strokeWidth: 2}} activeDot={{r: 6}} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+
                   {activeTab === 'pending' && (
                     <div className="col-span-2 mt-2">
-                      <h3 className="text-sm font-bold text-gray-700 mb-2">🧠 AI Decision Reasoning:</h3>
-                      <p className="text-sm text-gray-600 italic bg-gray-50 p-3 rounded border border-gray-100">"{opp.ai_decision}"</p>
+                      <h3 className="text-sm font-bold text-gray-700 mb-1">🧠 AI Decision:</h3>
+                      <p className="text-sm text-gray-600 italic bg-gray-50 p-2 rounded border border-gray-100 line-clamp-2">"{opp.ai_decision}"</p>
                     </div>
                   )}
 
                   {activeTab === 'inventory' && opp.generated_listings && opp.generated_listings.length > 0 && (
                     <div className="col-span-2 mt-2">
-                      <h3 className="text-sm font-bold text-indigo-600 mb-2">📝 Ready-to-use Listing (Willhaben):</h3>
-                      <div className="bg-white border border-indigo-100 rounded-lg p-4">
-                        <p className="font-bold text-gray-900 mb-2">{opp.generated_listings[0].generated_title}</p>
-                        <p className="text-sm text-gray-600 whitespace-pre-wrap">{opp.generated_listings[0].generated_description}</p>
+                      <h3 className="text-sm font-bold text-indigo-600 mb-1">📝 Target Listing (Willhaben):</h3>
+                      <div className="bg-white border border-indigo-100 rounded-lg p-3 h-24 overflow-y-auto">
+                        <p className="font-bold text-gray-900 mb-1 text-sm">{opp.generated_listings[0].generated_title}</p>
+                        <p className="text-xs text-gray-600 whitespace-pre-wrap">{opp.generated_listings[0].generated_description}</p>
                       </div>
                     </div>
                   )}
                 </div>
                 
-                {/* Action Buttons based on Status */}
+                {/* Action Buttons */}
                 <div className="bg-gray-50 px-6 py-4 border-t border-gray-100 flex gap-3">
                   {opp.status === 'pending' && (
                     <>

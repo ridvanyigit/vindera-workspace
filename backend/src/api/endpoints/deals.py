@@ -6,6 +6,7 @@ from src.agents.listing_generator_agent import listing_generator
 from src.services.notification_service import notification_service
 from src.core.database import supabase
 import asyncio
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
 
@@ -49,6 +50,7 @@ async def run_deal_scan_pipeline(asin: str):
         )
 
         try:
+            # 1. Save Product
             product_res = supabase.table("products").upsert({
                 "asin": asin,
                 "amazon_locale": "DE",
@@ -58,6 +60,20 @@ async def run_deal_scan_pipeline(asin: str):
             
             product_id = product_res.data[0]["id"]
 
+            # 2. Simulate & Save Price History for the Chart (Last 5 days)
+            history_data = []
+            base_date = datetime.now()
+            for i in range(5, -1, -1):
+                # Fake logic: Price was high (historical) for 4 days, dropped to current price today
+                fake_price = historical_price if i > 0 else current_price
+                history_data.append({
+                    "product_id": product_id,
+                    "price_amazon": fake_price,
+                    "recorded_at": (base_date - timedelta(days=i)).isoformat()
+                })
+            supabase.table("price_history").insert(history_data).execute()
+
+            # 3. Save Opportunity
             opp_res = supabase.table("opportunities").insert({
                 "product_id": product_id,
                 "buy_price": current_price,
@@ -69,6 +85,7 @@ async def run_deal_scan_pipeline(asin: str):
 
             opp_id = opp_res.data[0]["id"]
 
+            # 4. Save Listing
             supabase.table("generated_listings").insert({
                 "opportunity_id": opp_id,
                 "target_platform": "Willhaben",
@@ -76,7 +93,8 @@ async def run_deal_scan_pipeline(asin: str):
                 "generated_title": listing_data.title,
                 "generated_description": listing_data.description
             }).execute()
-            print("✅ Successfully saved to Supabase!")
+            
+            print("✅ Successfully saved to Supabase (including price history)!")
         except Exception as e:
             print(f"❌ Supabase Error: {str(e)}")
 
@@ -94,7 +112,6 @@ async def trigger_deal_scan(request: ScanRequest, background_tasks: BackgroundTa
     background_tasks.add_task(run_deal_scan_pipeline, request.asin)
     return {"status": "accepted", "message": f"Scan started for {request.asin}."}
 
-# NEW ENDPOINT: Update Deal Status
 @router.patch("/{opportunity_id}/status")
 async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
     try:
