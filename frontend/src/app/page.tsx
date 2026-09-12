@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank, LogOut } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 
@@ -15,14 +16,40 @@ interface Opportunity {
 }
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [session, setSession] = useState<any>(null);
+  
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanAsin, setScanAsin] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'settings'>('pending');
   const [copiedId, setCopiedId] = useState<string | null>(null);
-
   const [settings, setSettings] = useState({ minMargin: 30, maxBudget: 500, autoBuy: false });
+
+  useEffect(() => {
+    // 1. Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        router.push('/login');
+      } else {
+        setSession(session);
+        fetchOpportunities();
+      }
+    });
+
+    // 2. Listen for auth changes (e.g., logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.push('/login');
+      else setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
 
   const fetchOpportunities = async () => {
     setLoading(true);
@@ -39,8 +66,6 @@ export default function Dashboard() {
     else setOpportunities(data as any);
     setLoading(false);
   };
-
-  useEffect(() => { fetchOpportunities(); }, []);
 
   const handleManualScan = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +98,15 @@ export default function Dashboard() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Prevent rendering dashboard if not logged in
+  if (!session) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-indigo-600">
+        <RefreshCw className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'pending') return opp.status === 'pending';
     if (activeTab === 'inventory') return ['bought', 'in_inventory', 'listed'].includes(opp.status);
@@ -86,7 +120,6 @@ export default function Dashboard() {
       .map(item => ({ date: format(parseISO(item.recorded_at), 'MMM dd'), price: item.price_amazon }));
   };
 
-  // FINANCIAL ANALYTICS CALCULATIONS
   const activeDealsCount = opportunities.filter(o => o.status === 'pending').length;
   const totalInvested = opportunities.filter(o => ['bought', 'in_inventory', 'listed', 'sold'].includes(o.status)).reduce((sum, o) => sum + Number(o.buy_price), 0);
   const expectedProfit = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status)).reduce((sum, o) => sum + (Number(o.target_sell_price) - Number(o.buy_price)), 0);
@@ -96,10 +129,13 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
       <div className="max-w-7xl mx-auto">
         
-        {/* Header */}
+        {/* Header with Logout */}
         <div className="flex justify-between items-center mb-8">
           <div><h1 className="text-3xl font-bold text-indigo-600 flex items-center gap-2"><Package className="h-8 w-8" /> Vindera Arbitrage</h1><p className="text-gray-500 mt-1">Austrian Deal Hunter Dashboard (Willhaben)</p></div>
-          <button onClick={fetchOpportunities} className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh Data</button>
+          <div className="flex items-center gap-3">
+            <button onClick={fetchOpportunities} className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh Data</button>
+            <button onClick={handleLogout} className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-100 px-4 py-2 rounded-lg shadow-sm hover:bg-red-100 transition-colors"><LogOut className="h-4 w-4" /> Sign Out</button>
+          </div>
         </div>
 
         {/* FINANCIAL METRICS ROW */}
