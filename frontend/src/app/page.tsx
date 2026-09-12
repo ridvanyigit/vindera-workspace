@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart } from 'lucide-react';
+import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap } from 'lucide-react';
 
 interface Opportunity {
   id: string;
@@ -25,10 +25,13 @@ interface Opportunity {
 export default function Dashboard() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // New States for Manual Scan
+  const [scanAsin, setScanAsin] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
 
   const fetchOpportunities = async () => {
     setLoading(true);
-    // Fetch opportunities along with product details and AI generated listings
     const { data, error } = await supabase
       .from('opportunities')
       .select(`
@@ -50,9 +53,38 @@ export default function Dashboard() {
     fetchOpportunities();
   }, []);
 
+  // Function to trigger Backend API
+  const handleManualScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scanAsin.trim()) return;
+    
+    setIsScanning(true);
+    try {
+      const res = await fetch('http://localhost:8000/api/v1/deals/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asin: scanAsin.trim() })
+      });
+      
+      if (res.ok) {
+        alert(`🚀 Scan pipeline started for ASIN: ${scanAsin}. \n\nAI is analyzing it. Refresh the page in 5-10 seconds!`);
+        setScanAsin('');
+        // Automatically refresh data after 5 seconds to show the new result
+        setTimeout(() => fetchOpportunities(), 5000);
+      } else {
+        alert('Failed to connect to backend.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Error triggering scan. Is the FastAPI server running on port 8000?');
+    }
+    setIsScanning(false);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
       <div className="max-w-7xl mx-auto">
+        
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -70,8 +102,33 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Stats Row */}
+        {/* Manual Search & Stats Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {/* Manual ASIN Scanner */}
+          <div className="md:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <Search className="h-5 w-5 text-indigo-500"/> Manual Deal Scanner
+            </h2>
+            <form onSubmit={handleManualScan} className="flex gap-3">
+              <input 
+                type="text" 
+                value={scanAsin}
+                onChange={(e) => setScanAsin(e.target.value)}
+                placeholder="Paste Amazon ASIN here (e.g. B08N5WRWNW)"
+                className="flex-1 bg-gray-50 border border-gray-200 text-gray-900 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                required
+              />
+              <button 
+                type="submit" 
+                disabled={isScanning}
+                className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:bg-indigo-300"
+              >
+                {isScanning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                {isScanning ? 'Scanning...' : 'Analyze Deal'}
+              </button>
+            </form>
+          </div>
+
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
             <div className="p-3 bg-green-100 text-green-600 rounded-lg">
               <TrendingDown className="h-6 w-6" />
@@ -88,7 +145,7 @@ export default function Dashboard() {
           {loading ? (
             <p className="text-gray-500">Scanning Supabase for latest deals...</p>
           ) : opportunities.length === 0 ? (
-            <p className="text-gray-500">No profitable deals found yet. Wait for n8n to run!</p>
+            <p className="text-gray-500">No profitable deals found yet.</p>
           ) : (
             opportunities.map((opp) => (
               <div key={opp.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

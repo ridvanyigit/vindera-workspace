@@ -1,24 +1,23 @@
 from fastapi import APIRouter, BackgroundTasks
+from pydantic import BaseModel
 from src.services.keepa_service import keepa_service
 from src.agents.deal_analyzer_agent import deal_analyzer
 from src.agents.listing_generator_agent import listing_generator
 from src.services.notification_service import notification_service
 from src.core.database import supabase
 import asyncio
-import uuid
 
 router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
 
-async def run_deal_scan_pipeline(asin: str = "B09Y2MYL5C"):
-    """
-    Core pipeline: Keepa -> AI Analyzer -> AI Listing -> Supabase -> Notification.
-    """
+# We create a model to accept ASIN from the frontend
+class ScanRequest(BaseModel):
+    asin: str
+
+async def run_deal_scan_pipeline(asin: str):
     print(f"🚀 Starting Amazon Deal Scan Pipeline for ASIN: {asin}...")
     
-    # 1. Fetch data from Keepa
     raw_keepa_data = await keepa_service.fetch_product_data(asin=asin)
     
-    # Check if we got data (If no Keepa Key, use mock data for testing)
     if raw_keepa_data:
         price_info = keepa_service.extract_price_info(raw_keepa_data)
         product_title = price_info["title"]
@@ -26,15 +25,15 @@ async def run_deal_scan_pipeline(asin: str = "B09Y2MYL5C"):
         historical_price = price_info["average_historical_price"]
     else:
         print("⚠️ Using Mock Data (Keepa API key missing or failed).")
-        product_title = "Sony WH-1000XM5 Wireless Headphones"
-        current_price = 199.0
-        historical_price = 349.0
-        await asyncio.sleep(1) # Simulate delay
+        # Generate mock data dynamically based on the requested ASIN
+        product_title = f"Test Product for ASIN: {asin}"
+        current_price = 45.0
+        historical_price = 99.0
+        await asyncio.sleep(1)
 
     amazon_url = f"https://amazon.de/dp/{asin}"
     print(f"📦 Analyzing product: {product_title} | Current: €{current_price} | Historical: €{historical_price}")
     
-    # 2. Ask AI if this is a good deal
     analysis = deal_analyzer.analyze_deal(
         product_title=product_title,
         current_price=current_price,
@@ -43,29 +42,25 @@ async def run_deal_scan_pipeline(asin: str = "B09Y2MYL5C"):
     
     print(f"🧠 AI Decision: Profitable? {analysis.is_profitable} | Margin: {analysis.estimated_profit_margin}%")
 
-    # 3. If profitable, generate listing, save to DB, and notify
     if analysis.is_profitable:
         print("✍️ Generating Willhaben listing via AI...")
         listing_data = listing_generator.generate_willhaben_listing(
             product_title=product_title,
-            product_category="Electronics",
+            product_category="General",
             bought_price=current_price,
             historical_price=historical_price
         )
 
-        print("💾 Saving Opportunity to Supabase...")
         try:
-            # First, ensure product exists in products table
             product_res = supabase.table("products").upsert({
                 "asin": asin,
                 "amazon_locale": "DE",
                 "title": product_title,
-                "category": "Electronics"
+                "category": "General"
             }, on_conflict="asin,amazon_locale").execute()
             
             product_id = product_res.data[0]["id"]
 
-            # Save to opportunities table
             opp_res = supabase.table("opportunities").insert({
                 "product_id": product_id,
                 "buy_price": current_price,
@@ -77,7 +72,6 @@ async def run_deal_scan_pipeline(asin: str = "B09Y2MYL5C"):
 
             opp_id = opp_res.data[0]["id"]
 
-            # Save generated listing
             supabase.table("generated_listings").insert({
                 "opportunity_id": opp_id,
                 "target_platform": "Willhaben",
@@ -85,12 +79,10 @@ async def run_deal_scan_pipeline(asin: str = "B09Y2MYL5C"):
                 "generated_title": listing_data.title,
                 "generated_description": listing_data.description
             }).execute()
-
             print("✅ Successfully saved to Supabase!")
         except Exception as e:
             print(f"❌ Supabase Error: {str(e)}")
 
-        # Send Push Notification
         await notification_service.send_deal_alert(
             product_title=product_title,
             buy_price=current_price,
@@ -102,11 +94,12 @@ async def run_deal_scan_pipeline(asin: str = "B09Y2MYL5C"):
 
 
 @router.post("/scan")
-async def trigger_deal_scan(background_tasks: BackgroundTasks):
-    # For now, we hardcode an ASIN to test the flow. Later, n8n will provide a list of ASINs.
-    test_asin = "B09Y2MYL5C" 
-    background_tasks.add_task(run_deal_scan_pipeline, test_asin)
+async def trigger_deal_scan(request: ScanRequest, background_tasks: BackgroundTasks):
+    """
+    Accepts an ASIN from the UI or n8n, and runs the scan in the background.
+    """
+    background_tasks.add_task(run_deal_scan_pipeline, request.asin)
     return {
         "status": "accepted", 
-        "message": f"Deal scan pipeline started for {test_asin}."
+        "message": f"Deal scan pipeline started for {request.asin}."
     }
