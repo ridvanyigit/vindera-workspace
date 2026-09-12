@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Lock, AlertCircle, ArrowRight } from 'lucide-react';
+import { Package, Lock, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -48,28 +49,41 @@ export default function Login() {
         <div className="bg-white py-8 px-4 shadow-sm border border-gray-100 sm:rounded-xl sm:px-10">
           <form className="space-y-6" onSubmit={handleLogin}>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Email address</label>
-              <div className="mt-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">Email address</label>
+              <div className="relative">
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+                  placeholder="admin@vindera.com"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">Password</label>
-              <div className="mt-1">
+              <label className="block text-sm font-medium text-gray-900 mb-1">Password</label>
+              <div className="relative">
                 <input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                  className="appearance-none block w-full px-4 py-3 pr-10 border border-gray-300 rounded-lg shadow-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+                  placeholder="••••••••"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-5 w-5" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-5 w-5" aria-hidden="true" />
+                  )}
+                </button>
               </div>
             </div>
 
@@ -84,7 +98,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full flex justify-center items-center gap-2 py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400"
+                className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-400 transition-colors"
               >
                 {loading ? 'Authenticating...' : (
                   <>Sign In <ArrowRight className="h-4 w-4" /></>
