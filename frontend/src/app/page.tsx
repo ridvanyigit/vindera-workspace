@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save } from 'lucide-react';
+import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, parseISO } from 'date-fns';
 
@@ -22,7 +22,6 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'settings'>('pending');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Settings State (Mocking local state for now)
   const [settings, setSettings] = useState({ minMargin: 30, maxBudget: 500, autoBuy: false });
 
   const fetchOpportunities = async () => {
@@ -87,6 +86,12 @@ export default function Dashboard() {
       .map(item => ({ date: format(parseISO(item.recorded_at), 'MMM dd'), price: item.price_amazon }));
   };
 
+  // FINANCIAL ANALYTICS CALCULATIONS
+  const activeDealsCount = opportunities.filter(o => o.status === 'pending').length;
+  const totalInvested = opportunities.filter(o => ['bought', 'in_inventory', 'listed', 'sold'].includes(o.status)).reduce((sum, o) => sum + Number(o.buy_price), 0);
+  const expectedProfit = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status)).reduce((sum, o) => sum + (Number(o.target_sell_price) - Number(o.buy_price)), 0);
+  const realizedProfit = opportunities.filter(o => o.status === 'sold').reduce((sum, o) => sum + (Number(o.target_sell_price) - Number(o.buy_price)), 0);
+
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
       <div className="max-w-7xl mx-auto">
@@ -95,6 +100,26 @@ export default function Dashboard() {
         <div className="flex justify-between items-center mb-8">
           <div><h1 className="text-3xl font-bold text-indigo-600 flex items-center gap-2"><Package className="h-8 w-8" /> Vindera Arbitrage</h1><p className="text-gray-500 mt-1">Austrian Deal Hunter Dashboard (Willhaben)</p></div>
           <button onClick={fetchOpportunities} className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh Data</button>
+        </div>
+
+        {/* FINANCIAL METRICS ROW */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+            <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><TrendingDown className="h-6 w-6" /></div>
+            <div><p className="text-sm text-gray-500 font-medium">New Deals Found</p><p className="text-2xl font-bold text-gray-900">{activeDealsCount}</p></div>
+          </div>
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+            <div className="p-3 bg-orange-100 text-orange-600 rounded-lg"><Wallet className="h-6 w-6" /></div>
+            <div><p className="text-sm text-gray-500 font-medium">Total Invested</p><p className="text-2xl font-bold text-gray-900">€{totalInvested.toFixed(2)}</p></div>
+          </div>
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+            <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg"><TrendingUp className="h-6 w-6" /></div>
+            <div><p className="text-sm text-gray-500 font-medium">Expected Profit</p><p className="text-2xl font-bold text-gray-900">€{expectedProfit.toFixed(2)}</p></div>
+          </div>
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+            <div className="p-3 bg-green-100 text-green-600 rounded-lg"><PiggyBank className="h-6 w-6" /></div>
+            <div><p className="text-sm text-gray-500 font-medium">Realized Profit (Net)</p><p className="text-2xl font-bold text-green-600">€{realizedProfit.toFixed(2)}</p></div>
+          </div>
         </div>
 
         {/* Manual Search */}
@@ -120,34 +145,10 @@ export default function Dashboard() {
         {activeTab === 'settings' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-2xl">
             <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-4">System Configurations</h2>
-            
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Minimum AI Profit Margin (%)</label>
-                <input type="number" value={settings.minMargin} onChange={e => setSettings({...settings, minMargin: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2" />
-                <p className="text-xs text-gray-500 mt-1">AI will ignore deals with a profit margin lower than this value.</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Maximum Deal Budget (€)</label>
-                <input type="number" value={settings.maxBudget} onChange={e => setSettings({...settings, maxBudget: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2" />
-                <p className="text-xs text-gray-500 mt-1">Do not notify me for items that cost more than this amount.</p>
-              </div>
-
-              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <div>
-                  <h3 className="font-medium text-gray-900">Auto-Buy Enabled (Beta)</h3>
-                  <p className="text-xs text-gray-500">Allow AI to automatically purchase deals via Amazon API if criteria are met.</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={settings.autoBuy} onChange={e => setSettings({...settings, autoBuy: e.target.checked})} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                </label>
-              </div>
-
-              <button className="w-full bg-gray-900 text-white py-3 rounded-lg font-medium hover:bg-gray-800 flex items-center justify-center gap-2 mt-4">
-                <Save className="h-5 w-5" /> Save Configuration
-              </button>
+              <div><label className="block text-sm font-medium text-gray-700 mb-2">Minimum AI Profit Margin (%)</label><input type="number" value={settings.minMargin} onChange={e => setSettings({...settings, minMargin: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-2">Maximum Deal Budget (€)</label><input type="number" value={settings.maxBudget} onChange={e => setSettings({...settings, maxBudget: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2" /></div>
+              <button className="w-full bg-gray-900 text-white py-3 rounded-lg font-medium hover:bg-gray-800 flex items-center justify-center gap-2 mt-4"><Save className="h-5 w-5" /> Save Configuration</button>
             </div>
           </div>
         )}
@@ -158,7 +159,7 @@ export default function Dashboard() {
             {loading ? (<p className="text-gray-500">Loading data...</p>) : filteredDeals.length === 0 ? (<p className="text-gray-500">No items found.</p>) : (
               filteredDeals.map((opp) => (
                 <div key={opp.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-                  {/* ... (Existing Deal Card Content - Keeping it exactly the same) ... */}
+                  
                   <div className="p-6 border-b border-gray-100 flex justify-between items-start">
                     <div>
                       <h2 className="font-semibold text-lg line-clamp-1">{opp.products?.title}</h2>
