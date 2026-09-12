@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from src.services.keepa_service import keepa_service
 from src.agents.deal_analyzer_agent import deal_analyzer
@@ -9,9 +9,11 @@ import asyncio
 
 router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
 
-# We create a model to accept ASIN from the frontend
 class ScanRequest(BaseModel):
     asin: str
+
+class StatusUpdateRequest(BaseModel):
+    status: str
 
 async def run_deal_scan_pipeline(asin: str):
     print(f"🚀 Starting Amazon Deal Scan Pipeline for ASIN: {asin}...")
@@ -25,14 +27,12 @@ async def run_deal_scan_pipeline(asin: str):
         historical_price = price_info["average_historical_price"]
     else:
         print("⚠️ Using Mock Data (Keepa API key missing or failed).")
-        # Generate mock data dynamically based on the requested ASIN
         product_title = f"Test Product for ASIN: {asin}"
         current_price = 45.0
         historical_price = 99.0
         await asyncio.sleep(1)
 
     amazon_url = f"https://amazon.de/dp/{asin}"
-    print(f"📦 Analyzing product: {product_title} | Current: €{current_price} | Historical: €{historical_price}")
     
     analysis = deal_analyzer.analyze_deal(
         product_title=product_title,
@@ -40,10 +40,7 @@ async def run_deal_scan_pipeline(asin: str):
         average_historical_price=historical_price
     )
     
-    print(f"🧠 AI Decision: Profitable? {analysis.is_profitable} | Margin: {analysis.estimated_profit_margin}%")
-
     if analysis.is_profitable:
-        print("✍️ Generating Willhaben listing via AI...")
         listing_data = listing_generator.generate_willhaben_listing(
             product_title=product_title,
             product_category="General",
@@ -92,14 +89,18 @@ async def run_deal_scan_pipeline(asin: str):
         
     print("🏁 Pipeline execution finished.")
 
-
 @router.post("/scan")
 async def trigger_deal_scan(request: ScanRequest, background_tasks: BackgroundTasks):
-    """
-    Accepts an ASIN from the UI or n8n, and runs the scan in the background.
-    """
     background_tasks.add_task(run_deal_scan_pipeline, request.asin)
-    return {
-        "status": "accepted", 
-        "message": f"Deal scan pipeline started for {request.asin}."
-    }
+    return {"status": "accepted", "message": f"Scan started for {request.asin}."}
+
+# NEW ENDPOINT: Update Deal Status
+@router.patch("/{opportunity_id}/status")
+async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
+    try:
+        res = supabase.table("opportunities").update({"status": request.status}).eq("id", opportunity_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Opportunity not found")
+        return {"status": "success", "data": res.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
