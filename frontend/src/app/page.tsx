@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import CommandBar from '@/components/CommandBar';
 import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank, LogOut, SearchCode, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format, parseISO } from 'date-fns';
@@ -322,6 +323,8 @@ export default function Dashboard() {
           </div>
         )}
 
+        <CommandBar />
+        
       </div>
     </div>
   );

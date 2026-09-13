@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from src.core.database import supabase
-from src.api.endpoints import deals
+from src.api.endpoints import deals, chat
 from prometheus_fastapi_instrumentator import Instrumentator
 
 @asynccontextmanager
@@ -43,3 +43,4 @@ async def root():
 
 # Register Routers
 app.include_router(deals.router, prefix="/api/v1")
+app.include_router(chat.router, prefix="/api/v1")
