@@ -4,16 +4,14 @@ from openai import AsyncOpenAI
 from src.core.config import settings
 from src.core.database import supabase
 
-# We use AsyncOpenAI to prevent blocking the FastAPI server
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.OPENAI_API_KEY else "dummy_key")
 
-# Define the Tools (Functions) the AI can use autonomously
 tools = [
     {
         "type": "function",
         "function": {
             "name": "get_inventory_status",
-            "description": "Get the current list of products in the database, including their ASIN, title, and current status.",
+            "description": "Get the current list of products in the database, including ASIN, title, and status.",
             "parameters": {"type": "object", "properties": {}, "required": []}
         }
     },
@@ -22,96 +20,99 @@ tools = [
         "function": {
             "name": "scan_new_asin",
             "description": "Trigger a new deal scan pipeline for a given Amazon ASIN.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "asin": {"type": "string", "description": "The 10-character Amazon ASIN code (e.g. B09Y2MYL5C)"}
-                },
-                "required": ["asin"]
-            }
+            "parameters": {"type": "object", "properties": {"asin": {"type": "string"}}, "required": ["asin"]}
         }
     },
     {
         "type": "function",
         "function": {
             "name": "delete_asin",
-            "description": "Delete a product and all its data from the database using its ASIN.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "asin": {"type": "string", "description": "The 10-character Amazon ASIN code"}
-                },
-                "required": ["asin"]
-            }
+            "description": "Delete a product from the database using its ASIN.",
+            "parameters": {"type": "object", "properties": {"asin": {"type": "string"}}, "required": ["asin"]}
         }
     }
 ]
 
 class ChatbotAgent:
     async def process_message(self, user_message: str) -> str:
+        msg = user_message.strip()
+
+        # ========================================================
+        # 1. HARDCODED SLASH COMMANDS (WORKS WITHOUT OPENAI CREDITS)
+        # ========================================================
+        if msg.startswith("/list"):
+            res = supabase.table("opportunities").select("status, products(title, asin)").execute()
+            if not res.data:
+                return "📦 Veritabanında henüz hiç ürün yok."
+            response_text = "📦 **Veritabanı Envanterin:**\n"
+            for item in res.data:
+                response_text += f"- {item['products']['title']} (ASIN: {item['products']['asin']}) | Status: {item['status']}\n"
+            return response_text
+
+        if msg.startswith("/scan"):
+            parts = msg.split(" ")
+            if len(parts) < 2:
+                return "⚠️ Lütfen bir ASIN girin. Örnek: `/scan B09Y2MYL5C`"
+            asin = parts[1]
+            from src.api.endpoints.deals import run_deal_scan_pipeline
+            asyncio.create_task(run_deal_scan_pipeline(asin))
+            return f"🚀 {asin} kodlu ürün için tarama başlatıldı. Lütfen 5 saniye sonra sayfayı yenileyin (Refresh Data)."
+
+        if msg.startswith("/delete"):
+            parts = msg.split(" ")
+            if len(parts) < 2:
+                return "⚠️ Lütfen bir ASIN girin. Örnek: `/delete B09Y2MYL5C`"
+            asin = parts[1]
+            supabase.table("products").delete().eq("asin", asin).execute()
+            return f"🗑️ {asin} kodlu ürün ve ona bağlı tüm fırsatlar veritabanından başarıyla silindi!"
+
+        if msg.startswith("/help"):
+            return "🛠️ **Sistem Komutları (Kredi Gerektirmez):**\n`/list` - Tüm ürünleri listeler\n`/scan ASIN` - Yeni bir ürün tarar\n`/delete ASIN` - Ürünü sistemden siler\n\n*(Doğal dilde sohbet etmek ve otonom işlemler için geçerli OpenAI API kredisi gereklidir).*"
+
+        # ========================================================
+        # 2. AUTONOMOUS AI FUNCTION CALLING (REQUIRES OPENAI CREDITS)
+        # ========================================================
         messages = [
-            {"role": "system", "content": "You are Vindera AI, a highly capable assistant for an Amazon arbitrage business in Austria. You can manage the database, scan new items, and delete items using your tools. Be concise, professional, and friendly. Answer in the language the user speaks (mostly Turkish or English)."},
-            {"role": "user", "content": user_message}
+            {"role": "system", "content": "You are Vindera AI, a highly capable assistant for an Amazon arbitrage business in Austria."},
+            {"role": "user", "content": msg}
         ]
 
         try:
-            # 1. Send the message and tools to OpenAI
             response = await client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
                 tools=tools,
                 tool_choice="auto"
             )
-
             response_message = response.choices[0].message
             
-            # 2. Check if AI decided to use a tool
             if response_message.tool_calls:
-                messages.append(response_message) # Append the AI's tool call request
-                
+                messages.append(response_message)
                 for tool_call in response_message.tool_calls:
                     function_name = tool_call.function.name
                     function_args = json.loads(tool_call.function.arguments)
                     function_response = ""
                     
-                    print(f"🤖 AI is executing tool: {function_name} with args {function_args}")
-
-                    # 3. Execute the actual Python code based on AI's choice
                     if function_name == "get_inventory_status":
                         res = supabase.table("opportunities").select("status, products(title, asin)").execute()
                         function_response = json.dumps(res.data) if res.data else "Database is empty."
-                    
                     elif function_name == "scan_new_asin":
-                        asin = function_args.get("asin")
-                        from src.api.endpoints.deals import run_deal_scan_pipeline # Imported here to avoid circular imports
-                        asyncio.create_task(run_deal_scan_pipeline(asin))
-                        function_response = f"Successfully started background scan for ASIN: {asin}. Tell the user to wait 5 seconds and refresh the page."
-                    
+                        from src.api.endpoints.deals import run_deal_scan_pipeline
+                        asyncio.create_task(run_deal_scan_pipeline(function_args.get("asin")))
+                        function_response = "Scan started."
                     elif function_name == "delete_asin":
-                        asin = function_args.get("asin")
-                        supabase.table("products").delete().eq("asin", asin).execute()
-                        function_response = f"Successfully deleted ASIN: {asin} from the database. Tell the user it is removed."
+                        supabase.table("products").delete().eq("asin", function_args.get("asin")).execute()
+                        function_response = "Deleted."
                         
-                    # 4. Return the tool's result back to OpenAI
-                    messages.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": function_name,
-                        "content": function_response,
-                    })
+                    messages.append({"tool_call_id": tool_call.id, "role": "tool", "name": function_name, "content": function_response})
                     
-                # 5. Get the final human-readable answer from OpenAI
-                second_response = await client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=messages
-                )
+                second_response = await client.chat.completions.create(model="gpt-4o-mini", messages=messages)
                 return second_response.choices[0].message.content
 
-            # If no tool was called, just return the standard text reply
             return response_message.content
 
         except Exception as e:
-            print(f"Chatbot Error: {str(e)}")
-            return f"Sorry boss, I encountered an error: {str(e)}"
+            # GRACEFUL FALLBACK IF NO CREDITS
+            return f"⚠️ **Yapay Zeka Bağlantı Hatası:** OpenAI hesabınızda bakiye yok veya şifre hatalı.\n\nSistemi bedava kullanmaya devam etmek için lütfen slash komutlarını kullanın. Komutları görmek için `/help` yazabilirsiniz."
 
 chatbot_agent = ChatbotAgent()

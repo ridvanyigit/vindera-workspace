@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, RefreshCw, Plus, Mic, Cpu, ChevronUp, ChevronDown, Trash2, Zap } from 'lucide-react';
+import { Send, Bot, User, RefreshCw, Zap, ChevronUp, ChevronDown, Trash2, List } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -22,11 +22,11 @@ export default function CommandBar() {
     }
   }, [messages]);
 
-  const sendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const sendMessage = async (e?: React.FormEvent, customMsg?: string) => {
+    if (e) e.preventDefault();
+    const userMsg = customMsg || input.trim();
+    if (!userMsg || isLoading) return;
 
-    const userMsg = input.trim();
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
     setIsLoading(true);
@@ -42,12 +42,17 @@ export default function CommandBar() {
         const data = await res.json();
         setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'Connection error.' }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Connection error.' }]);
       }
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Server unreachable.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Server unreachable.' }]);
     }
     setIsLoading(false);
+  };
+
+  const insertCommand = (cmd: string) => {
+    setInput(cmd);
+    // Focus automatically isn't strictly necessary but UX friendly. We just set the input.
   };
 
   return (
@@ -56,25 +61,25 @@ export default function CommandBar() {
       {/* 1. CHAT HISTORY (Floating above the bar) */}
       {isHistoryOpen && messages.length > 0 && (
         <div className="pointer-events-auto w-full max-w-3xl bg-white border border-gray-200 rounded-2xl shadow-2xl mb-4 flex flex-col overflow-hidden transition-all animate-in slide-in-from-bottom-4">
-          <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center text-xs text-gray-500 font-medium tracking-tight">
+          <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase">
             <div className="flex items-center gap-2">
-              <Bot className="h-3.5 w-3.5" /> VINDERA AI ASSISTANT LOG
+              <Bot className="h-4 w-4 text-indigo-500" /> Vindera Command Terminal
             </div>
             <button onClick={() => setIsHistoryOpen(false)} className="hover:text-gray-800 transition-colors">HIDE</button>
           </div>
-          <div className="p-4 overflow-y-auto max-h-[350px] bg-white flex flex-col gap-4">
+          <div className="p-4 overflow-y-auto max-h-[400px] bg-white flex flex-col gap-4">
             {messages.map((msg, idx) => (
-              <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'bg-indigo-50/30' : ''} p-2 rounded-lg`}>
+              <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'bg-indigo-50/50' : ''} p-3 rounded-xl border ${msg.role === 'user' ? 'border-indigo-100' : 'border-transparent'}`}>
                 <div className="mt-0.5">
-                  {msg.role === 'user' ? <User className="h-4 w-4 text-gray-400" /> : <Bot className="h-4 w-4 text-indigo-600" />}
+                  {msg.role === 'user' ? <User className="h-5 w-5 text-gray-400" /> : <Bot className="h-5 w-5 text-indigo-600" />}
                 </div>
                 <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
               </div>
             ))}
             {isLoading && (
-              <div className="flex gap-3 p-2">
-                <RefreshCw className="h-4 w-4 text-indigo-600 animate-spin" />
-                <div className="text-sm text-gray-400 italic font-light tracking-wide">Processing your command...</div>
+              <div className="flex gap-3 p-3">
+                <RefreshCw className="h-5 w-5 text-indigo-600 animate-spin" />
+                <div className="text-sm text-gray-400 italic">Processing command...</div>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -82,9 +87,9 @@ export default function CommandBar() {
         </div>
       )}
 
-      {/* 2. THE COMMAND BAR (Claude Style) */}
+      {/* 2. THE COMMAND BAR */}
       <div className="pointer-events-auto w-full max-w-3xl relative group">
-        <form onSubmit={sendMessage} className="relative bg-white border border-gray-200 rounded-2xl shadow-xl shadow-indigo-100/20 transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 overflow-hidden">
+        <form onSubmit={(e) => sendMessage(e)} className="relative bg-white border border-gray-200 rounded-2xl shadow-xl shadow-indigo-100/20 transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 overflow-hidden">
           
           <textarea
             value={input}
@@ -92,48 +97,45 @@ export default function CommandBar() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                sendMessage(e);
+                sendMessage();
               }
             }}
-            placeholder="How can I help you today, Boss?"
+            placeholder="Type a command (e.g. /list, /scan ASIN) or ask AI..."
             rows={1}
             className="w-full pl-4 pr-12 pt-4 pb-12 bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none resize-none min-h-[60px]"
           />
 
           {/* Bottom Toolbar inside the Input Box */}
           <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center pointer-events-none">
-            {/* Left Icons */}
+            
+            {/* Left Action Shortcuts */}
             <div className="flex items-center gap-1.5 pointer-events-auto">
-              <button type="button" className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Add File">
-                <Plus className="h-4 w-4" />
+              <button type="button" onClick={() => sendMessage(undefined, '/help')} className="px-2 py-1 text-xs font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider">
+                Help
               </button>
               <div className="h-4 w-px bg-gray-200 mx-0.5"></div>
-              <button type="button" className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider border border-transparent hover:border-indigo-100">
-                <Zap className="h-3 w-3" /> Quick Scan
+              <button type="button" onClick={() => sendMessage(undefined, '/list')} className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider">
+                <List className="h-3 w-3" /> List DB
               </button>
-              <button type="button" className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-all uppercase tracking-wider border border-transparent hover:border-red-100">
-                <Trash2 className="h-3 w-3" /> Delete Item
+              <button type="button" onClick={() => insertCommand('/scan ')} className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider">
+                <Zap className="h-3 w-3" /> Scan
+              </button>
+              <button type="button" onClick={() => insertCommand('/delete ')} className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-all uppercase tracking-wider">
+                <Trash2 className="h-3 w-3" /> Delete
               </button>
             </div>
 
-            {/* Right Icons */}
-            <div className="flex items-center gap-3 pointer-events-auto">
+            {/* Right Icons (Submit) */}
+            <div className="flex items-center gap-2 pointer-events-auto">
               {messages.length > 0 && (
                 <button 
                   type="button" 
                   onClick={() => setIsHistoryOpen(!isHistoryOpen)}
                   className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
                 >
-                  {isHistoryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                  {isHistoryOpen ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
                 </button>
               )}
-              <button type="button" className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
-                <Mic className="h-4 w-4" />
-              </button>
-              <div className="flex items-center gap-1 px-2 py-1 bg-gray-50 border border-gray-100 rounded-lg">
-                <Cpu className="h-3 w-3 text-indigo-500" />
-                <span className="text-[10px] font-bold text-gray-400 tracking-tighter">GPT-4O-MINI</span>
-              </div>
               <button 
                 type="submit" 
                 disabled={!input.trim() || isLoading}
