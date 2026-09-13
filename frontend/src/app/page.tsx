@@ -18,7 +18,6 @@ interface Opportunity {
 export default function Dashboard() {
   const router = useRouter();
   const [session, setSession] = useState<any>(null);
-  
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanAsin, setScanAsin] = useState('');
@@ -28,42 +27,23 @@ export default function Dashboard() {
   const [settings, setSettings] = useState({ minMargin: 30, maxBudget: 500, autoBuy: false });
 
   useEffect(() => {
-    // 1. Check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        router.push('/login');
-      } else {
-        setSession(session);
-        fetchOpportunities();
-      }
+      if (!session) router.push('/login');
+      else { setSession(session); fetchOpportunities(); }
     });
-
-    // 2. Listen for auth changes (e.g., logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.push('/login');
       else setSession(session);
     });
-
     return () => subscription.unsubscribe();
   }, [router]);
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-  };
+  const handleLogout = async () => await supabase.auth.signOut();
 
   const fetchOpportunities = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('opportunities')
-      .select(`
-        id, buy_price, target_sell_price, profit_margin, ai_decision, status,
-        products ( title, asin, image_url, price_history ( price_amazon, recorded_at ) ),
-        generated_listings ( generated_title, generated_description )
-      `)
-      .order('created_at', { ascending: false });
-
-    if (error) console.error('Error fetching data:', error);
-    else setOpportunities(data as any);
+    const { data, error } = await supabase.from('opportunities').select(`id, buy_price, target_sell_price, profit_margin, ai_decision, status, products ( title, asin, image_url, price_history ( price_amazon, recorded_at ) ), generated_listings ( generated_title, generated_description )`).order('created_at', { ascending: false });
+    if (!error) setOpportunities(data as any);
     setLoading(false);
   };
 
@@ -72,24 +52,17 @@ export default function Dashboard() {
     if (!scanAsin.trim()) return;
     setIsScanning(true);
     try {
-      const res = await fetch('http://localhost:8000/api/v1/deals/scan', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin: scanAsin.trim() })
-      });
-      if (res.ok) {
-        setScanAsin('');
-        setTimeout(() => fetchOpportunities(), 5000); 
-      }
+      const res = await fetch('http://localhost:8000/api/v1/deals/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin: scanAsin.trim() }) });
+      if (res.ok) { setScanAsin(''); setTimeout(() => fetchOpportunities(), 5000); }
     } catch (error) { console.error(error); }
     setIsScanning(false);
   };
 
   const updateStatus = async (id: string, newStatus: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus })
-      });
+      const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
       if (res.ok) fetchOpportunities();
-    } catch (error) { console.error('Failed to update status', error); }
+    } catch (error) { console.error(error); }
   };
 
   const copyToClipboard = (text: string, id: string) => {
@@ -98,14 +71,7 @@ export default function Dashboard() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  // Prevent rendering dashboard if not logged in
-  if (!session) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-indigo-600">
-        <RefreshCw className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
+  if (!session) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-indigo-600"><RefreshCw className="h-8 w-8 animate-spin" /></div>;
 
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'pending') return opp.status === 'pending';
@@ -116,8 +82,7 @@ export default function Dashboard() {
 
   const formatChartData = (history: PriceHistory[]) => {
     if (!history) return [];
-    return history.sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime())
-      .map(item => ({ date: format(parseISO(item.recorded_at), 'MMM dd'), price: item.price_amazon }));
+    return history.sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime()).map(item => ({ date: format(parseISO(item.recorded_at), 'MMM dd'), price: item.price_amazon }));
   };
 
   const activeDealsCount = opportunities.filter(o => o.status === 'pending').length;
@@ -126,45 +91,48 @@ export default function Dashboard() {
   const realizedProfit = opportunities.filter(o => o.status === 'sold').reduce((sum, o) => sum + (Number(o.target_sell_price) - Number(o.buy_price)), 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 p-8">
+    <div className="min-h-screen bg-gray-50 text-gray-900 p-8 transition-colors duration-200">
       <div className="max-w-7xl mx-auto">
         
-        {/* Header with Logout */}
-        <div className="flex justify-between items-center mb-8">
-          <div><h1 className="text-3xl font-bold text-indigo-600 flex items-center gap-2"><Package className="h-8 w-8" /> Vindera Arbitrage</h1><p className="text-gray-500 mt-1">Austrian Deal Hunter Dashboard (Willhaben)</p></div>
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-indigo-600 flex items-center gap-2"><Package className="h-8 w-8" /> Vindera Arbitrage</h1>
+            <p className="text-gray-500 mt-1">Austrian Deal Hunter Dashboard (Willhaben)</p>
+          </div>
           <div className="flex items-center gap-3">
-            <button onClick={fetchOpportunities} className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh Data</button>
+            <button onClick={fetchOpportunities} className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg shadow-sm hover:bg-gray-50 transition-colors"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
             <button onClick={handleLogout} className="flex items-center gap-2 bg-red-50 text-red-600 border border-red-100 px-4 py-2 rounded-lg shadow-sm hover:bg-red-100 transition-colors"><LogOut className="h-4 w-4" /> Sign Out</button>
           </div>
         </div>
 
-        {/* FINANCIAL METRICS ROW */}
+        {/* FINANCIAL METRICS */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
             <div className="p-3 bg-blue-100 text-blue-600 rounded-lg"><TrendingDown className="h-6 w-6" /></div>
-            <div><p className="text-sm text-gray-500 font-medium">New Deals Found</p><p className="text-2xl font-bold text-gray-900">{activeDealsCount}</p></div>
+            <div><p className="text-sm text-gray-500 font-medium">New Deals</p><p className="text-2xl font-bold">{activeDealsCount}</p></div>
           </div>
           <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
             <div className="p-3 bg-orange-100 text-orange-600 rounded-lg"><Wallet className="h-6 w-6" /></div>
-            <div><p className="text-sm text-gray-500 font-medium">Total Invested</p><p className="text-2xl font-bold text-gray-900">€{totalInvested.toFixed(2)}</p></div>
+            <div><p className="text-sm text-gray-500 font-medium">Invested</p><p className="text-2xl font-bold">€{totalInvested.toFixed(2)}</p></div>
           </div>
           <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
             <div className="p-3 bg-indigo-100 text-indigo-600 rounded-lg"><TrendingUp className="h-6 w-6" /></div>
-            <div><p className="text-sm text-gray-500 font-medium">Expected Profit</p><p className="text-2xl font-bold text-gray-900">€{expectedProfit.toFixed(2)}</p></div>
+            <div><p className="text-sm text-gray-500 font-medium">Expected</p><p className="text-2xl font-bold">€{expectedProfit.toFixed(2)}</p></div>
           </div>
           <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
             <div className="p-3 bg-green-100 text-green-600 rounded-lg"><PiggyBank className="h-6 w-6" /></div>
-            <div><p className="text-sm text-gray-500 font-medium">Realized Profit (Net)</p><p className="text-2xl font-bold text-green-600">€{realizedProfit.toFixed(2)}</p></div>
+            <div><p className="text-sm text-gray-500 font-medium">Realized Net</p><p className="text-2xl font-bold text-green-600">€{realizedProfit.toFixed(2)}</p></div>
           </div>
         </div>
 
         {/* Manual Search */}
         {activeTab !== 'settings' && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2"><Search className="h-5 w-5 text-indigo-500"/> Manual Deal Scanner</h2>
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Search className="h-5 w-5 text-indigo-500"/> Manual Deal Scanner</h2>
             <form onSubmit={handleManualScan} className="flex gap-3">
-              <input type="text" value={scanAsin} onChange={(e) => setScanAsin(e.target.value)} placeholder="Paste Amazon ASIN here (e.g. B09Y2MYL5C)" className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-              <button type="submit" disabled={isScanning} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2 disabled:bg-indigo-300">{isScanning ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}{isScanning ? 'Scanning...' : 'Analyze Deal'}</button>
+              <input type="text" value={scanAsin} onChange={(e) => setScanAsin(e.target.value)} placeholder="Paste Amazon ASIN here (e.g. B09JQZ5DYM)" className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
+              <button type="submit" disabled={isScanning} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2 disabled:bg-indigo-300"><Zap className="h-4 w-4" />{isScanning ? 'Scanning...' : 'Analyze Deal'}</button>
             </form>
           </div>
         )}
@@ -173,21 +141,9 @@ export default function Dashboard() {
         <div className="flex space-x-1 bg-gray-200/50 p-1 rounded-xl mb-6 w-fit">
           <button onClick={() => setActiveTab('pending')} className={`px-6 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'pending' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>🔥 New Deals</button>
           <button onClick={() => setActiveTab('inventory')} className={`px-6 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'inventory' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>📦 My Inventory</button>
-          <button onClick={() => setActiveTab('sold')} className={`px-6 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'sold' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>💰 Sold (Profit)</button>
+          <button onClick={() => setActiveTab('sold')} className={`px-6 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'sold' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>💰 Sold</button>
           <button onClick={() => setActiveTab('settings')} className={`px-6 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'settings' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'} flex items-center gap-2`}><SettingsIcon className="h-4 w-4"/> Settings</button>
         </div>
-
-        {/* Settings Panel */}
-        {activeTab === 'settings' && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-2xl">
-            <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-4">System Configurations</h2>
-            <div className="space-y-6">
-              <div><label className="block text-sm font-medium text-gray-700 mb-2">Minimum AI Profit Margin (%)</label><input type="number" value={settings.minMargin} onChange={e => setSettings({...settings, minMargin: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2" /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-2">Maximum Deal Budget (€)</label><input type="number" value={settings.maxBudget} onChange={e => setSettings({...settings, maxBudget: Number(e.target.value)})} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2" /></div>
-              <button className="w-full bg-gray-900 text-white py-3 rounded-lg font-medium hover:bg-gray-800 flex items-center justify-center gap-2 mt-4"><Save className="h-5 w-5" /> Save Configuration</button>
-            </div>
-          </div>
-        )}
 
         {/* Deals Grid */}
         {activeTab !== 'settings' && (
@@ -205,7 +161,7 @@ export default function Dashboard() {
                   </div>
                   
                   <div className="p-6 grid grid-cols-2 gap-4 flex-1">
-                    <div className="bg-gray-50 p-4 rounded-lg"><p className="text-sm text-gray-500">Amazon Buy Price</p><p className="text-xl font-bold">€{opp.buy_price}</p></div>
+                    <div className="bg-gray-50 p-4 rounded-lg"><p className="text-sm text-gray-500">Buy Price</p><p className="text-xl font-bold">€{opp.buy_price}</p></div>
                     <div className="bg-indigo-50 p-4 rounded-lg"><p className="text-sm text-indigo-500">Willhaben Target</p><p className="text-xl font-bold text-indigo-700">€{opp.target_sell_price}</p></div>
                     
                     {opp.products?.price_history && opp.products.price_history.length > 0 && (
@@ -214,9 +170,9 @@ export default function Dashboard() {
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart data={formatChartData(opp.products.price_history)}>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                            <XAxis dataKey="date" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
-                            <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
-                            <Tooltip contentStyle={{ borderRadius: '8px', fontSize: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                            <XAxis dataKey="date" tick={{fontSize: 10, fill: '#6B7280'}} tickLine={false} axisLine={false} />
+                            <YAxis domain={['auto', 'auto']} tick={{fontSize: 10, fill: '#6B7280'}} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} />
+                            <Tooltip contentStyle={{ backgroundColor: '#FFFFFF', borderRadius: '8px', fontSize: '12px', border: 'none', color: '#111827', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                             <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
                           </LineChart>
                         </ResponsiveContainer>
