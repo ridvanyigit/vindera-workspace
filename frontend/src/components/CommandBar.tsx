@@ -1,19 +1,28 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, RefreshCw, Zap, ChevronUp, ChevronDown, Trash2, List } from 'lucide-react';
+import { Send, Bot, User, RefreshCw, ChevronUp, ChevronDown, Terminal } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
 }
 
+const COMMAND_LIST = [
+  { cmd: '/help', desc: 'Sistem komutlarını ve yardımı gösterir' },
+  { cmd: '/list', desc: 'Veritabanındaki tüm fırsatları listeler' },
+  { cmd: '/scan ', desc: 'Amazon ASIN taratır (Örn: /scan B09...)' },
+  { cmd: '/delete ', desc: 'Bir ürünü veritabanından siler' },
+];
+
 export default function CommandBar() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [showCommands, setShowCommands] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -22,13 +31,32 @@ export default function CommandBar() {
     }
   }, [messages]);
 
-  const sendMessage = async (e?: React.FormEvent, customMsg?: string) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    
+    // Sadece / yazıldıysa veya / ile başlayıp boşluk yoksa menüyü göster
+    if (val === '/') {
+      setShowCommands(true);
+    } else if (!val.startsWith('/')) {
+      setShowCommands(false);
+    }
+  };
+
+  const selectCommand = (cmd: string) => {
+    setInput(cmd);
+    setShowCommands(false);
+    inputRef.current?.focus();
+  };
+
+  const sendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const userMsg = customMsg || input.trim();
+    const userMsg = input.trim();
     if (!userMsg || isLoading) return;
 
     setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
     setInput('');
+    setShowCommands(false);
     setIsLoading(true);
 
     try {
@@ -42,17 +70,12 @@ export default function CommandBar() {
         const data = await res.json();
         setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Connection error.' }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Bağlantı hatası.' }]);
       }
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Server unreachable.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Sunucuya ulaşılamıyor.' }]);
     }
     setIsLoading(false);
-  };
-
-  const insertCommand = (cmd: string) => {
-    setInput(cmd);
-    // Focus automatically isn't strictly necessary but UX friendly. We just set the input.
   };
 
   return (
@@ -89,49 +112,55 @@ export default function CommandBar() {
 
       {/* 2. THE COMMAND BAR */}
       <div className="pointer-events-auto w-full max-w-3xl relative group">
+        
+        {/* COMMAND AUTOCOMPLETE MENU (Pops up when typing '/') */}
+        {showCommands && (
+          <div className="absolute bottom-[105%] left-0 w-64 bg-white border border-gray-200 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-bottom-2">
+            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 text-xs font-bold text-gray-500 flex items-center gap-1 uppercase">
+              <Terminal className="h-3 w-3" /> Slash Commands
+            </div>
+            {COMMAND_LIST.map((c) => (
+              <button
+                key={c.cmd}
+                type="button"
+                onClick={() => selectCommand(c.cmd)}
+                className="w-full text-left px-4 py-3 hover:bg-indigo-50 flex flex-col transition-colors border-b border-gray-50 last:border-0"
+              >
+                <span className="font-bold text-indigo-600 text-sm">{c.cmd}</span>
+                <span className="text-xs text-gray-500 mt-0.5">{c.desc}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <form onSubmit={(e) => sendMessage(e)} className="relative bg-white border border-gray-200 rounded-2xl shadow-xl shadow-indigo-100/20 transition-all focus-within:ring-2 focus-within:ring-indigo-500/20 focus-within:border-indigo-500 overflow-hidden">
           
           <textarea
+            ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
               }
             }}
-            placeholder="Type a command (e.g. /list, /scan ASIN) or ask AI..."
+            placeholder="Type '/' for commands or ask AI..."
             rows={1}
             className="w-full pl-4 pr-12 pt-4 pb-12 bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none resize-none min-h-[60px]"
           />
 
           {/* Bottom Toolbar inside the Input Box */}
-          <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center pointer-events-none">
+          <div className="absolute bottom-3 left-3 right-3 flex justify-end items-center pointer-events-none">
             
-            {/* Left Action Shortcuts */}
-            <div className="flex items-center gap-1.5 pointer-events-auto">
-              <button type="button" onClick={() => sendMessage(undefined, '/help')} className="px-2 py-1 text-xs font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider">
-                Help
-              </button>
-              <div className="h-4 w-px bg-gray-200 mx-0.5"></div>
-              <button type="button" onClick={() => sendMessage(undefined, '/list')} className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider">
-                <List className="h-3 w-3" /> List DB
-              </button>
-              <button type="button" onClick={() => insertCommand('/scan ')} className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-all uppercase tracking-wider">
-                <Zap className="h-3 w-3" /> Scan
-              </button>
-              <button type="button" onClick={() => insertCommand('/delete ')} className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-all uppercase tracking-wider">
-                <Trash2 className="h-3 w-3" /> Delete
-              </button>
-            </div>
-
-            {/* Right Icons (Submit) */}
+            {/* Right Icons (Submit & History) */}
             <div className="flex items-center gap-2 pointer-events-auto">
               {messages.length > 0 && (
                 <button 
                   type="button" 
                   onClick={() => setIsHistoryOpen(!isHistoryOpen)}
-                  className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors bg-gray-50 rounded-lg hover:bg-gray-100 border border-gray-100"
+                  title="Toggle History"
                 >
                   {isHistoryOpen ? <ChevronDown className="h-5 w-5" /> : <ChevronUp className="h-5 w-5" />}
                 </button>

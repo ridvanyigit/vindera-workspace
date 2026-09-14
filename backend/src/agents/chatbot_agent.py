@@ -38,21 +38,21 @@ class ChatbotAgent:
         msg = user_message.strip()
 
         # ========================================================
-        # 1. HARDCODED SLASH COMMANDS (WORKS WITHOUT OPENAI CREDITS)
+        # 1. HARDCODED SLASH COMMANDS (CLEAN TEXT)
         # ========================================================
         if msg.startswith("/list"):
             res = supabase.table("opportunities").select("status, products(title, asin)").execute()
             if not res.data:
                 return "📦 Veritabanında henüz hiç ürün yok."
-            response_text = "📦 **Veritabanı Envanterin:**\n"
+            response_text = "📦 VERİTABANI ENVANTERİ:\n"
             for item in res.data:
-                response_text += f"- {item['products']['title']} (ASIN: {item['products']['asin']}) | Status: {item['status']}\n"
+                response_text += f"• {item['products']['title']} (ASIN: {item['products']['asin']}) | Status: {item['status']}\n"
             return response_text
 
         if msg.startswith("/scan"):
             parts = msg.split(" ")
             if len(parts) < 2:
-                return "⚠️ Lütfen bir ASIN girin. Örnek: `/scan B09Y2MYL5C`"
+                return "⚠️ Lütfen bir ASIN girin. Örnek: /scan B09Y2MYL5C"
             asin = parts[1]
             from src.api.endpoints.deals import run_deal_scan_pipeline
             asyncio.create_task(run_deal_scan_pipeline(asin))
@@ -61,16 +61,16 @@ class ChatbotAgent:
         if msg.startswith("/delete"):
             parts = msg.split(" ")
             if len(parts) < 2:
-                return "⚠️ Lütfen bir ASIN girin. Örnek: `/delete B09Y2MYL5C`"
+                return "⚠️ Lütfen bir ASIN girin. Örnek: /delete B09Y2MYL5C"
             asin = parts[1]
             supabase.table("products").delete().eq("asin", asin).execute()
             return f"🗑️ {asin} kodlu ürün ve ona bağlı tüm fırsatlar veritabanından başarıyla silindi!"
 
         if msg.startswith("/help"):
-            return "🛠️ **Sistem Komutları (Kredi Gerektirmez):**\n`/list` - Tüm ürünleri listeler\n`/scan ASIN` - Yeni bir ürün tarar\n`/delete ASIN` - Ürünü sistemden siler\n\n*(Doğal dilde sohbet etmek ve otonom işlemler için geçerli OpenAI API kredisi gereklidir).*"
+            return "🛠️ SİSTEM KOMUTLARI (Kredi Gerektirmez):\n\n[ /list ] - Tüm ürünleri listeler\n[ /scan ASIN ] - Yeni bir ürün tarar\n[ /delete ASIN ] - Ürünü sistemden siler\n\n(Not: Doğal dilde sohbet etmek ve otonom işlemler için geçerli OpenAI API kredisi gereklidir)."
 
         # ========================================================
-        # 2. AUTONOMOUS AI FUNCTION CALLING (REQUIRES OPENAI CREDITS)
+        # 2. AUTONOMOUS AI FUNCTION CALLING
         # ========================================================
         messages = [
             {"role": "system", "content": "You are Vindera AI, a highly capable assistant for an Amazon arbitrage business in Austria."},
@@ -112,7 +112,7 @@ class ChatbotAgent:
             return response_message.content
 
         except Exception as e:
-            # GRACEFUL FALLBACK IF NO CREDITS
-            return f"⚠️ **Yapay Zeka Bağlantı Hatası:** OpenAI hesabınızda bakiye yok veya şifre hatalı.\n\nSistemi bedava kullanmaya devam etmek için lütfen slash komutlarını kullanın. Komutları görmek için `/help` yazabilirsiniz."
+            # GRACEFUL FALLBACK (CLEAN TEXT)
+            return f"⚠️ YAPAY ZEKA BAĞLANTI HATASI:\nOpenAI hesabınızda bakiye yok veya şifre hatalı.\n\nSistemi bedava kullanmaya devam etmek için lütfen slash komutlarını kullanın. Komutları görmek için /help yazabilirsiniz."
 
 chatbot_agent = ChatbotAgent()
