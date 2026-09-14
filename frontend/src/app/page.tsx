@@ -16,6 +16,7 @@ interface Opportunity {
   generated_listings: GeneratedListing[];
 }
 
+// "General" is completely removed. "All" represents viewing everything.
 const TARGET_CATEGORIES = [
   'All',
   'Technology & Electronics',
@@ -24,8 +25,7 @@ const TARGET_CATEGORIES = [
   'Toys & Baby',
   'Sports & Outdoors',
   'Automotive',
-  'Books & Stationery',
-  'General'
+  'Books & Stationery'
 ];
 
 export default function Dashboard() {
@@ -101,14 +101,14 @@ export default function Dashboard() {
     setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const categories = ['All', ...Array.from(new Set(opportunities.map(o => o.products?.category || 'General')))];
-
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'settings') return false;
     let tabMatch = false;
     if (activeTab === 'pending') tabMatch = opp.status === 'pending';
     if (activeTab === 'inventory') tabMatch = ['bought', 'in_inventory', 'listed'].includes(opp.status);
     if (activeTab === 'sold') tabMatch = opp.status === 'sold';
+    
+    // Ignore "General" logic if it comes from old DB data, treat it as All/Technology for UI matching
     let catMatch = selectedCategory === 'All' || opp.products?.category === selectedCategory;
     return tabMatch && catMatch;
   });
@@ -191,7 +191,6 @@ export default function Dashboard() {
             <button onClick={() => setActiveTab('settings')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg font-medium text-sm transition-all ${activeTab === 'settings' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'} flex items-center justify-center gap-2`}><SettingsIcon className="h-4 w-4"/> Settings</button>
           </div>
 
-          {/* DYNAMIC CATEGORY FILTER (PERFECTED UX) */}
           {activeTab !== 'settings' && (
             <div className="w-full sm:w-auto px-2">
               <div className="relative flex items-center gap-2 bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors px-3 py-2 rounded-lg cursor-pointer">
@@ -199,9 +198,10 @@ export default function Dashboard() {
                 <select 
                   value={selectedCategory} 
                   onChange={(e) => setSelectedCategory(e.target.value)} 
-                  className="bg-transparent border-none text-sm font-bold text-indigo-600 focus:ring-0 cursor-pointer outline-none appearance-none pr-6 w-full sm:w-auto"
+                  className="bg-transparent border-none text-sm font-bold text-indigo-600 focus:ring-0 cursor-pointer outline-none appearance-none pr-6 w-full sm:w-auto text-right"
+                  style={{ textAlignLast: 'right' }}
                 >
-                  {TARGET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                  {TARGET_CATEGORIES.map(cat => <option key={cat} value={cat} className="text-gray-900">{cat}</option>)}
                 </select>
                 <ChevronDown className="absolute right-3 h-4 w-4 text-gray-400 pointer-events-none" />
               </div>
@@ -228,7 +228,10 @@ export default function Dashboard() {
               filteredDeals.map((opp) => {
                 const isExpanded = expandedCards[opp.id] || false;
                 return (
-                  <div key={opp.id} className={`bg-white rounded-xl shadow-sm border ${isExpanded ? 'border-indigo-200 ring-1 ring-indigo-50 xl:col-span-2' : 'border-gray-200 hover:border-indigo-300'} transition-all overflow-hidden flex flex-col h-fit`}>
+                  <div 
+                    key={opp.id} 
+                    className={`bg-white rounded-xl shadow-sm border ${isExpanded ? 'border-indigo-200 ring-1 ring-indigo-50 xl:col-span-2' : 'border-gray-200 hover:border-indigo-300'} transition-all overflow-hidden flex flex-col h-fit`}
+                  >
                     
                     {/* ACCORDION HEADER */}
                     <div onClick={() => toggleCard(opp.id)} className="p-5 flex justify-between items-center cursor-pointer select-none group bg-white">
@@ -252,7 +255,7 @@ export default function Dashboard() {
                         <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
                           <Euro className="h-4 w-4" /> {opp.profit_margin}% Margin
                         </span>
-                        {/* Deep Dive Icon (Outside accordion trigger) */}
+                        {/* Deep Dive Icon */}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setSelectedDeal(opp); }} 
                           className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
@@ -266,31 +269,38 @@ export default function Dashboard() {
                     {/* ACCORDION CONTENT (Expanded) */}
                     {isExpanded && (
                       <div className="border-t border-gray-100 bg-gray-50/30 animate-in slide-in-from-top-2 fade-in duration-200">
-                        <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
+                        
+                        {/* 2-COLUMN LAYOUT FOR EXPANDED CONTENT */}
+                        <div className="p-5 flex flex-col lg:flex-row gap-5">
                           
-                          {/* Left Column: Compact Info & AI */}
-                          <div className="flex flex-col gap-3">
-                            <div className="bg-white p-3 border border-gray-200 rounded-xl shadow-sm">
-                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Buy Price</p>
-                              <p className="text-2xl font-bold text-gray-900 mt-1">€{opp.buy_price}</p>
-                            </div>
-                            <div className="bg-indigo-50 p-3 border border-indigo-100 rounded-xl shadow-sm">
-                              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Target Sell Price</p>
-                              <p className="text-2xl font-bold text-indigo-700 mt-1">€{opp.target_sell_price}</p>
+                          {/* LEFT COLUMN: Prices, AI, Action Buttons */}
+                          <div className="w-full lg:w-1/3 flex flex-col gap-4">
+                            
+                            {/* Prices Side-by-Side */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-white p-3 border border-gray-200 rounded-xl shadow-sm">
+                                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Buy Price</p>
+                                <p className="text-xl font-extrabold text-gray-900">€{opp.buy_price}</p>
+                              </div>
+                              <div className="bg-indigo-50 p-3 border border-indigo-100 rounded-xl shadow-sm">
+                                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">Target Sell</p>
+                                <p className="text-xl font-extrabold text-indigo-700">€{opp.target_sell_price}</p>
+                              </div>
                             </div>
                             
-                            {/* AI Decision & Listings moved to Left Column! */}
+                            {/* AI Decision Reasoning */}
                             {activeTab === 'pending' && (
-                              <div className="bg-white p-3 border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
-                                <h3 className="text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">🧠 AI Decision</h3>
-                                <p className="text-xs text-gray-600 italic line-clamp-6">"{opp.ai_decision}"</p>
+                              <div className="bg-white p-4 border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
+                                <h3 className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">🧠 AI Decision</h3>
+                                <p className="text-xs text-gray-600 italic leading-relaxed line-clamp-6">"{opp.ai_decision}"</p>
                               </div>
                             )}
 
+                            {/* Ready Listing */}
                             {activeTab === 'inventory' && opp.generated_listings && opp.generated_listings.length > 0 && (
                               <div className="bg-white border border-indigo-100 rounded-xl p-3 shadow-sm flex-1 flex flex-col overflow-hidden">
                                 <div className="flex justify-between items-start mb-2">
-                                  <p className="font-bold text-indigo-900 text-[11px] uppercase tracking-wider">📝 Willhaben Listing</p>
+                                  <p className="font-bold text-indigo-900 text-[10px] uppercase tracking-wider">📝 Willhaben Listing</p>
                                 </div>
                                 <div className="flex justify-between items-start mb-2 group">
                                   <p className="font-bold text-gray-900 text-xs line-clamp-2 pr-2">{opp.generated_listings[0].generated_title}</p>
@@ -300,26 +310,35 @@ export default function Dashboard() {
                                 </div>
                                 <div className="flex justify-between items-start pt-2 border-t border-gray-100 flex-1 group">
                                   <p className="text-[11px] text-gray-600 whitespace-pre-wrap line-clamp-6 pr-2">{opp.generated_listings[0].generated_description}</p>
-                                  <button onClick={() => copyToClipboard(opp.generated_listings[0].generated_description, `${opp.id}-desc`)} className="text-indigo-500 hover:text-indigo-700 p-1 shrink-0 bg-indigo-50 rounded">
+                                  <button onClick={() => copyToClipboard(opp.generated_listings[0].generated_description, `${opp.id}-desc`)} className="text-indigo-500 hover:text-indigo-700 p-1 ml-2">
                                     {copiedId === `${opp.id}-desc` ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
                                   </button>
                                 </div>
                               </div>
                             )}
+
+                            {/* Action Buttons (Stacked Vertically) */}
+                            <div className="flex flex-col gap-2 mt-auto pt-2">
+                              {opp.status === 'pending' && (<><a href={`https://amazon.de/dp/${opp.products?.asin}`} target="_blank" rel="noreferrer" className="w-full bg-gray-900 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2 transition-colors"><ShoppingCart className="h-4 w-4" /> Buy on Amazon</a><button onClick={() => updateStatus(opp.id, 'bought')} className="w-full bg-indigo-100 text-indigo-700 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-200 flex justify-center items-center gap-2 transition-colors">Mark as Bought <ArrowRight className="h-4 w-4" /></button></>)}
+                              {opp.status === 'bought' && (<button onClick={() => updateStatus(opp.id, 'in_inventory')} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2 transition-colors"><Box className="h-4 w-4" /> Arrived (Add to Inventory)</button>)}
+                              {opp.status === 'in_inventory' && (<button onClick={() => updateStatus(opp.id, 'listed')} className="w-full bg-purple-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2 transition-colors">Listed on Willhaben</button>)}
+                              {opp.status === 'listed' && (<button onClick={() => updateStatus(opp.id, 'sold')} className="w-full bg-green-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2 transition-colors"><CheckCircle className="h-4 w-4" /> Item Sold! (Claim Profit)</button>)}
+                              {opp.status === 'sold' && (<div className="w-full bg-green-50 text-green-700 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 border border-green-100"><CheckCircle className="h-5 w-5" /> Deal Closed</div>)}
+                            </div>
                           </div>
                           
-                          {/* Right Column: Much Taller Chart */}
-                          <div className="lg:col-span-2 h-full min-h-[240px] bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col">
+                          {/* RIGHT COLUMN: Massive Chart */}
+                          <div className="w-full lg:w-2/3 min-h-[250px] bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col">
                             <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">5-Day Price Trend</h3>
                             {opp.products?.price_history && opp.products.price_history.length > 0 ? (
-                              <div className="flex-1 w-full">
+                              <div className="flex-1 w-full min-h-[200px]">
                                 <ResponsiveContainer width="100%" height="100%">
                                   <LineChart data={formatChartData(opp.products.price_history)}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                                     <XAxis dataKey="date" tick={{fontSize: 10, fill: '#6B7280'}} tickLine={false} axisLine={false} />
                                     <YAxis domain={['auto', 'auto']} tick={{fontSize: 10, fill: '#6B7280'}} tickLine={false} axisLine={false} tickFormatter={(val) => `€${val}`} width={40} />
                                     <Tooltip contentStyle={{ backgroundColor: '#FFFFFF', borderRadius: '8px', fontSize: '12px', border: 'none', color: '#111827', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                                    <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} dot={false} activeDot={{r: 5}} />
+                                    <Line type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} dot={false} activeDot={{r: 5}} />
                                   </LineChart>
                                 </ResponsiveContainer>
                               </div>
@@ -327,15 +346,6 @@ export default function Dashboard() {
                               <div className="flex-1 flex items-center justify-center text-gray-400 text-xs italic">No chart data</div>
                             )}
                           </div>
-                        </div>
-                        
-                        {/* Action Buttons Footer */}
-                        <div className="bg-white px-6 py-4 border-t border-gray-100 flex flex-wrap sm:flex-nowrap gap-3">
-                          {opp.status === 'pending' && (<><a href={`https://amazon.de/dp/${opp.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-4 w-4" /> Buy on Amazon</a><button onClick={() => updateStatus(opp.id, 'bought')} className="flex-1 bg-indigo-100 text-indigo-700 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-200 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-4 w-4" /></button></>)}
-                          {opp.status === 'bought' && (<button onClick={() => updateStatus(opp.id, 'in_inventory')} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><Box className="h-4 w-4" /> Arrived (Add to Inventory)</button>)}
-                          {opp.status === 'in_inventory' && (<button onClick={() => updateStatus(opp.id, 'listed')} className="flex-1 bg-purple-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>)}
-                          {opp.status === 'listed' && (<button onClick={() => updateStatus(opp.id, 'sold')} className="flex-1 bg-green-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-4 w-4" /> Item Sold! (Claim Profit)</button>)}
-                          {opp.status === 'sold' && (<div className="flex-1 bg-green-50 text-green-700 py-2.5 rounded-lg text-sm font-bold flex justify-center items-center gap-2 border border-green-100"><CheckCircle className="h-5 w-5" /> Deal Closed</div>)}
                         </div>
                       </div>
                     )}
