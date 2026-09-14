@@ -29,6 +29,17 @@ export default function Dashboard() {
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // RESET LAYOUT KEYS (Pure React - Zero TypeScript errors, 100% reliable)
+  const [mainHorizontalKey, setMainHorizontalKey] = useState(0);
+  const [leftVerticalKey, setLeftVerticalKey] = useState(0);
+  const [centerVerticalKey, setCenterVerticalKey] = useState(0);
+  const [rightVerticalKey, setRightVerticalKey] = useState(0);
+
+  const resetMainHorizontal = () => setMainHorizontalKey(k => k + 1);
+  const resetLeftVertical = () => setLeftVerticalKey(k => k + 1);
+  const resetCenterVertical = () => setCenterVerticalKey(k => k + 1);
+  const resetRightVertical = () => setRightVerticalKey(k => k + 1);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/login');
@@ -94,8 +105,28 @@ export default function Dashboard() {
   const expectedProfit = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status)).reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
   const realizedProfit = opportunities.filter(o => o.status === 'sold').reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
 
-  const ResizeHandle = () => <Separator className="relative flex w-2 items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-col-resize transition-colors group"><div className="h-8 w-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" /><span className="absolute text-[18px] leading-none text-white font-bold">⋮</span></Separator>;
-  const HorizontalResizeHandle = () => <Separator className="relative flex h-2 w-full items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-row-resize transition-colors group"><div className="w-8 h-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" /><span className="absolute text-[18px] leading-none text-white font-bold">⋯</span></Separator>;
+  // RESIZE HANDLES WITH ON-DOUBLE-CLICK RESET LOGIC
+  const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
+    <Separator
+      onDoubleClick={onDoubleClick}
+      title="Double click to reset layout"
+      className="relative flex w-2 items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-col-resize transition-colors group select-none"
+    >
+      <div className="h-8 w-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" />
+      <span className="absolute text-[18px] leading-none text-white font-bold">⋮</span>
+    </Separator>
+  );
+
+  const HorizontalResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
+    <Separator
+      onDoubleClick={onDoubleClick}
+      title="Double click to reset layout"
+      className="relative flex h-2 w-full items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-row-resize transition-colors group select-none"
+    >
+      <div className="w-8 h-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" />
+      <span className="absolute text-[18px] leading-none text-white font-bold">⋯</span>
+    </Separator>
+  );
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-white text-gray-900">
@@ -110,7 +141,7 @@ export default function Dashboard() {
       `}</style>
 
       {/* TOP NAVBAR */}
-      <nav className="sticky top-0 z-50 h-16 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl">
+      <nav className="sticky top-0 z-50 h-14 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl shrink-0">
         <div className="flex h-full items-center justify-between px-5">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-3">
@@ -133,13 +164,13 @@ export default function Dashboard() {
 
       {/* MAIN WORKSPACE */}
       <div className="flex-1 overflow-hidden">
-        <Group orientation="horizontal">
+        <Group key={mainHorizontalKey} orientation="horizontal">
 
-          {/* LEFT PANEL */}
-          <Panel defaultSize="20%" minSize="15%" maxSize="30%" className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel">
-            <Group orientation="vertical">
-
-              <Panel defaultSize="70%" className="flex flex-col">
+          {/* ======================= LEFT PANEL: EXPLORER ======================= */}
+          <Panel defaultSize={20} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
+            <Group key={leftVerticalKey} orientation="vertical">
+              
+              <Panel defaultSize={70} className="flex flex-col">
                 <div className="p-3 bg-gray-100 border-b border-gray-200 flex flex-col gap-2 shrink-0">
                   <div className="flex bg-gray-200 p-1 rounded-lg">
                     <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">NEW</span><span className="tab-long">NEW DEALS</span></button>
@@ -148,7 +179,9 @@ export default function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-gray-200">
                     <Filter className="h-3 w-3 text-gray-400" />
-                    <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full text-xs bg-transparent border-none outline-none text-gray-600 cursor-pointer">{TARGET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}</select>
+                    <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full text-xs bg-transparent border-none outline-none text-gray-600 cursor-pointer">
+                      {TARGET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
                   </div>
                 </div>
 
@@ -162,9 +195,9 @@ export default function Dashboard() {
                 </div>
               </Panel>
 
-              <HorizontalResizeHandle />
+              <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize="30%" className="bg-white p-4 flex flex-col gap-3">
+              <Panel defaultSize={30} className="bg-white p-4 flex flex-col gap-3">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1"><Activity className="h-3 w-3" /> Financial Overview</h3>
                 <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Total Invested</span><span className="text-sm font-bold text-gray-900">€{totalInvested.toFixed(2)}</span></div>
                 <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Expected Profit</span><span className="text-sm font-bold text-indigo-600">€{expectedProfit.toFixed(2)}</span></div>
@@ -173,12 +206,12 @@ export default function Dashboard() {
             </Group>
           </Panel>
 
-          <ResizeHandle />
+          <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
-          {/* CENTER PANEL */}
-          <Panel defaultSize="50%" minSize="30%" className="flex flex-col bg-white">
-            <Group orientation="vertical">
-              <Panel defaultSize="65%" className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
+          {/* ======================= CENTER PANEL: EDITOR & TERMINAL ======================= */}
+          <Panel defaultSize={50} minSize={30} className="flex flex-col bg-white">
+            <Group key={centerVerticalKey} orientation="vertical">
+              <Panel defaultSize={65} className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
                 {!selectedDeal ? (
                   <div className="h-full flex flex-col items-center justify-center text-gray-400"><SearchCode className="h-16 w-16 mb-4 text-gray-200" /><p>Select a deal from the explorer to view details.</p></div>
                 ) : (
@@ -212,28 +245,29 @@ export default function Dashboard() {
                 )}
               </Panel>
 
-              <HorizontalResizeHandle />
-              <Panel defaultSize="35%" minSize="20%" className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
+              <HorizontalResizeHandle onDoubleClick={resetCenterVertical} />
+              <Panel defaultSize={35} minSize={20} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
             </Group>
           </Panel>
 
-          <ResizeHandle />
+          <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
-          {/* RIGHT PANEL */}
-          <Panel defaultSize="30%" minSize="20%" className="bg-gray-50 flex flex-col border-l border-gray-200">
-            <Group orientation="vertical">
-              <Panel defaultSize="70%" minSize="30%" className="p-6 overflow-y-auto">
+          {/* ======================= RIGHT PANEL: DEEP DIVE & OUTPUT ======================= */}
+          <Panel defaultSize={30} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
+            <Group key={rightVerticalKey} orientation="vertical">
+              <Panel defaultSize={70} minSize={30} className="p-6 overflow-y-auto">
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :
                   <div className="flex flex-col gap-6">
                     <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Price Strategy</h3><div className="grid grid-cols-2 gap-3"><div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm"><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Buy Price</p><p className="text-xl font-bold text-gray-900">€{selectedDeal.buy_price}</p></div><div className="bg-indigo-600 p-4 rounded-xl shadow-sm text-white"><p className="text-[10px] text-indigo-200 font-bold uppercase mb-1">Target Sell</p><p className="text-xl font-bold">€{selectedDeal.target_sell_price}</p></div></div></div>
                     <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1"><ChartIcon className="h-4 w-4" /> 12-Month Trend</h3><div className="h-48 bg-white border border-gray-200 rounded-xl p-3 shadow-sm"><ResponsiveContainer width="100%" height="100%"><AreaChart data={generateYearlyMockData(selectedDeal.buy_price)}><defs><linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} /><stop offset="95%" stopColor="#4f46e5" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="month" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={30} /><Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} /><Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" /></AreaChart></ResponsiveContainer></div></div>
-                    {selectedDeal.generated_listings?.length > 0 && <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="font-bold text-sm text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button></div></div></div>}
+                    {selectedDeal.generated_listings?.length > 0 && <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="font-bold text-sm text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />} </button></div></div></div>}
                   </div>}
               </Panel>
 
-              <HorizontalResizeHandle />
+              <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
 
-              <Panel defaultSize="30%" minSize="0%" className="bg-white">
+              <Panel defaultSize={30} minSize={0} className="bg-white">
+                {/* Empty bottom right panel for future expansions */}
               </Panel>
             </Group>
           </Panel>
