@@ -7,6 +7,7 @@ from src.services.notification_service import notification_service
 from src.core.database import supabase
 import asyncio
 from datetime import datetime, timedelta
+import random
 
 router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
 
@@ -35,8 +36,20 @@ async def run_deal_scan_pipeline(asin: str):
 
     amazon_url = f"https://amazon.de/dp/{asin}"
     
+    # === SIMULATED BUYBOX DATA ===
+    mock_sellers = [
+        {"seller": "Amazon", "is_fba": True},
+        {"seller": "MediaMarkt AT", "is_fba": True},
+        {"seller": "TechShenzhen_Direct", "is_fba": False} # High risk example
+    ]
+    chosen_seller = random.choice(mock_sellers)
+    buybox_seller = chosen_seller["seller"]
+    buybox_is_fba = chosen_seller["is_fba"]
+    # ==============================
+    
     analysis = deal_analyzer.analyze_deal(
-        product_title=product_title, current_price=current_price, average_historical_price=historical_price
+        product_title=product_title, current_price=current_price, average_historical_price=historical_price,
+        buybox_seller=buybox_seller, is_fba=buybox_is_fba
     )
     
     if analysis.is_profitable:
@@ -58,9 +71,11 @@ async def run_deal_scan_pipeline(asin: str):
                 history_data.append({ "product_id": product_id, "price_amazon": fake_price, "recorded_at": (base_date - timedelta(days=i)).isoformat() })
             supabase.table("price_history").insert(history_data).execute()
 
+            # ADDED: buybox_seller and buybox_is_fba to the insert payload!
             opp_res = supabase.table("opportunities").insert({
                 "product_id": product_id, "buy_price": current_price, "target_sell_price": listing_data.suggested_price,
-                "profit_margin": analysis.estimated_profit_margin, "ai_decision": analysis.reasoning, "status": "pending"
+                "profit_margin": analysis.estimated_profit_margin, "ai_decision": analysis.reasoning, "status": "pending",
+                "buybox_seller": buybox_seller, "buybox_is_fba": buybox_is_fba
             }).execute()
 
             opp_id = opp_res.data[0]["id"]
@@ -70,7 +85,7 @@ async def run_deal_scan_pipeline(asin: str):
                 "generated_title": listing_data.generated_title, "generated_description": listing_data.generated_description
             }).execute()
             
-            print("✅ Successfully saved to Supabase (including price history)!")
+            print("✅ Successfully saved to Supabase (with BuyBox Data)!")
         except Exception as e:
             print(f"❌ Supabase Error: {str(e)}")
 

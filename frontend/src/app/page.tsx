@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank, LogOut, SearchCode, X, ChevronDown, ChevronUp, Filter } from 'lucide-react';
+import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank, LogOut, SearchCode, X, ChevronDown, ChevronUp, Filter, ShieldCheck, ShieldAlert, Truck } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import CommandBar from '@/components/CommandBar';
@@ -12,20 +12,13 @@ interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
 interface Opportunity {
   id: string; buy_price: number; target_sell_price: number; profit_margin: number; ai_decision: string; status: string;
+  buybox_seller: string; buybox_is_fba: boolean; // NEW FIELDS
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
 
-// "General" is completely removed. "All" represents viewing everything.
 const TARGET_CATEGORIES = [
-  'All',
-  'Technology & Electronics',
-  'Home & Garden',
-  'Fashion & Clothing',
-  'Toys & Baby',
-  'Sports & Outdoors',
-  'Automotive',
-  'Books & Stationery'
+  'All', 'Technology & Electronics', 'Home & Garden', 'Fashion & Clothing', 'Toys & Baby', 'Sports & Outdoors', 'Automotive', 'Books & Stationery', 'General'
 ];
 
 export default function Dashboard() {
@@ -62,7 +55,7 @@ export default function Dashboard() {
   const fetchOpportunities = async () => {
     setLoading(true);
     const { data, error } = await supabase.from('opportunities').select(`
-        id, buy_price, target_sell_price, profit_margin, ai_decision, status,
+        id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
         products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
         generated_listings ( generated_title, generated_description )
       `).order('created_at', { ascending: false });
@@ -101,14 +94,14 @@ export default function Dashboard() {
     setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const categories = ['All', ...Array.from(new Set(opportunities.map(o => o.products?.category || 'General')))];
+
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'settings') return false;
     let tabMatch = false;
     if (activeTab === 'pending') tabMatch = opp.status === 'pending';
     if (activeTab === 'inventory') tabMatch = ['bought', 'in_inventory', 'listed'].includes(opp.status);
     if (activeTab === 'sold') tabMatch = opp.status === 'sold';
-    
-    // Ignore "General" logic if it comes from old DB data, treat it as All/Technology for UI matching
     let catMatch = selectedCategory === 'All' || opp.products?.category === selectedCategory;
     return tabMatch && catMatch;
   });
@@ -227,6 +220,11 @@ export default function Dashboard() {
             {loading ? (<p className="text-gray-500">Loading data from database...</p>) : filteredDeals.length === 0 ? (<p className="text-gray-500">No items found in this category.</p>) : (
               filteredDeals.map((opp) => {
                 const isExpanded = expandedCards[opp.id] || false;
+                
+                // Determine Trust Badge based on buybox seller data
+                const isAmazon = opp.buybox_seller === 'Amazon';
+                const isFba = opp.buybox_is_fba;
+                
                 return (
                   <div 
                     key={opp.id} 
@@ -241,12 +239,27 @@ export default function Dashboard() {
                         </button>
                         <div>
                           <h2 className="font-semibold text-lg line-clamp-1 text-gray-900 group-hover:text-indigo-600 transition-colors">{opp.products?.title}</h2>
-                          <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                            <span>ASIN: {opp.products?.asin}</span>
+                          
+                          {/* Subtitles and Trust Badges */}
+                          <div className="flex items-center flex-wrap gap-2 mt-2">
+                            <span className="text-xs text-gray-500">ASIN: {opp.products?.asin}</span>
                             <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                            <span className="uppercase font-bold text-indigo-500">{opp.status.replace('_', ' ')}</span>
-                            <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                            <span className="text-gray-400">{opp.products?.category}</span>
+                            
+                            {/* BUYBOX TRUST BADGES */}
+                            {isAmazon ? (
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-emerald-200">
+                                <ShieldCheck className="h-3 w-3" /> Sold by Amazon
+                              </span>
+                            ) : isFba ? (
+                              <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-blue-200">
+                                <Truck className="h-3 w-3" /> Prime (FBA) - {opp.buybox_seller}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-red-50 text-red-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-red-200">
+                                <ShieldAlert className="h-3 w-3" /> High Risk (FBM) - {opp.buybox_seller}
+                              </span>
+                            )}
+                            
                           </div>
                         </div>
                       </div>
@@ -255,7 +268,6 @@ export default function Dashboard() {
                         <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
                           <Euro className="h-4 w-4" /> {opp.profit_margin}% Margin
                         </span>
-                        {/* Deep Dive Icon */}
                         <button 
                           onClick={(e) => { e.stopPropagation(); setSelectedDeal(opp); }} 
                           className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
@@ -266,17 +278,12 @@ export default function Dashboard() {
                       </div>
                     </div>
                     
-                    {/* ACCORDION CONTENT (Expanded) */}
+                    {/* ACCORDION CONTENT */}
                     {isExpanded && (
                       <div className="border-t border-gray-100 bg-gray-50/30 animate-in slide-in-from-top-2 fade-in duration-200">
-                        
-                        {/* 2-COLUMN LAYOUT FOR EXPANDED CONTENT */}
                         <div className="p-5 flex flex-col lg:flex-row gap-5">
                           
-                          {/* LEFT COLUMN: Prices, AI, Action Buttons */}
                           <div className="w-full lg:w-1/3 flex flex-col gap-4">
-                            
-                            {/* Prices Side-by-Side */}
                             <div className="grid grid-cols-2 gap-3">
                               <div className="bg-white p-3 border border-gray-200 rounded-xl shadow-sm">
                                 <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Buy Price</p>
@@ -288,7 +295,6 @@ export default function Dashboard() {
                               </div>
                             </div>
                             
-                            {/* AI Decision Reasoning */}
                             {activeTab === 'pending' && (
                               <div className="bg-white p-4 border border-gray-200 rounded-xl shadow-sm flex-1 flex flex-col">
                                 <h3 className="text-xs font-bold text-gray-700 mb-2 flex items-center gap-1">🧠 AI Decision</h3>
@@ -296,7 +302,6 @@ export default function Dashboard() {
                               </div>
                             )}
 
-                            {/* Ready Listing */}
                             {activeTab === 'inventory' && opp.generated_listings && opp.generated_listings.length > 0 && (
                               <div className="bg-white border border-indigo-100 rounded-xl p-3 shadow-sm flex-1 flex flex-col overflow-hidden">
                                 <div className="flex justify-between items-start mb-2">
@@ -317,7 +322,6 @@ export default function Dashboard() {
                               </div>
                             )}
 
-                            {/* Action Buttons (Stacked Vertically) */}
                             <div className="flex flex-col gap-2 mt-auto pt-2">
                               {opp.status === 'pending' && (<><a href={`https://amazon.de/dp/${opp.products?.asin}`} target="_blank" rel="noreferrer" className="w-full bg-gray-900 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2 transition-colors"><ShoppingCart className="h-4 w-4" /> Buy on Amazon</a><button onClick={() => updateStatus(opp.id, 'bought')} className="w-full bg-indigo-100 text-indigo-700 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-200 flex justify-center items-center gap-2 transition-colors">Mark as Bought <ArrowRight className="h-4 w-4" /></button></>)}
                               {opp.status === 'bought' && (<button onClick={() => updateStatus(opp.id, 'in_inventory')} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2 transition-colors"><Box className="h-4 w-4" /> Arrived (Add to Inventory)</button>)}
@@ -327,7 +331,6 @@ export default function Dashboard() {
                             </div>
                           </div>
                           
-                          {/* RIGHT COLUMN: Massive Chart */}
                           <div className="w-full lg:w-2/3 min-h-[250px] bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col">
                             <h3 className="text-xs font-bold text-gray-400 mb-2 uppercase tracking-wider">5-Day Price Trend</h3>
                             {opp.products?.price_history && opp.products.price_history.length > 0 ? (
