@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, Search, Zap, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank, LogOut, SearchCode, X, ChevronDown, ChevronUp, Filter, ShieldCheck, ShieldAlert, Truck } from 'lucide-react';
+import { Package, TrendingDown, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, Settings as SettingsIcon, Save, Wallet, TrendingUp, PiggyBank, LogOut, SearchCode, X, ChevronDown, ChevronUp, Filter, ShieldCheck, ShieldAlert, Truck } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import CommandBar from '@/components/CommandBar';
@@ -12,7 +12,7 @@ interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
 interface Opportunity {
   id: string; buy_price: number; target_sell_price: number; profit_margin: number; ai_decision: string; status: string;
-  buybox_seller: string; buybox_is_fba: boolean; // NEW FIELDS
+  buybox_seller: string; buybox_is_fba: boolean;
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -26,9 +26,6 @@ export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
-  
-  const [scanAsin, setScanAsin] = useState('');
-  const [isScanning, setIsScanning] = useState(false);
   
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'settings'>('pending');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
@@ -66,17 +63,6 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const handleManualScan = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!scanAsin.trim()) return;
-    setIsScanning(true);
-    try {
-      const res = await fetch('http://localhost:8000/api/v1/deals/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ asin: scanAsin.trim() }) });
-      if (res.ok) { setScanAsin(''); setTimeout(() => fetchOpportunities(), 5000); }
-    } catch (error) { console.error(error); }
-    setIsScanning(false);
-  };
-
   const updateStatus = async (id: string, newStatus: string) => {
     try {
       const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: newStatus }) });
@@ -93,8 +79,6 @@ export default function Dashboard() {
   const toggleCard = (id: string) => {
     setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
-
-  const categories = ['All', ...Array.from(new Set(opportunities.map(o => o.products?.category || 'General')))];
 
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'settings') return false;
@@ -164,17 +148,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* MANUAL SEARCH BAR */}
-        {activeTab !== 'settings' && (
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><Search className="h-5 w-5 text-indigo-500"/> Manual Deal Scanner</h2>
-            <form onSubmit={handleManualScan} className="flex gap-3">
-              <input type="text" value={scanAsin} onChange={(e) => setScanAsin(e.target.value)} placeholder="Paste Amazon ASIN here (e.g. B09JQZ5DYM)" className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500" required />
-              <button type="submit" disabled={isScanning} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2 disabled:bg-indigo-300"><Zap className="h-4 w-4" />{isScanning ? 'Scanning...' : 'Analyze Deal'}</button>
-            </form>
-          </div>
-        )}
-
         {/* Filters and Tabs Row */}
         <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-gray-200 mb-6 gap-4">
           <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
@@ -220,8 +193,6 @@ export default function Dashboard() {
             {loading ? (<p className="text-gray-500">Loading data from database...</p>) : filteredDeals.length === 0 ? (<p className="text-gray-500">No items found in this category.</p>) : (
               filteredDeals.map((opp) => {
                 const isExpanded = expandedCards[opp.id] || false;
-                
-                // Determine Trust Badge based on buybox seller data
                 const isAmazon = opp.buybox_seller === 'Amazon';
                 const isFba = opp.buybox_is_fba;
                 
@@ -245,7 +216,6 @@ export default function Dashboard() {
                             <span className="text-xs text-gray-500">ASIN: {opp.products?.asin}</span>
                             <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                             
-                            {/* BUYBOX TRUST BADGES */}
                             {isAmazon ? (
                               <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border border-emerald-200">
                                 <ShieldCheck className="h-3 w-3" /> Sold by Amazon
