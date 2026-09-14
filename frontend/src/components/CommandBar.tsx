@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Send, Bot, User, RefreshCw, ChevronUp, ChevronDown, Terminal, Trash2, List, Zap } from 'lucide-react';
 
 interface Message {
@@ -9,10 +10,10 @@ interface Message {
 }
 
 const COMMAND_LIST = [
-  { cmd: '/help', desc: 'Sistem komutlarını gösterir' },
-  { cmd: '/list', desc: 'Veritabanındaki fırsatları listeler' },
-  { cmd: '/scan ', desc: 'ASIN taratır (Örn: /scan B09...)' },
-  { cmd: '/delete ', desc: 'Ürünü siler (Örn: /delete B09...)' },
+  { cmd: '/help', desc: 'Show available system commands' },
+  { cmd: '/list', desc: 'List opportunities from the database' },
+  { cmd: '/scan ', desc: 'Scan an ASIN (e.g. /scan B09...)' },
+  { cmd: '/delete ', desc: 'Delete a product (e.g. /delete B09...)' },
 ];
 
 export default function CommandBar() {
@@ -20,6 +21,8 @@ export default function CommandBar() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ left: 0, bottom: 0 });
+  const [mounted, setMounted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -27,11 +30,19 @@ export default function CommandBar() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
     setInput(val);
-    if (val === '/') setShowCommands(true);
-    else if (!val.startsWith('/')) setShowCommands(false);
+  
+    if (val === '/') {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setMenuPosition({ left: rect.left, bottom: window.innerHeight - rect.top + 8 });
+      setShowCommands(true);
+    } else if (!val.startsWith('/')) setShowCommands(false);
   };
 
   const selectCommand = (cmd: string) => {
@@ -60,10 +71,10 @@ export default function CommandBar() {
         const data = await res.json();
         setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Bağlantı hatası.' }]);
+        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Connection error.' }]);
       }
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Sunucuya ulaşılamıyor.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Unable to reach the server.' }]);
     }
     setIsLoading(false);
   };
@@ -109,18 +120,26 @@ export default function CommandBar() {
       <div className="border-t border-gray-200 bg-white p-3 shrink-0 relative">
         
         {/* Autocomplete Menu */}
-        {showCommands && (
-          <div className="absolute bottom-[100%] left-4 mb-2 w-64 bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden z-50 animate-in fade-in">
-            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 text-xs font-bold text-gray-500 flex items-center gap-1 uppercase">
-              Slash Commands
-            </div>
+        {mounted && showCommands && createPortal(
+          <div
+            className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-2xl overflow-hidden z-[99999] animate-in fade-in"
+            style={{ left: menuPosition.left, bottom: menuPosition.bottom }}
+          >
+            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 text-xs font-bold text-gray-500 flex items-center justify-between uppercase"><span>Slash Commands</span><button type="button" onClick={() => setShowCommands(false)} className="text-gray-400 hover:text-gray-700 transition-colors px-1 text-lg font-semibold" title="Close">−</button></div>
+
             {COMMAND_LIST.map((c) => (
-              <button key={c.cmd} type="button" onClick={() => selectCommand(c.cmd)} className="w-full text-left px-4 py-2 hover:bg-indigo-50 flex flex-col transition-colors border-b border-gray-50 last:border-0">
+              <button
+                key={c.cmd}
+                type="button"
+                onClick={() => selectCommand(c.cmd)}
+                className="w-full text-left px-4 py-2 hover:bg-indigo-50 flex flex-col transition-colors border-b border-gray-50 last:border-0"
+              >
                 <span className="font-bold text-indigo-600 text-sm">{c.cmd}</span>
                 <span className="text-[10px] text-gray-500 mt-0.5">{c.desc}</span>
               </button>
             ))}
-          </div>
+          </div>,
+          document.body
         )}
 
         <form onSubmit={(e) => sendMessage(e)} className="flex items-center gap-2">
