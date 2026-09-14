@@ -16,7 +16,6 @@ interface Opportunity {
   generated_listings: GeneratedListing[];
 }
 
-// TARGET SECTORS HARCODED LIST
 const TARGET_CATEGORIES = [
   'All',
   'Technology & Electronics',
@@ -70,7 +69,7 @@ export default function Dashboard() {
 
     if (!error && data) {
       setOpportunities(data as any);
-      if (data.length > 0) setExpandedCards({ [data[0].id]: true });
+      // Removed the auto-expand logic so all cards stay closed by default
     }
     setLoading(false);
   };
@@ -102,6 +101,8 @@ export default function Dashboard() {
   const toggleCard = (id: string) => {
     setExpandedCards(prev => ({ ...prev, [id]: !prev[id] }));
   };
+
+  const categories = ['All', ...Array.from(new Set(opportunities.map(o => o.products?.category || 'General')))];
 
   const filteredDeals = opportunities.filter((opp) => {
     if (activeTab === 'settings') return false;
@@ -192,10 +193,15 @@ export default function Dashboard() {
           </div>
 
           {activeTab !== 'settings' && (
-            <div className="flex items-center gap-2 w-full sm:w-auto px-2">
-              <Filter className="h-4 w-4 text-gray-400" />
-              <select value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)} className="bg-transparent border-none text-sm font-medium text-gray-700 focus:ring-0 cursor-pointer outline-none">
-                {TARGET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            <div className="flex items-center justify-end w-full sm:w-auto ml-auto px-2">
+              <Filter className="h-4 w-4 text-gray-400 mr-2" />
+              <select 
+                value={selectedCategory} 
+                onChange={(e) => setSelectedCategory(e.target.value)} 
+                className="bg-transparent border-none text-sm font-bold text-indigo-600 focus:ring-0 cursor-pointer outline-none text-right"
+                style={{ textAlignLast: 'right' }}
+              >
+                {TARGET_CATEGORIES.map(cat => <option key={cat} value={cat} className="text-gray-900">{cat}</option>)}
               </select>
             </div>
           )}
@@ -220,7 +226,11 @@ export default function Dashboard() {
               filteredDeals.map((opp) => {
                 const isExpanded = expandedCards[opp.id] || false;
                 return (
-                  <div key={opp.id} className={`bg-white rounded-xl shadow-sm border ${isExpanded ? 'border-indigo-200 ring-1 ring-indigo-50' : 'border-gray-200 hover:border-indigo-300'} transition-all overflow-hidden flex flex-col h-fit`}>
+                  <div 
+                    key={opp.id} 
+                    // CRITICAL FIX: If expanded, take 2 columns so it doesn't leave empty space beside it!
+                    className={`bg-white rounded-xl shadow-sm border ${isExpanded ? 'border-indigo-200 ring-1 ring-indigo-50 xl:col-span-2' : 'border-gray-200 hover:border-indigo-300'} transition-all overflow-hidden flex flex-col h-fit`}
+                  >
                     
                     {/* ACCORDION HEADER */}
                     <div onClick={() => toggleCard(opp.id)} className="p-5 flex justify-between items-center cursor-pointer select-none group bg-white">
@@ -240,14 +250,14 @@ export default function Dashboard() {
                         </div>
                       </div>
                       
-                      {/* DEEP DIVE ICON NOW IN HEADER */}
                       <div className="flex items-center gap-3">
                         <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-bold">
                           <Euro className="h-4 w-4" /> {opp.profit_margin}% Margin
                         </span>
+                        {/* Deep Dive Icon - Outside the Accordion trigger via stopPropagation */}
                         <button 
                           onClick={(e) => {
-                            e.stopPropagation(); // Prevents accordion from toggling when clicking the icon
+                            e.stopPropagation();
                             setSelectedDeal(opp);
                           }} 
                           className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded-md transition-colors"
@@ -263,7 +273,6 @@ export default function Dashboard() {
                       <div className="border-t border-gray-100 bg-gray-50/30 animate-in slide-in-from-top-2 fade-in duration-200">
                         <div className="p-5 grid grid-cols-1 lg:grid-cols-3 gap-5">
                           
-                          {/* Compact Prices */}
                           <div className="flex flex-col gap-3">
                             <div className="bg-white p-3 border border-gray-200 rounded-xl shadow-sm">
                               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Buy Price</p>
@@ -275,7 +284,6 @@ export default function Dashboard() {
                             </div>
                           </div>
                           
-                          {/* Chart gets remaining space */}
                           <div className="lg:col-span-2 h-full min-h-[160px] bg-white border border-gray-200 rounded-xl p-3 shadow-sm flex flex-col">
                             <h3 className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">5-Day Trend</h3>
                             {opp.products?.price_history && opp.products.price_history.length > 0 ? (
@@ -325,7 +333,6 @@ export default function Dashboard() {
                           )}
                         </div>
                         
-                        {/* Action Buttons Footer */}
                         <div className="bg-white px-6 py-4 border-t border-gray-100 flex flex-wrap sm:flex-nowrap gap-3">
                           {opp.status === 'pending' && (<><a href={`https://amazon.de/dp/${opp.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-2.5 rounded-lg text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-4 w-4" /> Buy on Amazon</a><button onClick={() => updateStatus(opp.id, 'bought')} className="flex-1 bg-indigo-100 text-indigo-700 py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-200 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-4 w-4" /></button></>)}
                           {opp.status === 'bought' && (<button onClick={() => updateStatus(opp.id, 'in_inventory')} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-lg text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><Box className="h-4 w-4" /> Arrived (Add to Inventory)</button>)}
