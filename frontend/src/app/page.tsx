@@ -7,11 +7,11 @@ import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, L
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
+import { differenceInDays } from 'date-fns';
 
 interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
 
-// Define the structure of the AI score breakdown
 interface ScoreBreakdown {
   discount: number;
   demand: number;
@@ -34,7 +34,8 @@ interface Opportunity {
   product_condition?: string;
   days_in_inventory?: number;
   is_quarantine?: boolean;
-  score_breakdown?: ScoreBreakdown; // AI detailed scorecard
+  score_breakdown?: ScoreBreakdown;
+  created_at: string; // ADDED: to track stock age
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -98,11 +99,11 @@ export default function Dashboard() {
 
   const fetchOpportunities = async () => {
     setLoading(true);
-    // Fetch all expert criteria and score breakdowns from Supabase
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
       deal_score, holding_period_months, seasonality_analysis,
       sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown,
+      created_at,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -244,12 +245,29 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-                  {filteredDeals.length === 0 ? <p className="text-xs text-center text-gray-400 mt-4">No deals found.</p> : filteredDeals.map(opp => (
+                {filteredDeals.length === 0 ? <p className="text-xs text-center text-gray-400 mt-4">No deals found.</p> : filteredDeals.map(opp => {
+                    // Calculate age of the item
+                    const ageInDays = opp.created_at ? differenceInDays(new Date(), new Date(opp.created_at)) : 0;
+                    const isInventory = ['bought', 'in_inventory', 'listed'].includes(opp.status);
+                    
+                    return (
                     <button key={opp.id} onClick={() => setSelectedDeal(opp)} className={`w-full text-left p-3 rounded-lg border transition-all flex items-center justify-between group ${selectedDeal?.id === opp.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-transparent hover:border-gray-200 shadow-sm'}`}>
-                      <div className="flex-1 min-w-0 pr-2"><p className={`text-sm font-semibold truncate ${selectedDeal?.id === opp.id ? 'text-indigo-700' : 'text-gray-700'}`}>{opp.products?.title}</p><p className="text-[10px] text-gray-500 mt-0.5">{opp.products?.asin}</p></div>
+                      <div className="flex-1 min-w-0 pr-2">
+                        <p className={`text-sm font-semibold truncate ${selectedDeal?.id === opp.id ? 'text-indigo-700' : 'text-gray-700'}`}>{opp.products?.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-[10px] text-gray-500">{opp.products?.asin}</p>
+                          {/* Stock Aging Badge */}
+                          {isInventory && (
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${ageInDays > 60 ? 'bg-red-100 text-red-700' : ageInDays > 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                              {ageInDays} Days
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       <ChevronRight className={`h-4 w-4 shrink-0 ${selectedDeal?.id === opp.id ? 'text-indigo-500' : 'text-gray-300 group-hover:text-gray-400'}`} />
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </Panel>
 
@@ -358,6 +376,20 @@ export default function Dashboard() {
                         <div className="text-sm text-gray-600 leading-relaxed border-l-2 border-indigo-500 pl-3">
                           <p className="mb-2"><strong>Reasoning:</strong> {selectedDeal.ai_decision}</p>
                           {selectedDeal.seasonality_analysis && <p><strong>Seasonality:</strong> {selectedDeal.seasonality_analysis}</p>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dead Stock Alert: Triggered if item is in inventory > 60 days */}
+                    {['bought', 'in_inventory', 'listed'].includes(selectedDeal.status) && selectedDeal.created_at && differenceInDays(new Date(), new Date(selectedDeal.created_at)) > 60 && (
+                      <div className="bg-red-50 border border-red-200 p-4 rounded-xl mb-6 flex items-start gap-3">
+                        <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-bold text-red-800">Dead Stock Alert! (Capital Locked)</h4>
+                          <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                            This item has been tying up your capital for <strong>{differenceInDays(new Date(), new Date(selectedDeal.created_at))} days</strong>. 
+                            Expert recommendation: Lower the price on Willhaben to the <strong className="bg-red-200 px-1 rounded">Emergency Price (€{selectedDeal.emergency_sell_price})</strong> to liquidate immediately and reinvest the capital.
+                          </p>
                         </div>
                       </div>
                     )}
