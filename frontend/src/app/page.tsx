@@ -17,7 +17,7 @@ interface Opportunity {
   generated_listings: GeneratedListing[];
 }
 
-const TARGET_CATEGORIES = ['All', 'Technology & Electronics', 'Home & Garden', 'Fashion & Clothing', 'Toys & Baby', 'Sports & Outdoors', 'Automotive', 'Books & Stationery'];
+const TARGET_CATEGORIES = ['All Categories', 'Technology & Electronics', 'Home & Garden', 'Fashion & Clothing', 'Toys & Baby', 'Sports & Outdoors', 'Automotive', 'Books & Stationery'];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -246,7 +246,7 @@ export default function Dashboard() {
               </Panel>
 
               <HorizontalResizeHandle onDoubleClick={resetCenterVertical} />
-              <Panel defaultSize={35} minSize={20} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
+              <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
             </Group>
           </Panel>
 
