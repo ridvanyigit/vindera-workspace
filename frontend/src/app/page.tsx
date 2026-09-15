@@ -3,22 +3,28 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 
 interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
+
+// Define the structure of the AI score breakdown
+interface ScoreBreakdown {
+  discount: number;
+  demand: number;
+  competition: number;
+  capital_efficiency: number;
+  storage_size: number;
+  risk_level: number;
+  seasonality: number;
+}
+
 interface Opportunity {
-  id: string; 
-  buy_price: number; 
-  target_sell_price: number; 
-  profit_margin: number; 
-  ai_decision: string; 
-  status: string;
-  buybox_seller: string; 
-  buybox_is_fba: boolean;
+  id: string; buy_price: number; target_sell_price: number; profit_margin: number; ai_decision: string; status: string;
+  buybox_seller: string; buybox_is_fba: boolean;
   deal_score?: number; 
   holding_period_months?: number; 
   seasonality_analysis?: string;
@@ -28,6 +34,7 @@ interface Opportunity {
   product_condition?: string;
   days_in_inventory?: number;
   is_quarantine?: boolean;
+  score_breakdown?: ScoreBreakdown; // AI detailed scorecard
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -44,7 +51,6 @@ export default function Dashboard() {
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // RESET LAYOUT KEYS (Pure React - Zero TypeScript errors, 100% reliable)
   const [mainHorizontalKey, setMainHorizontalKey] = useState(0);
   const [leftVerticalKey, setLeftVerticalKey] = useState(0);
   const [centerVerticalKey, setCenterVerticalKey] = useState(0);
@@ -71,10 +77,11 @@ export default function Dashboard() {
 
   const fetchOpportunities = async () => {
     setLoading(true);
+    // Fetch all expert criteria and score breakdowns from Supabase
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
       deal_score, holding_period_months, seasonality_analysis,
-      sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine,
+      sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -122,7 +129,7 @@ export default function Dashboard() {
   const expectedProfit = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status)).reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
   const realizedProfit = opportunities.filter(o => o.status === 'sold').reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
 
-  // RESIZE HANDLES WITH ON-DOUBLE-CLICK RESET LOGIC
+  // Resize handles with double-click to reset layout
   const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
     <Separator
       onDoubleClick={onDoubleClick}
@@ -235,7 +242,17 @@ export default function Dashboard() {
                     <div className="mb-6">
                       <div className="flex items-center gap-2 mb-2"><span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold uppercase rounded">{selectedDeal.products?.category}</span><span className="px-2 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-bold uppercase rounded">{selectedDeal.status.replace('_', ' ')}</span></div>
                       <h2 className="text-2xl font-extrabold text-gray-900">{selectedDeal.products?.title}</h2>
-                      <p className="text-sm text-gray-500 mt-1 font-mono">ASIN: {selectedDeal.products?.asin}</p>
+                      
+                      {/* SKU and Inventory Details */}
+                      <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500 font-mono bg-gray-50 p-2 rounded-lg border border-gray-100 inline-flex">
+                        <span className="flex items-center gap-1 font-bold text-gray-700"><Barcode className="h-4 w-4"/> {selectedDeal.sku || 'PENDING'}</span>
+                        <span className="text-gray-300">|</span>
+                        <span>ASIN: {selectedDeal.products?.asin}</span>
+                        <span className="text-gray-300">|</span>
+                        <span className="flex items-center gap-1"><MapPin className="h-4 w-4"/> LOC: {selectedDeal.warehouse_location || 'N/A'}</span>
+                        <span className="text-gray-300">|</span>
+                        <span className="bg-white border border-gray-200 text-gray-700 px-2 py-0.5 rounded shadow-sm text-xs font-bold">{selectedDeal.product_condition || 'NEW'}</span>
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2 mb-8">
@@ -245,7 +262,36 @@ export default function Dashboard() {
                       <span className="inline-flex items-center gap-1 bg-green-100 text-green-700 px-3 py-1 rounded-md text-xs font-bold uppercase"><Euro className="h-4 w-4" /> {selectedDeal.profit_margin}% AI Margin</span>
                     </div>
 
-                    {activeTab === 'pending' && <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl mb-8"><h3 className="text-sm font-bold text-gray-800 mb-2 flex items-center gap-2">🧠 AI Risk & Profit Assessment</h3><p className="text-sm text-gray-600 leading-relaxed">"{selectedDeal.ai_decision}"</p></div>}
+                    {/* AI Scorecard Breakdown */}
+                    {activeTab === 'pending' && (
+                      <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl mb-8 flex flex-col gap-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">🧠 AI Product Acquisition Scorecard</h3>
+                          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Score: {selectedDeal.deal_score || 0}/100</span>
+                        </div>
+                        
+                        {selectedDeal.score_breakdown && (
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
+                            {Object.entries(selectedDeal.score_breakdown).map(([key, val]) => (
+                              <div key={key} className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm">
+                                <div className="text-[10px] text-gray-400 uppercase font-bold mb-1 truncate">{key.replace('_', ' ')}</div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                                    <div className={`h-full ${Number(val) >= 8 ? 'bg-green-500' : Number(val) >= 5 ? 'bg-amber-400' : 'bg-red-500'}`} style={{ width: `${(Number(val) / 10) * 100}%` }}></div>
+                                  </div>
+                                  <span className="text-xs font-bold text-gray-700">{String(val)}/10</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="text-sm text-gray-600 leading-relaxed border-l-2 border-indigo-500 pl-3">
+                          <p className="mb-2"><strong>Reasoning:</strong> {selectedDeal.ai_decision}</p>
+                          {selectedDeal.seasonality_analysis && <p><strong>Seasonality:</strong> {selectedDeal.seasonality_analysis}</p>}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="mt-auto">
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Action Pipeline</h3>
@@ -262,6 +308,8 @@ export default function Dashboard() {
               </Panel>
 
               <HorizontalResizeHandle onDoubleClick={resetCenterVertical} />
+              
+              {/* Terminal - Maintained Exact Sizes as Requested */}
               <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
             </Group>
           </Panel>
@@ -274,7 +322,26 @@ export default function Dashboard() {
               <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :
                   <div className="flex flex-col gap-6">
-                    <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Price Strategy</h3><div className="grid grid-cols-2 gap-3"><div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm"><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Buy Price</p><p className="text-xl font-bold text-gray-900">€{selectedDeal.buy_price}</p></div><div className="bg-indigo-600 p-4 rounded-xl shadow-sm text-white"><p className="text-[10px] text-indigo-200 font-bold uppercase mb-1">Target Sell</p><p className="text-xl font-bold">€{selectedDeal.target_sell_price}</p></div></div></div>
+                    
+                    {/* 3-Tier Price Strategy */}
+                    <div>
+                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">3-Tier Price Strategy</h3>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-white border border-gray-200 p-3 rounded-xl shadow-sm">
+                          <p className="text-[9px] text-gray-400 font-bold uppercase mb-1">Max Buy</p>
+                          <p className="text-lg font-bold text-gray-900">€{selectedDeal.buy_price}</p>
+                        </div>
+                        <div className="bg-indigo-600 p-3 rounded-xl shadow-sm text-white">
+                          <p className="text-[9px] text-indigo-200 font-bold uppercase mb-1">Target Sell</p>
+                          <p className="text-lg font-bold">€{selectedDeal.target_sell_price}</p>
+                        </div>
+                        <div className="bg-red-50 border border-red-100 p-3 rounded-xl shadow-sm text-red-700">
+                          <p className="text-[9px] text-red-400 font-bold uppercase mb-1 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> Emergency</p>
+                          <p className="text-lg font-bold">€{selectedDeal.emergency_sell_price || 'N/A'}</p>
+                        </div>
+                      </div>
+                    </div>
+                    
                     <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1"><ChartIcon className="h-4 w-4" /> 12-Month Trend</h3><div className="h-48 bg-white border border-gray-200 rounded-xl p-3 shadow-sm"><ResponsiveContainer width="100%" height="100%"><AreaChart data={generateYearlyMockData(selectedDeal.buy_price)}><defs><linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} /><stop offset="95%" stopColor="#4f46e5" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="month" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={30} /><Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} /><Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" /></AreaChart></ResponsiveContainer></div></div>
                     {selectedDeal.generated_listings?.length > 0 && <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="font-bold text-sm text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />} </button></div></div></div>}
                   </div>}

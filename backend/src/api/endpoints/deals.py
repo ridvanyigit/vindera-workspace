@@ -8,6 +8,7 @@ from src.core.database import supabase
 import asyncio
 from datetime import datetime, timedelta
 import random
+import uuid
 
 router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
 
@@ -47,9 +48,37 @@ async def run_deal_scan_pipeline(asin: str):
     buybox_is_fba = chosen_seller["is_fba"]
     # ==============================
     
+    # === FETCH UPCOMING EVENTS (NEXT 90 DAYS) ===
+    event_limit_date = (datetime.now() + timedelta(days=90)).date().isoformat()
+    current_date = datetime.now().date().isoformat()
+    
+    events_res = supabase.table("events_calendar")\
+        .select("event_name, event_date")\
+        .gte("event_date", current_date)\
+        .lte("event_date", event_limit_date).execute()
+        
+    events_context = "No major events in the next 90 days."
+    if events_res.data:
+        events_context = ", ".join([f"{e['event_name']} on {e['event_date']}" for e in events_res.data])
+    # ============================================
+
     analysis = deal_analyzer.analyze_deal(
-        product_title=product_title, current_price=current_price, average_historical_price=historical_price,
-        buybox_seller=buybox_seller, is_fba=buybox_is_fba
+        product_title=product_title, 
+        product_category="Technology & Electronics",
+        current_price=current_price, 
+        average_historical_price=historical_price,
+        buybox_seller=buybox_seller, 
+        is_fba=buybox_is_fba,
+        upcoming_events=events_context # Pass events to AI
+    )
+
+    analysis = deal_analyzer.analyze_deal(
+        product_title=product_title, 
+        product_category="Technology & Electronics", # Şimdilik mock kategori
+        current_price=current_price, 
+        average_historical_price=historical_price,
+        buybox_seller=buybox_seller, 
+        is_fba=buybox_is_fba
     )
     
     if analysis.is_profitable:
@@ -71,7 +100,9 @@ async def run_deal_scan_pipeline(asin: str):
                 history_data.append({ "product_id": product_id, "price_amazon": fake_price, "recorded_at": (base_date - timedelta(days=i)).isoformat() })
             supabase.table("price_history").insert(history_data).execute()
 
-            # ADDED: deal_score, holding_period_months and seasonality_analysis mapped from AI output!
+            generated_sku = f"GEN-{str(uuid.uuid4())[:6].upper()}"
+            emergency_price = round(listing_data.suggested_price * 0.85, 2) # Hedef fiyatın %15 altı zarar-kes fiyatı
+
             opp_res = supabase.table("opportunities").insert({
                 "product_id": product_id, 
                 "buy_price": current_price, 
@@ -83,7 +114,12 @@ async def run_deal_scan_pipeline(asin: str):
                 "buybox_is_fba": buybox_is_fba,
                 "deal_score": analysis.deal_score,
                 "holding_period_months": analysis.holding_period_months,
-                "seasonality_analysis": analysis.seasonality_analysis
+                "seasonality_analysis": analysis.seasonality_analysis,
+                "sku": generated_sku,
+                "emergency_sell_price": emergency_price,
+                "warehouse_location": "A01", # Geçici varsayılan depo rafı
+                "product_condition": "NEW",
+                "score_breakdown": analysis.breakdown.model_dump() # Pydantic modelini JSON'a çeviriyoruz
             }).execute()
 
             opp_id = opp_res.data[0]["id"]
