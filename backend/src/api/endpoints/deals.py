@@ -71,11 +71,19 @@ async def run_deal_scan_pipeline(asin: str):
                 history_data.append({ "product_id": product_id, "price_amazon": fake_price, "recorded_at": (base_date - timedelta(days=i)).isoformat() })
             supabase.table("price_history").insert(history_data).execute()
 
-            # ADDED: buybox_seller and buybox_is_fba to the insert payload!
+            # ADDED: deal_score, holding_period_months and seasonality_analysis mapped from AI output!
             opp_res = supabase.table("opportunities").insert({
-                "product_id": product_id, "buy_price": current_price, "target_sell_price": listing_data.suggested_price,
-                "profit_margin": analysis.estimated_profit_margin, "ai_decision": analysis.reasoning, "status": "pending",
-                "buybox_seller": buybox_seller, "buybox_is_fba": buybox_is_fba
+                "product_id": product_id, 
+                "buy_price": current_price, 
+                "target_sell_price": listing_data.suggested_price,
+                "profit_margin": analysis.estimated_profit_margin, 
+                "ai_decision": analysis.reasoning, 
+                "status": "pending",
+                "buybox_seller": buybox_seller, 
+                "buybox_is_fba": buybox_is_fba,
+                "deal_score": analysis.deal_score,
+                "holding_period_months": analysis.holding_period_months,
+                "seasonality_analysis": analysis.seasonality_analysis
             }).execute()
 
             opp_id = opp_res.data[0]["id"]

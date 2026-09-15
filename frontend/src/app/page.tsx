@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -11,8 +11,23 @@ import { Group, Panel, Separator } from 'react-resizable-panels';
 interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
 interface Opportunity {
-  id: string; buy_price: number; target_sell_price: number; profit_margin: number; ai_decision: string; status: string;
-  buybox_seller: string; buybox_is_fba: boolean;
+  id: string; 
+  buy_price: number; 
+  target_sell_price: number; 
+  profit_margin: number; 
+  ai_decision: string; 
+  status: string;
+  buybox_seller: string; 
+  buybox_is_fba: boolean;
+  deal_score?: number; 
+  holding_period_months?: number; 
+  seasonality_analysis?: string;
+  sku?: string;
+  emergency_sell_price?: number;
+  warehouse_location?: string;
+  product_condition?: string;
+  days_in_inventory?: number;
+  is_quarantine?: boolean;
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -58,6 +73,8 @@ export default function Dashboard() {
     setLoading(true);
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
+      deal_score, holding_period_months, seasonality_analysis,
+      sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -167,10 +184,9 @@ export default function Dashboard() {
         <Group key={mainHorizontalKey} orientation="horizontal">
 
           {/* ======================= LEFT PANEL: EXPLORER ======================= */}
-          <Panel defaultSize={20} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
+          <Panel defaultSize={25} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
             <Group key={leftVerticalKey} orientation="vertical">
-              
-              <Panel defaultSize={70} className="flex flex-col">
+              <Panel defaultSize={69} className="flex flex-col">
                 <div className="p-3 bg-gray-100 border-b border-gray-200 flex flex-col gap-2 shrink-0">
                   <div className="flex bg-gray-200 p-1 rounded-lg">
                     <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">NEW</span><span className="tab-long">NEW DEALS</span></button>
@@ -211,7 +227,7 @@ export default function Dashboard() {
           {/* ======================= CENTER PANEL: EDITOR & TERMINAL ======================= */}
           <Panel defaultSize={50} minSize={30} className="flex flex-col bg-white">
             <Group key={centerVerticalKey} orientation="vertical">
-              <Panel defaultSize={65} className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
+              <Panel defaultSize={80} className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
                 {!selectedDeal ? (
                   <div className="h-full flex flex-col items-center justify-center text-gray-400"><SearchCode className="h-16 w-16 mb-4 text-gray-200" /><p>Select a deal from the explorer to view details.</p></div>
                 ) : (
@@ -255,7 +271,7 @@ export default function Dashboard() {
           {/* ======================= RIGHT PANEL: DEEP DIVE & OUTPUT ======================= */}
           <Panel defaultSize={30} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
             <Group key={rightVerticalKey} orientation="vertical">
-              <Panel defaultSize={70} minSize={30} className="p-6 overflow-y-auto">
+              <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :
                   <div className="flex flex-col gap-6">
                     <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Price Strategy</h3><div className="grid grid-cols-2 gap-3"><div className="bg-white border border-gray-200 p-4 rounded-xl shadow-sm"><p className="text-[10px] text-gray-400 font-bold uppercase mb-1">Buy Price</p><p className="text-xl font-bold text-gray-900">€{selectedDeal.buy_price}</p></div><div className="bg-indigo-600 p-4 rounded-xl shadow-sm text-white"><p className="text-[10px] text-indigo-200 font-bold uppercase mb-1">Target Sell</p><p className="text-xl font-bold">€{selectedDeal.target_sell_price}</p></div></div></div>
@@ -266,8 +282,38 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
 
-              <Panel defaultSize={30} minSize={0} className="bg-white">
-                {/* Empty bottom right panel for future expansions */}
+              <Panel defaultSize={45} minSize={35} className="bg-white flex flex-col">
+                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-gray-50/30">
+                  {opportunities.filter(o => o.status === 'pending').sort((a, b) => (b.deal_score || 0) - (a.deal_score || 0)).length === 0 ? (
+                    <div className="text-center text-xs text-gray-400 mt-4">No active deals on radar.</div>
+                  ) : (
+                    opportunities.filter(o => o.status === 'pending').sort((a, b) => (b.deal_score || 0) - (a.deal_score || 0)).map(opp => (
+                      <div key={opp.id} className="bg-white border border-gray-200 p-3 rounded-lg shadow-sm hover:border-indigo-300 transition-colors cursor-pointer" onClick={() => setSelectedDeal(opp)}>
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-xs font-bold text-gray-800 truncate pr-2">{opp.products?.title}</p>
+                          {opp.deal_score && opp.deal_score >= 80 ? (
+                            <span className="flex items-center gap-1 text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold border border-red-100 shrink-0"><Flame className="h-3 w-3" /> {opp.deal_score}%</span>
+                          ) : (
+                            <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-bold border border-gray-200 shrink-0">{opp.deal_score || 0}%</span>
+                          )}
+                        </div>
+                        {/* Progress Bar */}
+                        <div className="w-full bg-gray-100 rounded-full h-1.5 mb-2">
+                          <div className={`h-1.5 rounded-full ${opp.deal_score && opp.deal_score >= 80 ? 'bg-red-500' : opp.deal_score && opp.deal_score >= 50 ? 'bg-amber-400' : 'bg-green-500'}`} style={{ width: `${opp.deal_score || 0}%` }}></div>
+                        </div>
+                        <div className="flex justify-between items-center text-[9px] text-gray-500 uppercase font-bold">
+                          <span>Hold: {opp.holding_period_months} Mo.</span>
+                          <span>Margin: {opp.profit_margin}%</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </Panel>
             </Group>
           </Panel>
