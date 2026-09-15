@@ -212,9 +212,11 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden items-center gap-2 rounded-lg border border-gray-200/80 bg-gray-50/70 px-3 py-1.5 sm:flex"><Activity className="h-3.5 w-3.5 text-emerald-500" /><span className="text-xs font-medium text-gray-600">System Online</span></div>
-            <div className="h-6 w-px bg-gray-200" />
-            <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Sign out</span></button>
+            {/* Removed System Online indicator as requested */}
+            <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
           </div>
         </div>
       </nav>
@@ -266,7 +268,7 @@ export default function Dashboard() {
                   {/* 1. Tax Limit Bar (Kleinunternehmer) */}
                   <div className="mb-2">
                     <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase mb-1">
-                      <span>Umsatz (Revenue)</span>
+                      <span>Revenue</span>
                       <span>€{revenue.toFixed(2)} / €55k Limit</span>
                     </div>
                     <div className="w-full bg-gray-100 rounded-full h-2">

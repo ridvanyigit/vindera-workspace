@@ -133,9 +133,17 @@ async def run_deal_scan_pipeline(asin: str):
         except Exception as e:
             print(f"❌ Supabase Error: {str(e)}")
 
-        await notification_service.send_deal_alert(
-            product_title=product_title, buy_price=current_price, profit_margin=analysis.estimated_profit_margin, amazon_url=amazon_url
-        )
+        # Send push notification ONLY if the deal score is exceptionally high (>= 80)
+        if analysis.deal_score >= 80:
+            print(f"🔥 HOT DEAL ({analysis.deal_score}%)! Sending push notification to iPhone...")
+            await notification_service.send_deal_alert(
+                product_title=product_title, 
+                buy_price=current_price, 
+                profit_margin=analysis.estimated_profit_margin, 
+                amazon_url=amazon_url
+            )
+        else:
+            print(f"ℹ️ Deal score is {analysis.deal_score}%. No push notification sent (must be >= 80).")
         
     print("🏁 Pipeline execution finished.")
 
