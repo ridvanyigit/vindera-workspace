@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -35,7 +35,9 @@ interface Opportunity {
   days_in_inventory?: number;
   is_quarantine?: boolean;
   score_breakdown?: ScoreBreakdown;
-  created_at: string; // ADDED: to track stock age
+  willhaben_realistic_price?: number;
+  purchase_thesis?: string;  
+  created_at: string; 
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -103,7 +105,7 @@ export default function Dashboard() {
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
       deal_score, holding_period_months, seasonality_analysis,
       sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown,
-      created_at,
+      willhaben_realistic_price, purchase_thesis, created_at,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -212,12 +214,28 @@ export default function Dashboard() {
               <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Analytics</button>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            {/* Removed System Online indicator as requested */}
-            <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </button>
+          <div className="flex items-center gap-1">
+            {/* Settings Button */}
+            <div className="relative group">
+              <button className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-gray-900">
+                <Settings className="h-4 w-4" />
+              </button>
+              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-[10px] font-medium text-white bg-gray-900 rounded-md whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-75 pointer-events-none z-50">
+                Settings
+              </span>
+            </div>
+            
+            <div className="h-4 w-px bg-gray-200 mx-1" />
+            
+            {/* Sign Out Button */}
+            <div className="relative group">
+              <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-red-600">
+                <LogOut className="h-4 w-4" />
+              </button>
+              <span className="absolute right-0 top-full mt-1 px-2 py-1 text-[10px] font-medium text-white bg-gray-900 rounded-md whitespace-nowrap opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-75 pointer-events-none z-50">
+                Sign Out
+              </span>
+            </div>
           </div>
         </div>
       </nav>
@@ -394,6 +412,20 @@ export default function Dashboard() {
                       </div>
                     )}
 
+                    {/* Phase 9: Decision Journal (Purchase Thesis) */}
+                    {(selectedDeal.purchase_thesis || selectedDeal.willhaben_realistic_price) && (
+                      <div className="bg-amber-50 border border-amber-200 p-5 rounded-xl mb-6">
+                        <h3 className="text-sm font-bold text-amber-800 uppercase tracking-wider mb-3 flex items-center gap-2">📝 Decision Journal</h3>
+                        <p className="text-sm text-amber-900 italic leading-relaxed">
+                          "{selectedDeal.purchase_thesis || 'No thesis recorded.'}"
+                        </p>
+                        <div className="mt-3 pt-3 border-t border-amber-200/50 flex items-center justify-between text-xs font-bold text-amber-700">
+                          <span>Willhaben Realistic Market Price:</span>
+                          <span className="text-sm">€{selectedDeal.willhaben_realistic_price || 'N/A'}</span>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-auto">
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Action Pipeline</h3>
                       <div className="flex flex-wrap gap-3">
@@ -418,7 +450,7 @@ export default function Dashboard() {
           <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
           {/* ======================= RIGHT PANEL: DEEP DIVE & OUTPUT ======================= */}
-          <Panel defaultSize={30} minSize={20} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
+          <Panel defaultSize={32} minSize={20} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
             <Group key={rightVerticalKey} orientation="vertical">
               <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :

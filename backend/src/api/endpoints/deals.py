@@ -117,16 +117,21 @@ async def run_deal_scan_pipeline(asin: str):
                 "seasonality_analysis": analysis.seasonality_analysis,
                 "sku": generated_sku,
                 "emergency_sell_price": emergency_price,
-                "warehouse_location": "A01", # Geçici varsayılan depo rafı
+                "warehouse_location": "A01", 
                 "product_condition": "NEW",
-                "score_breakdown": analysis.breakdown.model_dump() # Pydantic modelini JSON'a çeviriyoruz
+                "score_breakdown": analysis.breakdown.model_dump(),
+                "willhaben_realistic_price": analysis.willhaben_realistic_price,
+                "purchase_thesis": analysis.purchase_thesis, 
             }).execute()
 
             opp_id = opp_res.data[0]["id"]
 
             supabase.table("generated_listings").insert({
-                "opportunity_id": opp_id, "target_platform": "Willhaben", "language": "de",
-                "generated_title": listing_data.generated_title, "generated_description": listing_data.generated_description
+                "opportunity_id": opp_id, 
+                "target_platform": "Willhaben", 
+                "language": "de",
+                "generated_title": listing_data.generated_title, 
+                "generated_description": listing_data.generated_description
             }).execute()
             
             print("✅ Successfully saved to Supabase (with BuyBox Data)!")

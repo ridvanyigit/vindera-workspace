@@ -23,6 +23,8 @@ class DealAnalysisResult(BaseModel):
     seasonality_analysis: str = Field(description="Explain if current month is good for buying this, and when to sell.")
     holding_period_months: int = Field(description="Months to hold in inventory before selling.")
     breakdown: ScoreBreakdown = Field(description="0-10 score for each specific criteria.")
+    willhaben_realistic_price: float = Field(description="Estimated realistic transaction price on Willhaben (Austria).")
+    purchase_thesis: str = Field(description="A short 'Decision Journal' entry starting with 'I am buying this because...' explaining the core market logic.")
 
 class DealAnalyzerAgent:
     def analyze_deal(self, product_title: str, product_category: str, current_price: float, average_historical_price: float, buybox_seller: str, is_fba: bool, upcoming_events: str) -> DealAnalysisResult:
