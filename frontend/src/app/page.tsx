@@ -66,11 +66,32 @@ export default function Dashboard() {
       if (!session) router.push('/login');
       else { setSession(session); fetchOpportunities(); }
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.push('/login');
       else setSession(session);
     });
-    return () => subscription.unsubscribe();
+
+    // ==========================================
+    // SUPABASE REALTIME SUBSCRIPTION (LIVE RADAR)
+    // ==========================================
+    const channel = supabase
+      .channel('opportunities_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'opportunities' },
+        (payload) => {
+          console.log('Realtime update received!', payload);
+          // Re-fetch all data to ensure nested relations (products, listings) are also fresh
+          fetchOpportunities(); 
+        }
+      )
+      .subscribe();
+
+    return () => {
+      authSub.unsubscribe();
+      supabase.removeChannel(channel);
+    };
   }, [router]);
 
   const handleLogout = async () => await supabase.auth.signOut();
@@ -205,7 +226,7 @@ export default function Dashboard() {
           {/* ======================= LEFT PANEL: EXPLORER ======================= */}
           <Panel defaultSize={25} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
             <Group key={leftVerticalKey} orientation="vertical">
-              <Panel defaultSize={69} className="flex flex-col">
+              <Panel defaultSize={85} className="flex flex-col">
                 <div className="p-3 bg-gray-100 border-b border-gray-200 flex flex-col gap-2 shrink-0">
                   <div className="flex bg-gray-200 p-1 rounded-lg">
                     <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">NEW</span><span className="tab-long">NEW DEALS</span></button>
@@ -232,36 +253,44 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize={30} className="bg-white p-4 flex flex-col gap-3 overflow-y-auto">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Activity className="h-3 w-3" /> Financial & Tax Dashboard</h3>
+              <Panel defaultSize={30} minSize={35} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
+                {/* Header matching Terminal and Radar styles */}
+                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Activity className="h-4 w-4 text-emerald-500" /> Financial & Tax Dashboard
+                  </div>
+                </div>
                 
-                {/* 1. Tax Limit Bar (Kleinunternehmer) */}
-                <div className="mb-2">
-                  <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase mb-1">
-                    <span>Umsatz (Revenue)</span>
-                    <span>€{revenue.toFixed(2)} / €55k Limit</span>
+                {/* Content Container */}
+                <div className="flex-1 p-4 flex flex-col gap-3 overflow-y-auto">
+                  {/* 1. Tax Limit Bar (Kleinunternehmer) */}
+                  <div className="mb-2">
+                    <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase mb-1">
+                      <span>Umsatz (Revenue)</span>
+                      <span>€{revenue.toFixed(2)} / €55k Limit</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-2">
+                      <div className={`h-2 rounded-full ${taxLimitProgress > 80 ? 'bg-red-500' : taxLimitProgress > 50 ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div>
+                    </div>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
-                    <div className={`h-2 rounded-full ${taxLimitProgress > 80 ? 'bg-red-500' : taxLimitProgress > 50 ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div>
-                  </div>
-                </div>
 
-                {/* 2. Key Performance Indicators */}
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                  <span className="text-xs text-gray-500">Gross Profit</span>
-                  <span className="text-sm font-bold text-green-600">+€{grossProfit.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                  <span className="text-xs text-gray-500">Average ROI</span>
-                  <span className="text-sm font-bold text-indigo-600">{averageRoi.toFixed(1)}%</span>
-                </div>
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                  <span className="text-xs text-gray-500">Inventory Value</span>
-                  <span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-gray-500">Active SKUs</span>
-                  <span className="text-sm font-bold text-gray-900">{inventoryDeals.length}</span>
+                  {/* 2. Key Performance Indicators */}
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-xs text-gray-500">Gross Profit</span>
+                    <span className="text-sm font-bold text-green-600">+€{grossProfit.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-xs text-gray-500">Average ROI</span>
+                    <span className="text-sm font-bold text-indigo-600">{averageRoi.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-xs text-gray-500">Inventory Value</span>
+                    <span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-gray-500">Active SKUs</span>
+                    <span className="text-sm font-bold text-gray-900">{inventoryDeals.length}</span>
+                  </div>
                 </div>
               </Panel>
             </Group>
@@ -355,7 +384,7 @@ export default function Dashboard() {
           <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
           {/* ======================= RIGHT PANEL: DEEP DIVE & OUTPUT ======================= */}
-          <Panel defaultSize={30} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
+          <Panel defaultSize={30} minSize={20} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
             <Group key={rightVerticalKey} orientation="vertical">
               <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :
