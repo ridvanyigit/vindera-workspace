@@ -125,9 +125,21 @@ export default function Dashboard() {
 
   if (!session) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
-  const totalInvested = opportunities.filter(o => ['bought', 'in_inventory', 'listed', 'sold'].includes(o.status)).reduce((s, o) => s + Number(o.buy_price), 0);
-  const expectedProfit = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status)).reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
-  const realizedProfit = opportunities.filter(o => o.status === 'sold').reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
+  // ==========================================
+  // BUSINESS KPI CALCULATIONS (EXPERT METHOD)
+  // ==========================================
+  const soldDeals = opportunities.filter(o => o.status === 'sold');
+  const inventoryDeals = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status));
+
+  const revenue = soldDeals.reduce((s, o) => s + Number(o.target_sell_price), 0); // Total Umsatz
+  const grossProfit = soldDeals.reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
+  const inventoryValue = inventoryDeals.reduce((s, o) => s + Number(o.buy_price), 0);
+  const totalInvestedSold = soldDeals.reduce((s, o) => s + Number(o.buy_price), 0);
+  const averageRoi = totalInvestedSold > 0 ? (grossProfit / totalInvestedSold) * 100 : 0;
+  
+  // Kleinunternehmer €55,000 Limit (Austrian Tax Law)
+  const TAX_LIMIT = 55000;
+  const taxLimitProgress = Math.min((revenue / TAX_LIMIT) * 100, 100);
 
   // Resize handles with double-click to reset layout
   const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
@@ -220,11 +232,37 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize={30} className="bg-white p-4 flex flex-col gap-3">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1"><Activity className="h-3 w-3" /> Financial Overview</h3>
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Total Invested</span><span className="text-sm font-bold text-gray-900">€{totalInvested.toFixed(2)}</span></div>
-                <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Expected Profit</span><span className="text-sm font-bold text-indigo-600">€{expectedProfit.toFixed(2)}</span></div>
-                <div className="flex justify-between items-center"><span className="text-xs text-gray-500">Realized Net</span><span className="text-sm font-bold text-green-600">€{realizedProfit.toFixed(2)}</span></div>
+              <Panel defaultSize={30} className="bg-white p-4 flex flex-col gap-3 overflow-y-auto">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1"><Activity className="h-3 w-3" /> Financial & Tax Dashboard</h3>
+                
+                {/* 1. Tax Limit Bar (Kleinunternehmer) */}
+                <div className="mb-2">
+                  <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase mb-1">
+                    <span>Umsatz (Revenue)</span>
+                    <span>€{revenue.toFixed(2)} / €55k Limit</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2">
+                    <div className={`h-2 rounded-full ${taxLimitProgress > 80 ? 'bg-red-500' : taxLimitProgress > 50 ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div>
+                  </div>
+                </div>
+
+                {/* 2. Key Performance Indicators */}
+                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                  <span className="text-xs text-gray-500">Gross Profit</span>
+                  <span className="text-sm font-bold text-green-600">+€{grossProfit.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                  <span className="text-xs text-gray-500">Average ROI</span>
+                  <span className="text-sm font-bold text-indigo-600">{averageRoi.toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                  <span className="text-xs text-gray-500">Inventory Value</span>
+                  <span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-500">Active SKUs</span>
+                  <span className="text-sm font-bold text-gray-900">{inventoryDeals.length}</span>
+                </div>
               </Panel>
             </Group>
           </Panel>
