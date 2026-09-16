@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings, ClipboardCheck, X, FileText, UploadCloud, XCircle } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -13,13 +13,15 @@ interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
 interface ScoreBreakdown { discount: number; demand: number; competition: number; capital_efficiency: number; storage_size: number; risk_level: number; seasonality: number; }
 
+// Phase 16: Events Interface
+interface CalendarEvent { id: string; event_name: string; event_date: string; target_categories: string[]; }
+
 interface Opportunity {
   id: string; buy_price: number; target_sell_price: number; profit_margin: number; ai_decision: string; status: string;
   buybox_seller: string; buybox_is_fba: boolean; deal_score?: number; holding_period_months?: number; seasonality_analysis?: string;
   sku?: string; emergency_sell_price?: number; warehouse_location?: string; product_condition?: string; days_in_inventory?: number;
   is_quarantine?: boolean; score_breakdown?: ScoreBreakdown; willhaben_realistic_price?: number; purchase_thesis?: string;
-  invoice_url?: string; // Phase 11: Document Storage
-  created_at: string;
+  invoice_url?: string; created_at: string; sold_at?: string; // Phase 15: sold_at added
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -30,6 +32,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [session, setSession] = useState<any>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]); // Phase 16 State
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'rejected'>('pending');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -53,7 +56,7 @@ export default function Dashboard() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/login');
-      else { setSession(session); fetchOpportunities(); }
+      else { setSession(session); fetchOpportunities(); fetchEvents(); }
     });
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.push('/login');
@@ -63,21 +66,18 @@ export default function Dashboard() {
     const channel = supabase
       .channel('opportunities_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, (payload) => {
-          console.log('Realtime update received!', payload);
           fetchOpportunities(); 
       }).subscribe();
 
     return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
   }, [router]);
 
-  const handleLogout = async () => await supabase.auth.signOut();
-
   const fetchOpportunities = async () => {
     setLoading(true);
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
       deal_score, holding_period_months, seasonality_analysis,
-      sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, created_at,
+      sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, created_at, sold_at,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -88,11 +88,19 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean) => {
+  // Phase 16: Fetch Upcoming Events from DB
+  const fetchEvents = async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const { data, error } = await supabase.from('events_calendar').select('*').gte('event_date', today).order('event_date', { ascending: true });
+    if (!error && data) setUpcomingEvents(data);
+  };
+
+  const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean, targetSellPrice?: number) => {
     try {
       const payload: any = { status: newStatus };
       if (condition) payload.product_condition = condition;
       if (isQuarantine !== undefined) payload.is_quarantine = isQuarantine;
+      if (targetSellPrice !== undefined) payload.target_sell_price = targetSellPrice; // Phase 14: Adjust price
 
       const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
@@ -109,7 +117,6 @@ export default function Dashboard() {
     setChecks({ model: false, packaging: false, accessories: false, power: false });
   };
 
-  // Phase 11: Handle Invoice PDF/JPG Upload to Supabase Storage
   const handleInvoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>, dealId: string) => {
     try {
       if (!event.target.files || event.target.files.length === 0) return;
@@ -117,20 +124,13 @@ export default function Dashboard() {
       const file = event.target.files[0];
       const fileExt = file.name.split('.').pop();
       const fileName = `${dealId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-      
       const { data, error } = await supabase.storage.from('invoices').upload(fileName, file);
       if (error) throw error;
-      
       const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
       await supabase.from('opportunities').update({ invoice_url: publicUrlData.publicUrl }).eq('id', dealId);
-      
       alert('Invoice uploaded successfully!');
       fetchOpportunities();
-    } catch (error: any) {
-      alert('Error uploading invoice: ' + error.message);
-    } finally {
-      setUploadingInvoice(false);
-    }
+    } catch (error: any) { alert('Error uploading invoice: ' + error.message); } finally { setUploadingInvoice(false); }
   };
 
   const copyToClipboard = (text: string, id: string) => {
@@ -140,11 +140,7 @@ export default function Dashboard() {
   };
 
   const filteredDeals = opportunities.filter(opp => {
-    const tabMatch =
-      activeTab === 'pending' ? opp.status === 'pending' :
-      activeTab === 'inventory' ? ['bought', 'in_inventory', 'listed'].includes(opp.status) :
-      activeTab === 'rejected' ? opp.status === 'rejected' :
-      opp.status === 'sold';
+    const tabMatch = activeTab === 'pending' ? opp.status === 'pending' : activeTab === 'inventory' ? ['bought', 'in_inventory', 'listed'].includes(opp.status) : activeTab === 'rejected' ? opp.status === 'rejected' : opp.status === 'sold';
     return tabMatch && (selectedCategory === 'All' || opp.products?.category === selectedCategory);
   });
 
@@ -162,6 +158,12 @@ export default function Dashboard() {
   const inventoryValue = inventoryDeals.reduce((s, o) => s + Number(o.buy_price), 0);
   const totalInvestedSold = soldDeals.reduce((s, o) => s + Number(o.buy_price), 0);
   const averageRoi = totalInvestedSold > 0 ? (grossProfit / totalInvestedSold) * 100 : 0;
+  
+  // Phase 15: True Velocity Metrics (Average Days to Sell)
+  const soldItemsWithDates = soldDeals.filter(d => d.sold_at && d.created_at);
+  const totalDaysToSell = soldItemsWithDates.reduce((sum, d) => sum + differenceInDays(new Date(d.sold_at!), new Date(d.created_at)), 0);
+  const averageDaysToSell = soldItemsWithDates.length > 0 ? Math.round(totalDaysToSell / soldItemsWithDates.length) : 0;
+
   const TAX_LIMIT = 55000;
   const taxLimitProgress = Math.min((revenue / TAX_LIMIT) * 100, 100);
 
@@ -209,7 +211,11 @@ export default function Dashboard() {
 
       <div className="flex-1 overflow-hidden">
         <Group key={mainHorizontalKey} orientation="horizontal">
-          <Panel defaultSize={25} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
+          
+          {/* ======================================================================= */}
+          {/* ========================== LEFT PANEL START ========================= */}
+          {/* ======================================================================= */}
+          <Panel defaultSize={25} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
             <Group key={leftVerticalKey} orientation="vertical">
               <Panel defaultSize={70} minSize={0} collapsible={true} className="flex flex-col">
                 <div className="p-3 bg-gray-100 border-b border-gray-200 flex flex-col gap-2 shrink-0">
@@ -217,7 +223,6 @@ export default function Dashboard() {
                     <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">NEW</span><span className="tab-long">NEW DEALS</span></button>
                     <button onClick={() => setActiveTab('inventory')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'inventory' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">INV</span><span className="tab-long">INVENTORY</span></button>
                     <button onClick={() => setActiveTab('sold')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'sold' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>SOLD</button>
-                    {/* Phase 12: Rejected Deals Tab */}
                     <button onClick={() => setActiveTab('rejected')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'rejected' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">REJ</span><span className="tab-long">REJECTED</span></button>
                   </div>
                   <div className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-gray-200">
@@ -262,15 +267,26 @@ export default function Dashboard() {
                   </div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Gross Profit</span><span className="text-sm font-bold text-green-600">+€{grossProfit.toFixed(2)}</span></div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Average ROI</span><span className="text-sm font-bold text-indigo-600">{averageRoi.toFixed(1)}%</span></div>
+                  {/* Phase 15: True Velocity Metrics */}
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-xs text-gray-500">Avg. Days to Sell</span>
+                    <span className={`text-sm font-bold ${averageDaysToSell > 60 ? 'text-red-600' : 'text-gray-900'}`}>{averageDaysToSell} Days</span>
+                  </div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Inventory Value</span><span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span></div>
                   <div className="flex justify-between items-center"><span className="text-xs text-gray-500">Active SKUs</span><span className="text-sm font-bold text-gray-900">{inventoryDeals.length}</span></div>
                 </div>
               </Panel>
             </Group>
           </Panel>
+          {/* ========================== LEFT PANEL END ========================= */}
+
 
           <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
+
+          {/* ======================================================================= */}
+          {/* ========================= CENTER PANEL START ======================== */}
+          {/* ======================================================================= */}
           <Panel defaultSize={50} minSize={30} className="flex flex-col bg-white">
             <Group key={centerVerticalKey} orientation="vertical">
               <Panel defaultSize={80} className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
@@ -292,9 +308,8 @@ export default function Dashboard() {
                         <span className="text-gray-300">|</span>
                         <span className="flex items-center gap-1"><MapPin className="h-4 w-4"/> LOC: {selectedDeal.warehouse_location || 'N/A'}</span>
                         <span className="text-gray-300">|</span>
-                        <span className="bg-white border border-gray-200 text-gray-700 px-2 py-0.5 rounded shadow-sm text-xs font-bold">{selectedDeal.product_condition || 'NEW'}</span>
+                        <span className={`border px-2 py-0.5 rounded shadow-sm text-xs font-bold ${selectedDeal.product_condition === 'NEW' ? 'bg-white border-gray-200 text-gray-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{selectedDeal.product_condition || 'NEW'}</span>
                         
-                        {/* Phase 11: Document Storage - Invoice Upload Button */}
                         <span className="text-gray-300">|</span>
                         {selectedDeal.invoice_url ? (
                           <a href={selectedDeal.invoice_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 px-2 py-0.5 rounded">
@@ -316,7 +331,6 @@ export default function Dashboard() {
                       <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold uppercase ${selectedDeal.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}><Euro className="h-4 w-4" /> {selectedDeal.profit_margin}% AI Margin</span>
                     </div>
 
-                    {/* Phase 12: Rejected Warning Banner */}
                     {selectedDeal.status === 'rejected' && (
                       <div className="bg-red-50 border border-red-200 p-5 rounded-xl mb-6 flex items-start gap-3">
                         <XCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
@@ -385,13 +399,30 @@ export default function Dashboard() {
                     <div className="mt-auto">
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Action Pipeline</h3>
                       <div className="flex flex-wrap gap-3">
-                        {/* Only allow buy if pending or rejected (to force override) */}
                         {['pending', 'rejected'].includes(selectedDeal.status) && <><a href={`https://amazon.de/dp/${selectedDeal.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-3 rounded-xl text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-5 w-5" /> Buy on Amazon</a><button onClick={() => updateStatus(selectedDeal.id, 'bought')} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-5 w-5" /></button></>}
                         {selectedDeal.status === 'bought' && <button onClick={() => setInventoryModalDeal(selectedDeal)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><ClipboardCheck className="h-5 w-5" /> Receive & Check Quality</button>}
                         {selectedDeal.status === 'in_inventory' && !selectedDeal.is_quarantine && <button onClick={() => updateStatus(selectedDeal.id, 'listed')} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>}
                         {selectedDeal.status === 'in_inventory' && selectedDeal.is_quarantine && <div className="flex-1 bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><ShieldAlert className="h-5 w-5" /> In Quarantine (Review Needed)<button onClick={() => updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', false)} className="ml-2 underline text-xs hover:text-red-900">Resolve</button></div>}
                         {selectedDeal.status === 'listed' && <button onClick={() => updateStatus(selectedDeal.id, 'sold')} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold! (Claim Profit)</button>}
-                        {selectedDeal.status === 'sold' && <div className="flex-1 bg-green-50 text-green-700 border border-green-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Deal Successfully Closed</div>}
+                        
+                        {/* Phase 14: Customer Returned Workflow */}
+                        {selectedDeal.status === 'sold' && (
+                          <>
+                            <div className="flex-1 bg-green-50 text-green-700 border border-green-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2">
+                              <CheckCircle className="h-5 w-5" /> Deal Successfully Closed
+                            </div>
+                            <button 
+                              onClick={() => {
+                                const newDegradedPrice = Number((selectedDeal.target_sell_price * 0.90).toFixed(2));
+                                updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', true, newDegradedPrice);
+                              }} 
+                              className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2"
+                              title="Customer Returned this item. Will put it back to quarantine and lower target price by 10%."
+                            >
+                              <RotateCcw className="h-5 w-5" /> Returned
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -402,9 +433,15 @@ export default function Dashboard() {
               <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
             </Group>
           </Panel>
+          {/* ========================== CENTER PANEL END ========================= */}
+
 
           <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
+
+          {/* ======================================================================= */}
+          {/* ========================== RIGHT PANEL START ======================== */}
+          {/* ======================================================================= */}
           <Panel defaultSize={30} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
             <Group key={rightVerticalKey} orientation="vertical">
               <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
@@ -422,10 +459,22 @@ export default function Dashboard() {
                     {selectedDeal.generated_listings?.length > 0 && <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="font-bold text-sm text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />} </button></div></div></div>}
                   </div>}
               </Panel>
+              
               <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
+              
               <Panel defaultSize={45} minSize={35} className="bg-white flex flex-col">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
-                  <div className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</div>
+                  <div className="flex items-center gap-4">
+                    <span className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</span>
+                    
+                    {/* Phase 16: Dynamic Event Radar Header (Mini Upcoming) */}
+                    {upcomingEvents.length > 0 && (
+                      <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
+                        <CalendarClock className="h-3 w-3" />
+                        Next: {upcomingEvents[0].event_name} (T-{differenceInDays(new Date(upcomingEvents[0].event_date), new Date())})
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-gray-50/30">
                   {opportunities.filter(o => o.status === 'pending').sort((a, b) => (b.deal_score || 0) - (a.deal_score || 0)).length === 0 ? <div className="text-center text-xs text-gray-400 mt-4">No active deals on radar.</div> :
@@ -444,6 +493,7 @@ export default function Dashboard() {
               </Panel>
             </Group>
           </Panel>
+          {/* ========================== RIGHT PANEL END ======================== */}
         </Group>
       </div>
 

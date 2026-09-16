@@ -19,6 +19,7 @@ class StatusUpdateRequest(BaseModel):
     status: str
     product_condition: str | None = None
     is_quarantine: bool | None = None
+    target_sell_price: float | None = None
 
 async def run_deal_scan_pipeline(asin: str):
     print(f"🚀 Starting Amazon Deal Scan Pipeline for ASIN: {asin}...")
@@ -178,14 +179,20 @@ async def trigger_deal_scan(request: ScanRequest, background_tasks: BackgroundTa
 @router.patch("/{opportunity_id}/status")
 async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
     try:
-        # Build dynamic update payload based on provided fields
+        # Build dynamic update payload
         payload = {"status": request.status}
-
+        
+        # Phase 15: Record exact sell time for velocity metrics
+        if request.status == "sold":
+            from datetime import datetime
+            payload["sold_at"] = datetime.now().isoformat()
+            
         if request.product_condition is not None:
             payload["product_condition"] = request.product_condition
-
         if request.is_quarantine is not None:
             payload["is_quarantine"] = request.is_quarantine
+        if request.target_sell_price is not None:
+            payload["target_sell_price"] = request.target_sell_price
 
         res = supabase.table("opportunities").update(payload).eq("id", opportunity_id).execute()
         return {"status": "success", "data": res.data[0]}
