@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -12,8 +12,6 @@ import { differenceInDays } from 'date-fns';
 interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
 interface ScoreBreakdown { discount: number; demand: number; competition: number; capital_efficiency: number; storage_size: number; risk_level: number; seasonality: number; }
-
-// Phase 16: Events Interface
 interface CalendarEvent { id: string; event_name: string; event_date: string; target_categories: string[]; }
 
 interface Opportunity {
@@ -21,7 +19,7 @@ interface Opportunity {
   buybox_seller: string; buybox_is_fba: boolean; deal_score?: number; holding_period_months?: number; seasonality_analysis?: string;
   sku?: string; emergency_sell_price?: number; warehouse_location?: string; product_condition?: string; days_in_inventory?: number;
   is_quarantine?: boolean; score_breakdown?: ScoreBreakdown; willhaben_realistic_price?: number; purchase_thesis?: string;
-  invoice_url?: string; created_at: string; sold_at?: string; // Phase 15: sold_at added
+  invoice_url?: string; created_at: string; sold_at?: string;
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -32,13 +30,19 @@ export default function Dashboard() {
   const router = useRouter();
   const [session, setSession] = useState<any>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]); // Phase 16 State
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'rejected'>('pending');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [uploadingInvoice, setUploadingInvoice] = useState(false);
+
+  // Modals
+  const [inventoryModalDeal, setInventoryModalDeal] = useState<Opportunity | null>(null);
+  const [showAuditModal, setShowAuditModal] = useState(false); // Phase 20: Category Audit Modal
+  const [checks, setChecks] = useState({ model: false, packaging: false, accessories: false, power: false });
+  const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
 
   const [mainHorizontalKey, setMainHorizontalKey] = useState(0);
   const [leftVerticalKey, setLeftVerticalKey] = useState(0);
@@ -49,10 +53,6 @@ export default function Dashboard() {
   const resetCenterVertical = () => setCenterVerticalKey(k => k + 1);
   const resetRightVertical = () => setRightVerticalKey(k => k + 1);
 
-  const [inventoryModalDeal, setInventoryModalDeal] = useState<Opportunity | null>(null);
-  const [checks, setChecks] = useState({ model: false, packaging: false, accessories: false, power: false });
-  const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
-
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session) router.push('/login');
@@ -62,13 +62,9 @@ export default function Dashboard() {
       if (!session) router.push('/login');
       else setSession(session);
     });
-
-    const channel = supabase
-      .channel('opportunities_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, (payload) => {
+    const channel = supabase.channel('opportunities_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, (payload) => {
           fetchOpportunities(); 
-      }).subscribe();
-
+    }).subscribe();
     return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
   }, [router]);
 
@@ -76,8 +72,7 @@ export default function Dashboard() {
     setLoading(true);
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
-      deal_score, holding_period_months, seasonality_analysis,
-      sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, created_at, sold_at,
+      deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, created_at, sold_at,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -88,19 +83,20 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  // Phase 16: Fetch Upcoming Events from DB
   const fetchEvents = async () => {
     const today = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase.from('events_calendar').select('*').gte('event_date', today).order('event_date', { ascending: true });
     if (!error && data) setUpcomingEvents(data);
   };
 
-  const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean, targetSellPrice?: number) => {
+  // Enhanced updateStatus to support Phase 21 thesis updates
+  const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean, targetSellPrice?: number, thesisUpdate?: string) => {
     try {
       const payload: any = { status: newStatus };
       if (condition) payload.product_condition = condition;
       if (isQuarantine !== undefined) payload.is_quarantine = isQuarantine;
-      if (targetSellPrice !== undefined) payload.target_sell_price = targetSellPrice; // Phase 14: Adjust price
+      if (targetSellPrice !== undefined) payload.target_sell_price = targetSellPrice;
+      if (thesisUpdate !== undefined) payload.purchase_thesis = thesisUpdate;
 
       const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
@@ -133,11 +129,7 @@ export default function Dashboard() {
     } catch (error: any) { alert('Error uploading invoice: ' + error.message); } finally { setUploadingInvoice(false); }
   };
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
+  const copyToClipboard = (text: string, id: string) => { navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); };
 
   const filteredDeals = opportunities.filter(opp => {
     const tabMatch = activeTab === 'pending' ? opp.status === 'pending' : activeTab === 'inventory' ? ['bought', 'in_inventory', 'listed'].includes(opp.status) : activeTab === 'rejected' ? opp.status === 'rejected' : opp.status === 'sold';
@@ -159,13 +151,29 @@ export default function Dashboard() {
   const totalInvestedSold = soldDeals.reduce((s, o) => s + Number(o.buy_price), 0);
   const averageRoi = totalInvestedSold > 0 ? (grossProfit / totalInvestedSold) * 100 : 0;
   
-  // Phase 15: True Velocity Metrics (Average Days to Sell)
   const soldItemsWithDates = soldDeals.filter(d => d.sold_at && d.created_at);
   const totalDaysToSell = soldItemsWithDates.reduce((sum, d) => sum + differenceInDays(new Date(d.sold_at!), new Date(d.created_at)), 0);
   const averageDaysToSell = soldItemsWithDates.length > 0 ? Math.round(totalDaysToSell / soldItemsWithDates.length) : 0;
 
+  const stressTestLiquidationValue = inventoryDeals.reduce((s, o) => s + Number(o.emergency_sell_price || o.target_sell_price * 0.85), 0);
+  const stressTestNet = stressTestLiquidationValue - inventoryValue;
+
   const TAX_LIMIT = 55000;
   const taxLimitProgress = Math.min((revenue / TAX_LIMIT) * 100, 100);
+
+  // Phase 20: Category Performance Audit Data Prep
+  const categoryAuditStats = Array.from(new Set(soldDeals.map(d => d.products?.category))).map(category => {
+    const catDeals = soldDeals.filter(d => d.products?.category === category);
+    const catRevenue = catDeals.reduce((sum, d) => sum + Number(d.target_sell_price), 0);
+    const catCost = catDeals.reduce((sum, d) => sum + Number(d.buy_price), 0);
+    const catProfit = catRevenue - catCost;
+    const catRoi = catCost > 0 ? (catProfit / catCost) * 100 : 0;
+    const catDaysWithDates = catDeals.filter(d => d.sold_at && d.created_at);
+    const catDays = catDaysWithDates.length > 0 ? Math.round(catDaysWithDates.reduce((sum, d) => sum + differenceInDays(new Date(d.sold_at!), new Date(d.created_at)), 0) / catDaysWithDates.length) : 0;
+    return { category: category || 'Unknown', count: catDeals.length, profit: catProfit, roi: catRoi, days: catDays };
+  }).sort((a, b) => b.profit - a.profit);
+
+  const selectedDealAge = selectedDeal?.created_at ? differenceInDays(new Date(), new Date(selectedDeal.created_at)) : 0;
 
   const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
     <Separator onDoubleClick={onDoubleClick} title="Double click to reset layout" className="relative flex w-2 items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-col-resize transition-colors group select-none">
@@ -256,24 +264,35 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize={30} minSize={35} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
+              <Panel defaultSize={30} minSize={20} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
-                  <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Tax Dashboard</div>
+                  <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</div>
+                  {/* Phase 20: Category Audit Button */}
+                  <button onClick={() => setShowAuditModal(true)} title="Quarterly Category Audit" className="text-gray-400 hover:text-indigo-600 transition"><BarChart2 className="h-4 w-4" /></button>
                 </div>
                 <div className="flex-1 p-4 flex flex-col gap-3 overflow-y-auto">
                   <div className="mb-2">
                     <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase mb-1"><span>Umsatz (Revenue)</span><span>€{revenue.toFixed(2)} / €55k Limit</span></div>
                     <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${taxLimitProgress > 80 ? 'bg-red-500' : taxLimitProgress > 50 ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div></div>
                   </div>
+                  
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Gross Profit</span><span className="text-sm font-bold text-green-600">+€{grossProfit.toFixed(2)}</span></div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Average ROI</span><span className="text-sm font-bold text-indigo-600">{averageRoi.toFixed(1)}%</span></div>
-                  {/* Phase 15: True Velocity Metrics */}
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2">
                     <span className="text-xs text-gray-500">Avg. Days to Sell</span>
                     <span className={`text-sm font-bold ${averageDaysToSell > 60 ? 'text-red-600' : 'text-gray-900'}`}>{averageDaysToSell} Days</span>
                   </div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Inventory Value</span><span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span></div>
-                  <div className="flex justify-between items-center"><span className="text-xs text-gray-500">Active SKUs</span><span className="text-sm font-bold text-gray-900">{inventoryDeals.length}</span></div>
+                  
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-xs text-gray-500" title="Total money currently locked in inventory">Inventory Value</span>
+                    <span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-red-50 p-1.5 rounded border border-red-100" title="If we liquidate everything at Emergency Price today">
+                    <span className="text-xs font-bold text-red-700">Stress Test Net</span>
+                    <span className={`text-xs font-bold ${stressTestNet < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {stressTestNet < 0 ? '-' : '+'}€{Math.abs(stressTestNet).toFixed(2)}
+                    </span>
+                  </div>
                 </div>
               </Panel>
             </Group>
@@ -329,6 +348,13 @@ export default function Dashboard() {
                       selectedDeal.buybox_is_fba ? <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-3 py-1 rounded-md text-xs font-bold uppercase border border-blue-200"><Truck className="h-4 w-4" /> Prime (FBA) - {selectedDeal.buybox_seller}</span> :
                       <span className="inline-flex items-center gap-1 bg-red-50 text-red-700 px-3 py-1 rounded-md text-xs font-bold uppercase border border-red-200"><ShieldAlert className="h-4 w-4" /> High Risk (FBM) - {selectedDeal.buybox_seller}</span>}
                       <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold uppercase ${selectedDeal.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}><Euro className="h-4 w-4" /> {selectedDeal.profit_margin}% AI Margin</span>
+                      
+                      {/* Capital Exposure Warning */}
+                      {inventoryValue > 0 && (selectedDeal.buy_price / inventoryValue) > 0.15 && ['pending', 'rejected'].includes(selectedDeal.status) && (
+                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300" title="This single item ties up more than 15% of your total working capital. Be careful.">
+                          <AlertTriangle className="h-4 w-4" /> High Capital Exposure
+                        </span>
+                      )}
                     </div>
 
                     {selectedDeal.status === 'rejected' && (
@@ -337,7 +363,7 @@ export default function Dashboard() {
                         <div>
                           <h4 className="text-sm font-bold text-red-800">Deal Rejected by No-Buy Guardrails</h4>
                           <p className="text-xs text-red-700 mt-1 leading-relaxed">
-                            This product failed the strict business logic rules (Must have {'>'}25% ROI and {'>'}€15 absolute profit). The system automatically rejected it to protect your capital.
+                            This product failed the strict business logic rules. The system automatically rejected it to protect your capital.
                           </p>
                         </div>
                       </div>
@@ -383,14 +409,14 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    {['bought', 'in_inventory', 'listed'].includes(selectedDeal.status) && selectedDeal.created_at && differenceInDays(new Date(), new Date(selectedDeal.created_at)) > 60 && (
+                    {['bought', 'in_inventory', 'listed'].includes(selectedDeal.status) && selectedDealAge > 60 && (
                       <div className="bg-red-50 border border-red-200 p-4 rounded-xl mb-6 flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                         <div>
                           <h4 className="text-sm font-bold text-red-800">Dead Stock Alert! (Capital Locked)</h4>
                           <p className="text-xs text-red-700 mt-1 leading-relaxed">
-                            This item has been tying up your capital for <strong>{differenceInDays(new Date(), new Date(selectedDeal.created_at))} days</strong>. 
-                            Expert recommendation: Lower the price on Willhaben to the <strong className="bg-red-200 px-1 rounded">Emergency Price (€{selectedDeal.emergency_sell_price})</strong> to liquidate immediately and reinvest the capital.
+                            This item has been tying up your capital for <strong>{selectedDealAge} days</strong>. 
+                            Expert recommendation: Lower the price on Willhaben to the <strong className="bg-red-200 px-1 rounded">Emergency Price (€{selectedDeal.emergency_sell_price})</strong> to liquidate immediately.
                           </p>
                         </div>
                       </div>
@@ -403,25 +429,34 @@ export default function Dashboard() {
                         {selectedDeal.status === 'bought' && <button onClick={() => setInventoryModalDeal(selectedDeal)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><ClipboardCheck className="h-5 w-5" /> Receive & Check Quality</button>}
                         {selectedDeal.status === 'in_inventory' && !selectedDeal.is_quarantine && <button onClick={() => updateStatus(selectedDeal.id, 'listed')} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>}
                         {selectedDeal.status === 'in_inventory' && selectedDeal.is_quarantine && <div className="flex-1 bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><ShieldAlert className="h-5 w-5" /> In Quarantine (Review Needed)<button onClick={() => updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', false)} className="ml-2 underline text-xs hover:text-red-900">Resolve</button></div>}
-                        {selectedDeal.status === 'listed' && <button onClick={() => updateStatus(selectedDeal.id, 'sold')} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold! (Claim Profit)</button>}
                         
-                        {/* Phase 14: Customer Returned Workflow */}
+                        {/* Phase 18: Dynamic Pricing Ladder if Listed */}
+                        {selectedDeal.status === 'listed' && (
+                          <>
+                            <button onClick={() => updateStatus(selectedDeal.id, 'sold')} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold!</button>
+                            {selectedDealAge > 14 && (
+                              <button onClick={() => updateStatus(selectedDeal.id, 'listed', undefined, undefined, Number((selectedDeal.target_sell_price * 0.95).toFixed(2)))} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="Item listed for >14 days. Drop target price by 5%.">
+                                <TrendingDown className="h-5 w-5" /> Drop Price 5%
+                              </button>
+                            )}
+                          </>
+                        )}
+                        
                         {selectedDeal.status === 'sold' && (
                           <>
-                            <div className="flex-1 bg-green-50 text-green-700 border border-green-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2">
-                              <CheckCircle className="h-5 w-5" /> Deal Successfully Closed
-                            </div>
-                            <button 
-                              onClick={() => {
-                                const newDegradedPrice = Number((selectedDeal.target_sell_price * 0.90).toFixed(2));
-                                updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', true, newDegradedPrice);
-                              }} 
-                              className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2"
-                              title="Customer Returned this item. Will put it back to quarantine and lower target price by 10%."
-                            >
-                              <RotateCcw className="h-5 w-5" /> Returned
-                            </button>
+                            <div className="flex-1 bg-green-50 text-green-700 border border-green-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Deal Successfully Closed</div>
+                            <button onClick={() => { const newDegradedPrice = Number((selectedDeal.target_sell_price * 0.90).toFixed(2)); updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', true, newDegradedPrice); }} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="Customer Returned this item. Will put it back to quarantine and lower target price by 10%."><RotateCcw className="h-5 w-5" /> Returned</button>
                           </>
+                        )}
+                        
+                        {/* Phase 21: Lost Opportunity Log in Rejected Tab */}
+                        {selectedDeal.status === 'rejected' && (
+                          <button onClick={() => {
+                            const lesson = window.prompt("Log your lesson learned for this missed/rejected opportunity:");
+                            if (lesson) updateStatus(selectedDeal.id, 'rejected', undefined, undefined, undefined, `LESSON LEARNED: ${lesson} (Original AI Note: ${selectedDeal.purchase_thesis || 'None'})`);
+                          }} className="w-full mt-2 bg-white border border-amber-300 text-amber-700 py-3 rounded-xl text-sm font-bold hover:bg-amber-50 flex justify-center items-center gap-2">
+                            <BookOpen className="h-5 w-5" /> Log Post-Mortem Lesson
+                          </button>
                         )}
                       </div>
                     </div>
@@ -462,12 +497,10 @@ export default function Dashboard() {
               
               <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
               
-              <Panel defaultSize={45} minSize={35} className="bg-white flex flex-col">
+              <Panel defaultSize={45} minSize={35} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</span>
-                    
-                    {/* Phase 16: Dynamic Event Radar Header (Mini Upcoming) */}
                     {upcomingEvents.length > 0 && (
                       <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
                         <CalendarClock className="h-3 w-3" />
@@ -519,6 +552,43 @@ export default function Dashboard() {
                 <button onClick={() => handleInventorySubmit('quarantine')} className="flex-1 py-2.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-bold hover:bg-red-100 transition">Fail (Quarantine)</button>
                 <button disabled={!allChecked} onClick={() => handleInventorySubmit('approve')} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:bg-indigo-300 transition">Approve (Add)</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================== */}
+      {/* PHASE 20: CATEGORY PERFORMANCE AUDIT MODAL */}
+      {/* ========================================== */}
+      {showAuditModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2"><BarChart2 className="h-5 w-5 text-indigo-600"/> Quarterly Category Audit</h3>
+              <button onClick={() => setShowAuditModal(false)} className="text-gray-400 hover:text-gray-700 transition"><X className="h-5 w-5"/></button>
+            </div>
+            <div className="p-0 flex flex-col">
+              <table className="w-full text-left text-sm text-gray-600">
+                <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase font-bold text-gray-500">
+                  <tr><th className="px-5 py-3">Category</th><th className="px-5 py-3">Units Sold</th><th className="px-5 py-3">Avg ROI</th><th className="px-5 py-3">Avg Days</th><th className="px-5 py-3 text-right">Net Profit</th></tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {categoryAuditStats.length === 0 ? <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">No sold items available for audit yet.</td></tr> :
+                    categoryAuditStats.map((stat, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50 transition">
+                        <td className="px-5 py-4 font-bold text-gray-800">{stat.category}</td>
+                        <td className="px-5 py-4">{stat.count}</td>
+                        <td className={`px-5 py-4 font-bold ${stat.roi > 30 ? 'text-green-600' : 'text-gray-700'}`}>{stat.roi.toFixed(1)}%</td>
+                        <td className={`px-5 py-4 font-bold ${stat.days > 60 ? 'text-red-500' : 'text-gray-700'}`}>{stat.days}</td>
+                        <td className="px-5 py-4 text-right font-bold text-indigo-600">€{stat.profit.toFixed(2)}</td>
+                      </tr>
+                    ))
+                  }
+                </tbody>
+              </table>
+            </div>
+            <div className="bg-gray-50 px-5 py-4 border-t border-gray-100">
+              <p className="text-xs text-gray-500 leading-relaxed italic">Expert Note: Review categories every 3 months. If a category yields {'<'}20% ROI or takes {'>'}60 days to sell on average, consider marking it as a "No-Buy" zone.</p>
             </div>
           </div>
         </div>

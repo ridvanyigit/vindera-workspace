@@ -20,6 +20,7 @@ class StatusUpdateRequest(BaseModel):
     product_condition: str | None = None
     is_quarantine: bool | None = None
     target_sell_price: float | None = None
+    purchase_thesis: str | None = None
 
 async def run_deal_scan_pipeline(asin: str):
     print(f"🚀 Starting Amazon Deal Scan Pipeline for ASIN: {asin}...")
@@ -171,18 +172,11 @@ async def run_deal_scan_pipeline(asin: str):
 
     print("🏁 Pipeline execution finished.")
 
-@router.post("/scan")
-async def trigger_deal_scan(request: ScanRequest, background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_deal_scan_pipeline, request.asin)
-    return {"status": "accepted", "message": f"Scan started for {request.asin}."}
-
 @router.patch("/{opportunity_id}/status")
 async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
     try:
-        # Build dynamic update payload
         payload = {"status": request.status}
         
-        # Phase 15: Record exact sell time for velocity metrics
         if request.status == "sold":
             from datetime import datetime
             payload["sold_at"] = datetime.now().isoformat()
@@ -193,6 +187,8 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
             payload["is_quarantine"] = request.is_quarantine
         if request.target_sell_price is not None:
             payload["target_sell_price"] = request.target_sell_price
+        if request.purchase_thesis is not None:
+            payload["purchase_thesis"] = request.purchase_thesis
 
         res = supabase.table("opportunities").update(payload).eq("id", opportunity_id).execute()
         return {"status": "success", "data": res.data[0]}
