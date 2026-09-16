@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -31,7 +31,6 @@ export default function Dashboard() {
   const [session, setSession] = useState<any>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'rejected'>('pending');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
@@ -62,14 +61,13 @@ export default function Dashboard() {
       if (!session) router.push('/login');
       else setSession(session);
     });
-    const channel = supabase.channel('opportunities_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, (payload) => {
-          fetchOpportunities(); 
+    const channel = supabase.channel('opportunities_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, () => {
+      fetchOpportunities();
     }).subscribe();
     return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
   }, [router]);
 
   const fetchOpportunities = async () => {
-    setLoading(true);
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
       deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, created_at, sold_at,
@@ -80,7 +78,6 @@ export default function Dashboard() {
       setOpportunities(data as any);
       if (data.length > 0 && !selectedDeal) setSelectedDeal(data[0] as any);
     }
-    setLoading(false);
   };
 
   const fetchEvents = async () => {
@@ -120,7 +117,7 @@ export default function Dashboard() {
       const file = event.target.files[0];
       const fileExt = file.name.split('.').pop();
       const fileName = `${dealId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const { data, error } = await supabase.storage.from('invoices').upload(fileName, file);
+      const { error } = await supabase.storage.from('invoices').upload(fileName, file);
       if (error) throw error;
       const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
       await supabase.from('opportunities').update({ invoice_url: publicUrlData.publicUrl }).eq('id', dealId);
@@ -201,7 +198,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-sm"><Package className="h-5 w-5 text-white" /></div>
-              <div className="leading-tight"><div className="text-[15px] font-bold tracking-tight text-gray-900">VINDERA</div><div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div></div>
+              <div className="leading-tight"><div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div><div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div></div>
             </div>
             <div className="hidden items-center gap-1 md:flex">
               <button onClick={() => router.push('/')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">Workspace</button>
@@ -227,10 +224,10 @@ export default function Dashboard() {
               <Panel defaultSize={70} minSize={0} collapsible={true} className="flex flex-col">
                 <div className="p-3 bg-gray-100 border-b border-gray-200 flex flex-col gap-2 shrink-0">
                   <div className="flex bg-gray-200 p-1 rounded-lg">
-                    <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">NEW</span><span className="tab-long">NEW DEALS</span></button>
-                    <button onClick={() => setActiveTab('inventory')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'inventory' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">INV</span><span className="tab-long">INVENTORY</span></button>
-                    <button onClick={() => setActiveTab('sold')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'sold' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>SOLD</button>
-                    <button onClick={() => setActiveTab('rejected')} className={`flex-1 text-[10px] py-1.5 font-bold uppercase rounded-md transition-colors ${activeTab === 'rejected' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">REJ</span><span className="tab-long">REJECTED</span></button>
+                    <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-semibold uppercase tracking-[0.06em] rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">NEW</span><span className="tab-long">NEW DEALS</span></button>
+                    <button onClick={() => setActiveTab('inventory')} className={`flex-1 text-[10px] py-1.5 font-semibold uppercase tracking-[0.06em] rounded-md transition-colors ${activeTab === 'inventory' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">INV</span><span className="tab-long">INVENTORY</span></button>
+                    <button onClick={() => setActiveTab('sold')} className={`flex-1 text-[10px] py-1.5 font-semibold uppercase tracking-[0.06em] rounded-md transition-colors ${activeTab === 'sold' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>SOLD</button>
+                    <button onClick={() => setActiveTab('rejected')} className={`flex-1 text-[10px] py-1.5 font-semibold uppercase tracking-[0.06em] rounded-md transition-colors ${activeTab === 'rejected' ? 'bg-white shadow-sm text-red-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">REJ</span><span className="tab-long">REJECTED</span></button>
                   </div>
                   <div className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-gray-200">
                     <Filter className="h-3 w-3 text-gray-400" />
@@ -241,17 +238,17 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-                  {filteredDeals.length === 0 ? <p className="text-xs text-center text-gray-400 mt-4">No deals found.</p> : filteredDeals.map(opp => {
+                  {filteredDeals.length === 0 ? <p className="text-[13px] text-center text-gray-400 mt-4">No deals found.</p> : filteredDeals.map(opp => {
                     const ageInDays = opp.created_at ? differenceInDays(new Date(), new Date(opp.created_at)) : 0;
                     const isInventory = ['bought', 'in_inventory', 'listed'].includes(opp.status);
                     
                     return (
                     <button key={opp.id} onClick={() => setSelectedDeal(opp)} className={`w-full text-left p-3 rounded-lg border transition-all flex items-center justify-between group ${selectedDeal?.id === opp.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-transparent hover:border-gray-200 shadow-sm'}`}>
                       <div className="flex-1 min-w-0 pr-2">
-                        <p className={`text-sm font-semibold truncate ${selectedDeal?.id === opp.id ? 'text-indigo-700' : 'text-gray-700'}`}>{opp.products?.title}</p>
+                        <p className={`text-[13px] font-semibold truncate ${selectedDeal?.id === opp.id ? 'text-indigo-700' : 'text-gray-700'}`}>{opp.products?.title}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-[10px] text-gray-500">{opp.products?.asin}</p>
-                          {isInventory && <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${ageInDays > 60 ? 'bg-red-100 text-red-700' : ageInDays > 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{ageInDays} Days</span>}
+                          <p className="text-[10px] font-mono text-gray-500">{opp.products?.asin}</p>
+                          {isInventory && <span className={`text-[8px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-[0.06em] ${ageInDays > 60 ? 'bg-red-100 text-red-700' : ageInDays > 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{ageInDays} Days</span>}
                         </div>
                       </div>
                       <ChevronRight className={`h-4 w-4 shrink-0 ${selectedDeal?.id === opp.id ? 'text-indigo-500' : 'text-gray-300 group-hover:text-gray-400'}`} />
@@ -264,31 +261,31 @@ export default function Dashboard() {
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
               <Panel defaultSize={30} minSize={20} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
-                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
+                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</div>
                   {/* Phase 20: Category Audit Button */}
                   <button onClick={() => setShowAuditModal(true)} title="Quarterly Category Audit" className="text-gray-400 hover:text-indigo-600 transition"><BarChart2 className="h-4 w-4" /></button>
                 </div>
                 <div className="flex-1 p-4 flex flex-col gap-3 overflow-y-auto">
                   <div className="mb-2">
-                    <div className="flex justify-between items-center text-[10px] text-gray-500 font-bold uppercase mb-1"><span>Umsatz (Revenue)</span><span>€{revenue.toFixed(2)} / €55k Limit</span></div>
+                    <div className="flex justify-between items-center text-[10px] text-gray-500 font-semibold uppercase tracking-[0.06em] mb-1"><span>Revenue</span><span className="tabular-nums">€{revenue.toFixed(2)} / €55k Limit</span></div>
                     <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${taxLimitProgress > 80 ? 'bg-red-500' : taxLimitProgress > 50 ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div></div>
                   </div>
                   
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Gross Profit</span><span className="text-sm font-bold text-green-600">+€{grossProfit.toFixed(2)}</span></div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-xs text-gray-500">Average ROI</span><span className="text-sm font-bold text-indigo-600">{averageRoi.toFixed(1)}%</span></div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-[13px] text-gray-500">Gross Profit</span><span className="text-[13px] font-semibold tabular-nums text-green-600">+€{grossProfit.toFixed(2)}</span></div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-[13px] text-gray-500">Average ROI</span><span className="text-[13px] font-semibold tabular-nums text-indigo-600">{averageRoi.toFixed(1)}%</span></div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                    <span className="text-xs text-gray-500">Avg. Days to Sell</span>
-                    <span className={`text-sm font-bold ${averageDaysToSell > 60 ? 'text-red-600' : 'text-gray-900'}`}>{averageDaysToSell} Days</span>
+                    <span className="text-[13px] text-gray-500">Avg. Days to Sell</span>
+                    <span className={`text-[13px] font-semibold tabular-nums ${averageDaysToSell > 60 ? 'text-red-600' : 'text-gray-900'}`}>{averageDaysToSell} Days</span>
                   </div>
                   
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                    <span className="text-xs text-gray-500" title="Total money currently locked in inventory">Inventory Value</span>
-                    <span className="text-sm font-bold text-gray-900">€{inventoryValue.toFixed(2)}</span>
+                    <span className="text-[13px] text-gray-500" title="Total money currently locked in inventory">Inventory Value</span>
+                    <span className="text-[13px] font-semibold tabular-nums text-gray-900">€{inventoryValue.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between items-center bg-red-50 p-1.5 rounded border border-red-100" title="If we liquidate everything at Emergency Price today">
-                    <span className="text-xs font-bold text-red-700">Stress Test Net</span>
-                    <span className={`text-xs font-bold ${stressTestNet < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    <span className="text-[13px] font-semibold text-red-700">Stress Test Net</span>
+                    <span className={`text-[13px] font-semibold tabular-nums ${stressTestNet < 0 ? 'text-red-600' : 'text-green-600'}`}>
                       {stressTestNet < 0 ? '-' : '+'}€{Math.abs(stressTestNet).toFixed(2)}
                     </span>
                   </div>
@@ -317,9 +314,9 @@ export default function Dashboard() {
                         <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold uppercase rounded">{selectedDeal.products?.category}</span>
                         <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded ${selectedDeal.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>{selectedDeal.status.replace('_', ' ')}</span>
                       </div>
-                      <h2 className="text-2xl font-extrabold text-gray-900">{selectedDeal.products?.title}</h2>
+                      <h2 className="type-page-title text-gray-900">{selectedDeal.products?.title}</h2>
                       
-                      <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-500 font-mono bg-gray-50 p-2 rounded-lg border border-gray-100 inline-flex">
+                      <div className="flex flex-wrap items-center gap-4 mt-3 text-[13px] text-gray-500 font-mono bg-gray-50 p-2 rounded-lg border border-gray-100 inline-flex">
                         <span className="flex items-center gap-1 font-bold text-gray-700"><Barcode className="h-4 w-4"/> {selectedDeal.sku || 'PENDING'}</span>
                         <span className="text-gray-300">|</span>
                         <span>ASIN: {selectedDeal.products?.asin}</span>
@@ -360,8 +357,8 @@ export default function Dashboard() {
                       <div className="bg-red-50 border border-red-200 p-5 rounded-xl mb-6 flex items-start gap-3">
                         <XCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="text-sm font-bold text-red-800">Deal Rejected by No-Buy Guardrails</h4>
-                          <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                          <h4 className="type-section-title text-red-800">Deal Rejected by No-Buy Guardrails</h4>
+                          <p className="type-body text-red-700 mt-1">
                             This product failed the strict business logic rules. The system automatically rejected it to protect your capital.
                           </p>
                         </div>
@@ -371,27 +368,27 @@ export default function Dashboard() {
                     {['pending', 'rejected'].includes(selectedDeal.status) && (
                       <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl mb-8 flex flex-col gap-4">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">🧠 AI Product Acquisition Scorecard</h3>
-                          <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Total Score: {selectedDeal.deal_score || 0}/100</span>
+                          <h3 className="type-section-title text-gray-800 flex items-center gap-2">🧠 AI Product Acquisition Scorecard</h3>
+                          <span className="type-label text-gray-500">Total Score: {selectedDeal.deal_score || 0}/100</span>
                         </div>
                         
                         {selectedDeal.score_breakdown && (
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-2">
                             {Object.entries(selectedDeal.score_breakdown).map(([key, val]) => (
                               <div key={key} className="bg-white p-2 rounded-lg border border-gray-200 shadow-sm">
-                                <div className="text-[10px] text-gray-400 uppercase font-bold mb-1 truncate">{key.replace('_', ' ')}</div>
+                                <div className="text-[10px] text-gray-400 uppercase font-semibold tracking-[0.06em] mb-1 truncate">{key.replace('_', ' ')}</div>
                                 <div className="flex items-center gap-2">
                                   <div className="flex-1 bg-gray-100 h-1.5 rounded-full overflow-hidden">
                                     <div className={`h-full ${Number(val) >= 8 ? 'bg-green-500' : Number(val) >= 5 ? 'bg-amber-400' : 'bg-red-500'}`} style={{ width: `${(Number(val) / 10) * 100}%` }}></div>
                                   </div>
-                                  <span className="text-xs font-bold text-gray-700">{String(val)}/10</span>
+                                  <span className="text-[11px] font-semibold tabular-nums text-gray-700">{String(val)}/10</span>
                                 </div>
                               </div>
                             ))}
                           </div>
                         )}
 
-                        <div className="text-sm text-gray-600 leading-relaxed border-l-2 border-indigo-500 pl-3">
+                        <div className="type-body text-gray-600 border-l-2 border-indigo-500 pl-3">
                           <p className="mb-2"><strong>Reasoning:</strong> {selectedDeal.ai_decision}</p>
                           {selectedDeal.seasonality_analysis && <p><strong>Seasonality:</strong> {selectedDeal.seasonality_analysis}</p>}
                         </div>
@@ -400,10 +397,10 @@ export default function Dashboard() {
 
                     {(selectedDeal.purchase_thesis || selectedDeal.willhaben_realistic_price) && (
                       <div className="bg-amber-50 border border-amber-200 p-5 rounded-xl mb-6">
-                        <h3 className="text-sm font-bold text-amber-800 uppercase tracking-wider mb-3 flex items-center gap-2">📝 Decision Journal</h3>
-                        <p className="text-sm text-amber-900 italic leading-relaxed">"{selectedDeal.purchase_thesis || 'No thesis recorded.'}"</p>
-                        <div className="mt-3 pt-3 border-t border-amber-200/50 flex items-center justify-between text-xs font-bold text-amber-700">
-                          <span>Willhaben Realistic Market Price:</span><span className="text-sm">€{selectedDeal.willhaben_realistic_price || 'N/A'}</span>
+                        <h3 className="type-label text-amber-800 mb-3 flex items-center gap-2">📝 Decision Journal</h3>
+                        <p className="type-body text-amber-900 italic">"{selectedDeal.purchase_thesis || 'No thesis recorded.'}"</p>
+                        <div className="mt-3 pt-3 border-t border-amber-200/50 flex items-center justify-between text-[12px] font-semibold text-amber-700">
+                          <span>Willhaben Realistic Market Price:</span><span className="text-[13px] tabular-nums">€{selectedDeal.willhaben_realistic_price || 'N/A'}</span>
                         </div>
                       </div>
                     )}
@@ -412,8 +409,8 @@ export default function Dashboard() {
                       <div className="bg-red-50 border border-red-200 p-4 rounded-xl mb-6 flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                         <div>
-                          <h4 className="text-sm font-bold text-red-800">Dead Stock Alert! (Capital Locked)</h4>
-                          <p className="text-xs text-red-700 mt-1 leading-relaxed">
+                          <h4 className="type-section-title text-red-800">Dead Stock Alert! (Capital Locked)</h4>
+                          <p className="type-body text-red-700 mt-1">
                             This item has been tying up your capital for <strong>{selectedDealAge} days</strong>. 
                             Expert recommendation: Lower the price on Willhaben to the <strong className="bg-red-200 px-1 rounded">Emergency Price (€{selectedDeal.emergency_sell_price})</strong> to liquidate immediately.
                           </p>
@@ -422,7 +419,7 @@ export default function Dashboard() {
                     )}
 
                     <div className="mt-auto">
-                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Action Pipeline</h3>
+                      <h3 className="type-label text-gray-400 mb-3">Action Pipeline</h3>
                       <div className="flex flex-wrap gap-3">
                         {['pending', 'rejected'].includes(selectedDeal.status) && <><a href={`https://amazon.de/dp/${selectedDeal.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-3 rounded-xl text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-5 w-5" /> Buy on Amazon</a><button onClick={() => updateStatus(selectedDeal.id, 'bought')} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-5 w-5" /></button></>}
                         {selectedDeal.status === 'bought' && <button onClick={() => setInventoryModalDeal(selectedDeal)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><ClipboardCheck className="h-5 w-5" /> Receive & Check Quality</button>}
@@ -482,26 +479,26 @@ export default function Dashboard() {
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :
                   <div className="flex flex-col gap-6">
                     <div>
-                      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">3-Tier Price Strategy</h3>
+                      <h3 className="type-label text-gray-500 mb-3">3-Tier Price Strategy</h3>
                       <div className="grid grid-cols-3 gap-2">
-                        <div className="bg-white border border-gray-200 p-3 rounded-xl shadow-sm"><p className="text-[9px] text-gray-400 font-bold uppercase mb-1">Max Buy</p><p className="text-lg font-bold text-gray-900">€{selectedDeal.buy_price}</p></div>
-                        <div className="bg-indigo-600 p-3 rounded-xl shadow-sm text-white"><p className="text-[9px] text-indigo-200 font-bold uppercase mb-1">Target Sell</p><p className="text-lg font-bold">€{selectedDeal.target_sell_price}</p></div>
-                        <div className="bg-red-50 border border-red-100 p-3 rounded-xl shadow-sm text-red-700"><p className="text-[9px] text-red-400 font-bold uppercase mb-1 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> Emergency</p><p className="text-lg font-bold">€{selectedDeal.emergency_sell_price || 'N/A'}</p></div>
+                        <div className="bg-white border border-gray-200 p-3 rounded-xl shadow-sm"><p className="text-[9px] text-gray-400 font-semibold uppercase tracking-[0.06em] mb-1">Max Buy</p><p className="text-[17px] font-semibold tabular-nums tracking-[-0.015em] text-gray-900">€{selectedDeal.buy_price}</p></div>
+                        <div className="bg-indigo-600 p-3 rounded-xl shadow-sm text-white"><p className="text-[9px] text-indigo-200 font-semibold uppercase tracking-[0.06em] mb-1">Target Sell</p><p className="text-[17px] font-semibold tabular-nums tracking-[-0.015em]">€{selectedDeal.target_sell_price}</p></div>
+                        <div className="bg-red-50 border border-red-100 p-3 rounded-xl shadow-sm text-red-700"><p className="text-[9px] text-red-400 font-semibold uppercase tracking-[0.06em] mb-1 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> Emergency</p><p className="text-[17px] font-semibold tabular-nums tracking-[-0.015em]">€{selectedDeal.emergency_sell_price || 'N/A'}</p></div>
                       </div>
                     </div>
-                    <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1"><ChartIcon className="h-4 w-4" /> 12-Month Trend</h3><div className="h-48 bg-white border border-gray-200 rounded-xl p-3 shadow-sm"><ResponsiveContainer width="100%" height="100%"><AreaChart data={generateYearlyMockData(selectedDeal.buy_price)}><defs><linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} /><stop offset="95%" stopColor="#4f46e5" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="month" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={30} /><Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} /><Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" /></AreaChart></ResponsiveContainer></div></div>
-                    {selectedDeal.generated_listings?.length > 0 && <div><h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="font-bold text-sm text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="text-xs text-gray-600 whitespace-pre-wrap leading-relaxed pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />} </button></div></div></div>}
+                    <div><h3 className="type-label text-gray-500 mb-3 flex items-center gap-1"><ChartIcon className="h-4 w-4" /> 12-Month Trend</h3><div className="h-48 bg-white border border-gray-200 rounded-xl p-3 shadow-sm"><ResponsiveContainer width="100%" height="100%"><AreaChart data={generateYearlyMockData(selectedDeal.buy_price)}><defs><linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} /><stop offset="95%" stopColor="#4f46e5" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="month" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={30} /><Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} /><Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" /></AreaChart></ResponsiveContainer></div></div>
+                    {selectedDeal.generated_listings?.length > 0 && <div><h3 className="type-label text-gray-500 mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="type-section-title text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="type-body text-gray-600 whitespace-pre-wrap pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />} </button></div></div></div>}
                   </div>}
               </Panel>
               
               <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
               
               <Panel defaultSize={45} minSize={35} className="bg-white flex flex-col border-t border-gray-200">
-                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
+                <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</span>
                     {upcomingEvents.length > 0 && (
-                      <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">
+                      <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-semibold">
                         <CalendarClock className="h-3 w-3" />
                         Next: {upcomingEvents[0].event_name} (T-{differenceInDays(new Date(upcomingEvents[0].event_date), new Date())})
                       </span>
@@ -513,12 +510,12 @@ export default function Dashboard() {
                     opportunities.filter(o => o.status === 'pending').sort((a, b) => (b.deal_score || 0) - (a.deal_score || 0)).map(opp => (
                       <div key={opp.id} className="bg-white border border-gray-200 p-3 rounded-lg shadow-sm hover:border-indigo-300 transition-colors cursor-pointer" onClick={() => setSelectedDeal(opp)}>
                         <div className="flex justify-between items-start mb-2">
-                          <p className="text-xs font-bold text-gray-800 truncate pr-2">{opp.products?.title}</p>
-                          {opp.deal_score && opp.deal_score >= 80 ? <span className="flex items-center gap-1 text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold border border-red-100 shrink-0"><Flame className="h-3 w-3" /> {opp.deal_score}%</span> :
-                            <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-bold border border-gray-200 shrink-0">{opp.deal_score || 0}%</span>}
+                          <p className="text-[13px] font-semibold text-gray-800 truncate pr-2">{opp.products?.title}</p>
+                          {opp.deal_score && opp.deal_score >= 80 ? <span className="flex items-center gap-1 text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-semibold tabular-nums border border-red-100 shrink-0"><Flame className="h-3 w-3" /> {opp.deal_score}%</span> :
+                            <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-semibold tabular-nums border border-gray-200 shrink-0">{opp.deal_score || 0}%</span>}
                         </div>
                         <div className="w-full bg-gray-100 rounded-full h-1.5 mb-2"><div className={`h-1.5 rounded-full ${opp.deal_score && opp.deal_score >= 80 ? 'bg-red-500' : opp.deal_score && opp.deal_score >= 50 ? 'bg-amber-400' : 'bg-green-500'}`} style={{ width: `${opp.deal_score || 0}%` }}></div></div>
-                        <div className="flex justify-between items-center text-[9px] text-gray-500 uppercase font-bold"><span>Hold: {opp.holding_period_months} Mo.</span><span>Margin: {opp.profit_margin}%</span></div>
+                        <div className="flex justify-between items-center text-[9px] text-gray-500 uppercase tracking-[0.06em] font-semibold"><span>Hold: {opp.holding_period_months} Mo.</span><span>Margin: {opp.profit_margin}%</span></div>
                       </div>
                     ))}
                 </div>
@@ -536,11 +533,11 @@ export default function Dashboard() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800 flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-indigo-600"/> Receiving Checklist</h3>
+              <h3 className="type-section-title text-gray-800 flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-indigo-600"/> Receiving Checklist</h3>
               <button onClick={() => { setInventoryModalDeal(null); setChecks({ model: false, packaging: false, accessories: false, power: false }); }} className="text-gray-400 hover:text-gray-700 transition"><X className="h-5 w-5"/></button>
             </div>
             <div className="p-5 flex flex-col gap-4">
-              <p className="text-sm text-gray-600 leading-relaxed">Before adding <strong>{inventoryModalDeal.products?.title}</strong> to active inventory, perform the mandatory physical checks.</p>
+              <p className="type-body text-gray-600">Before adding <strong>{inventoryModalDeal.products?.title}</strong> to active inventory, perform the mandatory physical checks.</p>
               <div className="flex flex-col gap-3 bg-gray-50 p-4 rounded-xl border border-gray-100">
                 <label className="flex items-center gap-3 cursor-pointer group"><input type="checkbox" checked={checks.model} onChange={e => setChecks({...checks, model: e.target.checked})} className="w-4 h-4 text-indigo-600 rounded border-gray-300" /><span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Verify Model & Serial Number match</span></label>
                 <label className="flex items-center gap-3 cursor-pointer group"><input type="checkbox" checked={checks.packaging} onChange={e => setChecks({...checks, packaging: e.target.checked})} className="w-4 h-4 text-indigo-600 rounded border-gray-300" /><span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Check for packaging damage / seals</span></label>
@@ -563,12 +560,12 @@ export default function Dashboard() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
             <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800 flex items-center gap-2"><BarChart2 className="h-5 w-5 text-indigo-600"/> Quarterly Category Audit</h3>
+              <h3 className="type-section-title text-gray-800 flex items-center gap-2"><BarChart2 className="h-5 w-5 text-indigo-600"/> Quarterly Category Audit</h3>
               <button onClick={() => setShowAuditModal(false)} className="text-gray-400 hover:text-gray-700 transition"><X className="h-5 w-5"/></button>
             </div>
             <div className="p-0 flex flex-col">
               <table className="w-full text-left text-sm text-gray-600">
-                <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase font-bold text-gray-500">
+                <thead className="bg-gray-50 border-b border-gray-200 type-label text-gray-500">
                   <tr><th className="px-5 py-3">Category</th><th className="px-5 py-3">Units Sold</th><th className="px-5 py-3">Avg ROI</th><th className="px-5 py-3">Avg Days</th><th className="px-5 py-3 text-right">Net Profit</th></tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -587,7 +584,7 @@ export default function Dashboard() {
               </table>
             </div>
             <div className="bg-gray-50 px-5 py-4 border-t border-gray-100">
-              <p className="text-xs text-gray-500 leading-relaxed italic">Expert Note: Review categories every 3 months. If a category yields {'<'}20% ROI or takes {'>'}60 days to sell on average, consider marking it as a "No-Buy" zone.</p>
+              <p className="type-body text-gray-500 italic">Expert Note: Review categories every 3 months. If a category yields {'<'}20% ROI or takes {'>'}60 days to sell on average, consider marking it as a "No-Buy" zone.</p>
             </div>
           </div>
         </div>

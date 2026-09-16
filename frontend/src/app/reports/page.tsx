@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, LogOut, Settings, RefreshCw, BarChart2, PieChart as PieChartIcon, Target, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Package, LogOut, RefreshCw, BarChart2, PieChart as PieChartIcon, Target, TrendingUp, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 interface Opportunity {
@@ -16,7 +16,6 @@ const TAX_LIMIT = 55000;
 
 export default function TaxAndReports() {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -40,7 +39,7 @@ export default function TaxAndReports() {
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
   // =======================================================================
-  // FINANCIAL CALCULATIONS (Kleinunternehmer Method)
+  // FINANCIAL CALCULATIONS (Austrian small-business / VAT-exempt method)
   // =======================================================================
   const soldDeals = opportunities.filter(o => o.status === 'sold');
   
@@ -78,7 +77,7 @@ export default function TaxAndReports() {
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-sm"><Package className="h-5 w-5 text-white" /></div>
-              <div className="leading-tight"><div className="text-[15px] font-bold tracking-tight text-gray-900">VINDERA</div><div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div></div>
+              <div className="leading-tight"><div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div><div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div></div>
             </div>
             <div className="hidden items-center gap-1 md:flex">
               <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
@@ -97,40 +96,40 @@ export default function TaxAndReports() {
       <div className="flex-1 p-8 max-w-screen-xl mx-auto w-full flex flex-col gap-6">
         
         <div className="mb-2">
-          <h1 className="text-2xl font-extrabold text-gray-900">Tax & Financial Reports</h1>
-          <p className="text-sm text-gray-500 mt-1">Einnahmen-Ausgaben tracking for Kleinunternehmen compliance.</p>
+          <h1 className="type-page-title text-gray-900">Tax & Financial Reports</h1>
+          <p className="text-[13px] text-gray-500 mt-1">Income and expense tracking for Austrian small-business tax compliance.</p>
         </div>
 
         {/* TOP KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2">
-            <div className="flex items-center justify-between text-gray-500"><span className="text-xs font-bold uppercase tracking-wider">Total Revenue</span><Target className="h-4 w-4"/></div>
-            <p className="text-2xl font-extrabold text-gray-900">€{totalRevenue.toFixed(2)}</p>
+            <div className="flex items-center justify-between text-gray-500"><span className="type-label">Total Revenue</span><Target className="h-4 w-4"/></div>
+            <p className="type-metric text-gray-900">€{totalRevenue.toFixed(2)}</p>
           </div>
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2">
-            <div className="flex items-center justify-between text-gray-500"><span className="text-xs font-bold uppercase tracking-wider">Net Profit</span><TrendingUp className="h-4 w-4 text-green-500"/></div>
-            <p className="text-2xl font-extrabold text-green-600">+€{netProfit.toFixed(2)}</p>
+            <div className="flex items-center justify-between text-gray-500"><span className="type-label">Net Profit</span><TrendingUp className="h-4 w-4 text-green-500"/></div>
+            <p className="type-metric text-green-600">+€{netProfit.toFixed(2)}</p>
           </div>
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2">
-            <div className="flex items-center justify-between text-gray-500"><span className="text-xs font-bold uppercase tracking-wider">Average ROI</span><BarChart2 className="h-4 w-4 text-indigo-500"/></div>
-            <p className="text-2xl font-extrabold text-indigo-600">{overallRoi.toFixed(1)}%</p>
+            <div className="flex items-center justify-between text-gray-500"><span className="type-label">Average ROI</span><BarChart2 className="h-4 w-4 text-indigo-500"/></div>
+            <p className="type-metric text-indigo-600">{overallRoi.toFixed(1)}%</p>
           </div>
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2">
-            <div className="flex items-center justify-between text-gray-500"><span className="text-xs font-bold uppercase tracking-wider">Units Sold</span><Package className="h-4 w-4"/></div>
-            <p className="text-2xl font-extrabold text-gray-900">{soldDeals.length} Items</p>
+            <div className="flex items-center justify-between text-gray-500"><span className="type-label">Units Sold</span><Package className="h-4 w-4"/></div>
+            <p className="type-metric text-gray-900">{soldDeals.length} Items</p>
           </div>
         </div>
 
-        {/* TAX LIMIT BAR (Austrian Kleinunternehmer) */}
+        {/* TAX LIMIT BAR (Austrian small-business VAT exemption threshold) */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex justify-between items-end mb-3">
             <div>
-              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500"/> Kleinunternehmer Limit (Annual)</h3>
-              <p className="text-xs text-gray-500 mt-1">If revenue exceeds €55,000 you must charge VAT (Umsatzsteuer).</p>
+              <h3 className="type-section-title text-gray-800 flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500"/> Small Business VAT Exemption Limit (Annual)</h3>
+              <p className="text-[13px] text-gray-500 mt-1">If revenue exceeds €55,000 you must start charging VAT.</p>
             </div>
             <div className="text-right">
-              <span className="text-lg font-bold text-gray-900">€{totalRevenue.toFixed(2)}</span>
-              <span className="text-xs text-gray-500 font-medium"> / €55,000.00</span>
+              <span className="text-[17px] font-semibold tabular-nums tracking-[-0.015em] text-gray-900">€{totalRevenue.toFixed(2)}</span>
+              <span className="text-[13px] text-gray-500 font-medium tabular-nums"> / €55,000.00</span>
             </div>
           </div>
           <div className="w-full bg-gray-100 rounded-full h-3">
@@ -142,9 +141,9 @@ export default function TaxAndReports() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-96">
           {/* Bar Chart */}
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col">
-            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2"><BarChart2 className="h-4 w-4 text-indigo-500"/> Monthly Revenue & Profit</h3>
+            <h3 className="type-section-title text-gray-800 mb-4 flex items-center gap-2"><BarChart2 className="h-4 w-4 text-indigo-500"/> Monthly Revenue & Profit</h3>
             <div className="flex-1">
-              {monthlyChartData.length === 0 ? <div className="h-full flex items-center justify-center text-sm text-gray-400">No sales data yet.</div> :
+              {monthlyChartData.length === 0 ? <div className="h-full flex items-center justify-center text-[13px] text-gray-400">No sales data yet.</div> :
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthlyChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
@@ -153,8 +152,8 @@ export default function TaxAndReports() {
                     {/* Fixed strict types by passing any to formatter */}
                     <Tooltip cursor={{ fill: '#f9fafb' }} formatter={(value: any) => `€${Number(value).toFixed(2)}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
-                    <Bar dataKey="revenue" name="Revenue (Umsatz)" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="profit" name="Net Profit (Gewinn)" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="revenue" name="Revenue" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="profit" name="Net Profit" fill="#22c55e" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               }
@@ -163,9 +162,9 @@ export default function TaxAndReports() {
 
           {/* Pie Chart */}
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col">
-            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2"><PieChartIcon className="h-4 w-4 text-indigo-500"/> Revenue by Category</h3>
+            <h3 className="type-section-title text-gray-800 mb-4 flex items-center gap-2"><PieChartIcon className="h-4 w-4 text-indigo-500"/> Revenue by Category</h3>
             <div className="flex-1">
-              {categoryChartData.length === 0 ? <div className="h-full flex items-center justify-center text-sm text-gray-400">No category data yet.</div> :
+              {categoryChartData.length === 0 ? <div className="h-full flex items-center justify-center text-[13px] text-gray-400">No category data yet.</div> :
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     {/* Fixed strict types by typing props explicitly */}

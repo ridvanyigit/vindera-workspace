@@ -9,7 +9,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 async def lifespan(app: FastAPI):
     print("Vindera Backend is starting up...")
     try:
-        response = supabase.table('products').select("*").limit(1).execute()
+        supabase.table('products').select("*").limit(1).execute()
         print("✅ SUCCESS: Connected to Supabase Database successfully!")
     except Exception as e:
         print(f"❌ ERROR: Failed to connect to Supabase: {str(e)}")

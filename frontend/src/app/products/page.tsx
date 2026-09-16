@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, LogOut, Settings, RefreshCw, Search, ArrowUpDown, Download, Filter } from 'lucide-react';
+import { Package, LogOut, RefreshCw, Search, ArrowUpDown, Download, Filter } from 'lucide-react';
 import { differenceInDays } from 'date-fns';
 
 interface Opportunity {
@@ -154,7 +154,7 @@ export default function ProductMaster() {
       className="group relative h-12 border-b border-r border-gray-200 bg-gray-50/95 px-4 text-center align-middle"
       style={{ width: widths[column], minWidth: widths[column], maxWidth: widths[column] }}
     >
-      <div className="flex h-full items-center justify-center gap-1.5 whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+      <div className="flex h-full items-center justify-center gap-1.5 whitespace-nowrap type-label text-gray-500">
         {children}
       </div>
       {!last && <ResizeHandle column={column} />}
@@ -172,7 +172,7 @@ export default function ProductMaster() {
                 <Package className="h-5 w-5 text-white" />
               </div>
               <div className="leading-tight">
-                <div className="text-[15px] font-bold tracking-tight text-gray-900">VINDERA</div>
+                <div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div>
                 <div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div>
               </div>
             </div>
@@ -206,8 +206,8 @@ export default function ProductMaster() {
       <main className="flex-1 overflow-auto p-6">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Products</h2>
-            <p className="mt-0.5 text-xs text-gray-400">{filteredOpportunities.length} records</p>
+            <h1 className="type-page-title text-gray-900">Products</h1>
+            <p className="mt-1 text-[13px] text-gray-400 tabular-nums">{filteredOpportunities.length} records</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -217,13 +217,13 @@ export default function ProductMaster() {
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 placeholder="Search SKU, ASIN or product..."
-                className="h-9 w-72 rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-xs text-gray-700 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+                className="h-9 w-72 rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-[13px] text-gray-700 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
               />
             </div>
 
             <button
               onClick={fetchOpportunities}
-              className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
+              className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-[13px] font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
@@ -231,7 +231,7 @@ export default function ProductMaster() {
 
             <button
               onClick={exportCSV}
-              className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
+              className="flex h-9 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-[13px] font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50"
             >
               <Download className="h-3.5 w-3.5" />
               Export
@@ -267,13 +267,13 @@ export default function ProductMaster() {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="h-40 text-center text-xs text-gray-400">
+                  <td colSpan={8} className="h-40 text-center text-[13px] text-gray-400">
                     Loading products...
                   </td>
                 </tr>
               ) : filteredOpportunities.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="h-40 text-center text-xs text-gray-400">
+                  <td colSpan={8} className="h-40 text-center text-[13px] text-gray-400">
                     No products found.
                   </td>
                 </tr>
@@ -285,17 +285,17 @@ export default function ProductMaster() {
                     <tr key={item.id} className="group transition-colors hover:bg-gray-50/80">
 
                       <td className="border-r border-gray-100 px-4 py-4 align-middle" style={{ width: widths.sku, minWidth: widths.sku }}>
-                        <span className="block truncate font-mono text-xs font-medium text-gray-600">
+                        <span className="block truncate font-mono text-[12px] font-medium text-gray-600">
                           {item.sku || '—'}
                         </span>
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 align-middle" style={{ width: widths.product, minWidth: widths.product }}>
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-gray-800">
+                          <div className="truncate text-[13px] font-medium text-gray-800">
                             {item.products?.title || 'Unknown Product'}
                           </div>
-                          <div className="mt-1 truncate text-[11px] text-gray-400">
+                          <div className="mt-1 truncate font-mono text-[11px] text-gray-400">
                             {item.products?.asin || '—'}
                             {item.products?.category ? ` · ${item.products.category}` : ''}
                           </div>
@@ -303,37 +303,37 @@ export default function ProductMaster() {
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle" style={{ width: widths.status, minWidth: widths.status }}>
-                        <span className={`inline-flex rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${getStatusStyle(item.status)}`}>
+                        <span className={`inline-flex rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] ${getStatusStyle(item.status)}`}>
                           {item.status}
                         </span>
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle tabular-nums" style={{ width: widths.buy, minWidth: widths.buy }}>
-                        <span className="text-xs font-semibold text-gray-700">
+                        <span className="text-[13px] font-semibold text-gray-700">
                           €{Number(item.buy_price || 0).toFixed(2)}
                         </span>
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle tabular-nums" style={{ width: widths.sell, minWidth: widths.sell }}>
-                        <span className="text-xs font-semibold text-gray-700">
+                        <span className="text-[13px] font-semibold text-gray-700">
                           €{Number(item.target_sell_price || 0).toFixed(2)}
                         </span>
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle" style={{ width: widths.margin, minWidth: widths.margin }}>
-                        <span className="text-xs font-semibold text-emerald-600">
+                        <span className="text-[13px] font-semibold tabular-nums text-emerald-600">
                           {Number(item.profit_margin || 0).toFixed(1)}%
                         </span>
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle" style={{ width: widths.score, minWidth: widths.score }}>
-                        <span className="text-xs font-semibold text-gray-700">
+                        <span className="text-[13px] font-semibold tabular-nums text-gray-700">
                           {Number(item.deal_score || 0).toFixed(0)}
                         </span>
                       </td>
 
                       <td className="px-4 py-4 text-center align-middle tabular-nums" style={{ width: widths.age, minWidth: widths.age }}>
-                        <span className="text-xs text-gray-500">{age}</span>
+                        <span className="text-[13px] text-gray-500">{age}</span>
                       </td>
 
                     </tr>

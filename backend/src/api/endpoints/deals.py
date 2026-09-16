@@ -78,16 +78,7 @@ async def run_deal_scan_pipeline(asin: str):
         average_historical_price=historical_price,
         buybox_seller=buybox_seller, 
         is_fba=buybox_is_fba,
-        upcoming_events=events_context # Pass events to AI
-    )
-
-    analysis = deal_analyzer.analyze_deal(
-        product_title=product_title, 
-        product_category="Technology & Electronics", # Şimdilik mock kategori
-        current_price=current_price, 
-        average_historical_price=historical_price,
-        buybox_seller=buybox_seller, 
-        is_fba=buybox_is_fba
+        upcoming_events=events_context  # Pass events to AI
     )
 
     if analysis.is_profitable:
@@ -178,7 +169,6 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
         payload = {"status": request.status}
         
         if request.status == "sold":
-            from datetime import datetime
             payload["sold_at"] = datetime.now().isoformat()
             
         if request.product_condition is not None:

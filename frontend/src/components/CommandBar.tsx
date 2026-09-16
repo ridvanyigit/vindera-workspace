@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, Bot, User, RefreshCw, ChevronUp, ChevronDown, Terminal, Trash2, List, Zap } from 'lucide-react';
+import { Send, Bot, User, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -83,7 +83,7 @@ export default function CommandBar() {
     <div className="flex flex-col h-full w-full bg-white relative">
       
       {/* 1. TERMINAL HEADER */}
-      <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center text-xs text-gray-500 font-bold tracking-wider uppercase shrink-0">
+      <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
         <div className="flex items-center gap-2">
           <Terminal className="h-4 w-4 text-indigo-600" /> Vindera AI Terminal
         </div>
@@ -95,7 +95,7 @@ export default function CommandBar() {
       {/* 2. CHAT HISTORY (Fills available space) */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 flex flex-col gap-3">
         {messages.length === 0 && (
-          <div className="h-full flex items-center justify-center text-gray-400 text-sm italic">
+          <div className="h-full flex items-center justify-center text-gray-400 text-[13px] italic">
             Command history is empty. Type '/' to see available commands.
           </div>
         )}
@@ -104,13 +104,13 @@ export default function CommandBar() {
             <div className="mt-0.5 shrink-0">
               {msg.role === 'user' ? <User className="h-5 w-5 text-gray-400" /> : <Bot className="h-5 w-5 text-indigo-600" />}
             </div>
-            <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{msg.content}</div>
+            <div className="type-body text-gray-800 whitespace-pre-wrap">{msg.content}</div>
           </div>
         ))}
         {isLoading && (
           <div className="flex gap-3 p-3">
             <RefreshCw className="h-5 w-5 text-indigo-600 animate-spin" />
-            <div className="text-sm text-gray-400 italic">Processing command...</div>
+            <div className="text-[13px] text-gray-400 italic">Processing command...</div>
           </div>
         )}
         <div ref={messagesEndRef} />
@@ -125,7 +125,7 @@ export default function CommandBar() {
             className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-2xl overflow-hidden z-[99999] animate-in fade-in"
             style={{ left: menuPosition.left, bottom: menuPosition.bottom }}
           >
-            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 text-xs font-bold text-gray-500 flex items-center justify-between uppercase"><span>Slash Commands</span><button type="button" onClick={() => setShowCommands(false)} className="text-gray-400 hover:text-gray-700 transition-colors px-1 text-lg font-semibold" title="Close">−</button></div>
+            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 type-label text-gray-500 flex items-center justify-between"><span>Slash Commands</span><button type="button" onClick={() => setShowCommands(false)} className="text-gray-400 hover:text-gray-700 transition-colors px-1 text-lg font-semibold" title="Close">−</button></div>
 
             {COMMAND_LIST.map((c) => (
               <button
@@ -134,8 +134,8 @@ export default function CommandBar() {
                 onClick={() => selectCommand(c.cmd)}
                 className="w-full text-left px-4 py-2 hover:bg-indigo-50 flex flex-col transition-colors border-b border-gray-50 last:border-0"
               >
-                <span className="font-bold text-indigo-600 text-sm">{c.cmd}</span>
-                <span className="text-[10px] text-gray-500 mt-0.5">{c.desc}</span>
+                <span className="font-mono font-semibold text-indigo-600 text-[13px]">{c.cmd}</span>
+                <span className="text-[11px] text-gray-500 mt-0.5">{c.desc}</span>
               </button>
             ))}
           </div>,
@@ -148,7 +148,7 @@ export default function CommandBar() {
               ref={inputRef} value={input} onChange={handleInputChange}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
               placeholder="Type '/' for commands or ask AI..." rows={1}
-              className="w-full pl-4 pr-4 py-2.5 bg-transparent text-sm text-gray-900 placeholder-gray-400 focus:outline-none resize-none min-h-[40px] max-h-[120px]"
+              className="w-full pl-4 pr-4 py-2.5 bg-transparent text-[14px] text-gray-900 placeholder-gray-400 focus:outline-none resize-none min-h-[40px] max-h-[120px]"
             />
           </div>
           <button type="submit" disabled={!input.trim() || isLoading} className="shrink-0 bg-indigo-600 text-white p-2.5 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 transition-colors">
