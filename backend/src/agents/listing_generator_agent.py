@@ -6,24 +6,30 @@ client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.O
 
 class GeneratedListing(BaseModel):
     generated_title: str = Field(description="SEO optimized, catchy title for Willhaben")
-    generated_description: str = Field(description="Persuasive description. Mention 'New/OVP' and pickup in Vienna")
+    generated_description: str = Field(description="Structured description including Zustand, Lieferumfang, Garantie, Abholung/Versand, and Zahlungsart.")
     suggested_price: float = Field(description="Suggested selling price in Euros")
 
 class ListingGeneratorAgent:
     def generate_willhaben_listing(self, product_title: str, product_category: str, bought_price: float, historical_price: float) -> GeneratedListing:
         system_prompt = (
-            "You are a top-tier pricing and sales expert on Willhaben (Austria). "
-            "Your task is to generate a listing for a product that was bought on a massive Amazon discount. "
-            "The product is 100% Brand New and Unopened (Neu und Originalverpackt - OVP). "
-            "PRICING STRATEGY: Calculate a 'suggested_price' that is EXACTLY halfway between the 'bought_price' and the 'historical_price'. "
-            "This ensures a fast sale because it's significantly cheaper than Amazon's normal price, but still highly profitable for the seller."
+            "You are an expert Willhaben (Austria) seller and professional copywriter. "
+            "Your task is to generate a highly converting listing for a product. "
+            "The listing MUST follow this exact structure in German:\n\n"
+            "Kurzbeschreibung (Short catchy intro highlighting the deal)\n\n"
+            "• Zustand: (e.g., Neu und originalverpackt - ungeöffnet)\n"
+            "• Lieferumfang: (What is included in the box)\n"
+            "• Garantie/Rechnung: (Mention that the original purchase invoice is available for warranty)\n"
+            "• Übergabe: (Abholung in Wien oder versicherter Postversand)\n"
+            "• Bezahlung: (Barzahlung bei Abholung, Vorabüberweisung)\n\n"
+            "PRICING STRATEGY: Calculate 'suggested_price' exactly halfway between 'bought_price' and 'historical_price'."
         )
         
         user_prompt = (
             f"Product: {product_title}\n"
+            f"Category: {product_category}\n"
             f"Bought for: €{bought_price}\n"
             f"Amazon Normal Price: €{historical_price}\n\n"
-            "Generate the German title, description, and the calculated suggested price."
+            "Generate the German title, the strictly structured description, and the calculated suggested price."
         )
 
         try:
@@ -37,15 +43,24 @@ class ListingGeneratorAgent:
             )
             return completion.choices[0].message.parsed
         except Exception as e:
-            # FALLBACK MOCK (If OpenAI API fails)
+            # FALLBACK MOCK (If OpenAI API fails or credits are empty)
             print(f"⚠️ OpenAI Error: {str(e)}. Using MOCK Listing Data with Auto-Pricing.")
             
-            # Auto-Pricing Math: Exactly halfway between bought price and normal market price
             optimal_price = bought_price + ((historical_price - bought_price) / 2)
             
+            mock_desc = (
+                "Verkaufe hier diesen brandneuen Artikel zum absoluten Top-Preis. Ideal als Geschenk oder für den Eigengebrauch!\n\n"
+                "• Zustand: Absolut neu und originalverpackt (ungeöffnet - Siegel intakt).\n"
+                "• Lieferumfang: Kompletter Original-Lieferumfang des Herstellers.\n"
+                "• Garantie/Rechnung: Kaufrechnung ist vorhanden und wird für die Herstellergarantie mitgegeben.\n"
+                "• Übergabe: Bevorzugt persönliche Abholung in Wien. Versicherter Versand ist nach Absprache ebenfalls möglich.\n"
+                "• Bezahlung: Barzahlung bei Abholung oder Banküberweisung im Voraus.\n\n"
+                "Bei Interesse oder Fragen können Sie mir gerne eine kurze Nachricht schreiben. Schnelle Antwort garantiert!"
+            )
+            
             return GeneratedListing(
-                generated_title=f"{product_title} - NEU & OVP!",
-                generated_description="Verkaufe hier diesen brandneuen Artikel.\n\nZustand: Absolut neu und originalverpackt (ungeöffnet).\n\nAbholung in Wien oder versicherter Versand möglich. Bei Fragen gerne melden!",
+                generated_title=f"{product_title} - NEU & OVP (Rechnung inkl.)",
+                generated_description=mock_desc,
                 suggested_price=round(optimal_price, 2)
             )
 
