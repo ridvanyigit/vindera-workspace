@@ -191,9 +191,6 @@ export default function ProductMaster() {
           </div>
 
           <div className="flex items-center gap-1">
-            <button title="Settings" className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
-              <Settings className="h-4 w-4" />
-            </button>
             <div className="mx-1 h-4 w-px bg-gray-200" />
             <button
               title="Sign out"

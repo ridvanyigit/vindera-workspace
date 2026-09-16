@@ -210,7 +210,6 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-1">
-            <button title="Settings" className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-gray-900"><Settings className="h-4 w-4" /></button>
             <div className="h-4 w-px bg-gray-200 mx-1" />
             <button title="Sign out" onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-red-600"><LogOut className="h-4 w-4" /></button>
           </div>
