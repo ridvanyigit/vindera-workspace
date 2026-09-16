@@ -307,7 +307,7 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize={30} minSize={20} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
+              <Panel defaultSize={20} minSize={35} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</div>
                   {/* Opens the quarterly category audit */}
