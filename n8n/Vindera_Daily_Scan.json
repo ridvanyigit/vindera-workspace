@@ -1,0 +1,103 @@
+{
+    "name": "Vindera Daily Auto-Scan",
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "15 8 * * *"
+              }
+            ]
+          }
+        },
+        "name": "Schedule Trigger (08:15 AM)",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1,
+        "position": [250, 300]
+      },
+      {
+        "parameters": {
+          "values": {
+            "string": [
+              {
+                "name": "asins",
+                "value": "B09Y2MYL5C,B08N5WRWNW,B0CQ8T5Z1P"
+              }
+            ]
+          }
+        },
+        "name": "Set ASIN List",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 1,
+        "position": [450, 300]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForEachItem",
+          "jsCode": "const asins = $input.item.json.asins.split(',');\nreturn asins.map(asin => ({ json: { asin: asin.trim() } }));"
+        },
+        "name": "Split into Items",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [650, 300]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://host.docker.internal:8000/api/v1/deals/scan",
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "asin",
+                "value": "={{ $json.asin }}"
+              }
+            ]
+          },
+          "options": {}
+        },
+        "name": "Trigger FastAPI Deal Scan",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4,
+        "position": [850, 300]
+      }
+    ],
+    "connections": {
+      "Schedule Trigger (08:15 AM)": {
+        "main": [
+          [
+            {
+              "node": "Set ASIN List",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set ASIN List": {
+        "main": [
+          [
+            {
+              "node": "Split into Items",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Split into Items": {
+        "main": [
+          [
+            {
+              "node": "Trigger FastAPI Deal Scan",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": true
+  }
