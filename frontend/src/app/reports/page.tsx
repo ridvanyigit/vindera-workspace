@@ -1,5 +1,7 @@
 'use client';
 
+/** Tax & financial reports — revenue, profit, VAT threshold and category mix. */
+
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
@@ -39,7 +41,7 @@ export default function TaxAndReports() {
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
   // =======================================================================
-  // FINANCIAL CALCULATIONS (Austrian small-business / VAT-exempt method)
+  // Financial calculations (Austrian small-business / VAT-exempt method)
   // =======================================================================
   const soldDeals = opportunities.filter(o => o.status === 'sold');
   
@@ -50,7 +52,7 @@ export default function TaxAndReports() {
   
   const taxLimitPercentage = Math.min((totalRevenue / TAX_LIMIT) * 100, 100);
 
-  // 1. Data for Monthly Revenue Bar Chart
+  // Monthly revenue & profit series for the bar chart.
   const monthlyDataMap: Record<string, { name: string; revenue: number; profit: number }> = {};
   soldDeals.forEach(deal => {
     if (!deal.sold_at) return;
@@ -61,7 +63,7 @@ export default function TaxAndReports() {
   });
   const monthlyChartData = Object.values(monthlyDataMap);
 
-  // 2. Data for Category Distribution Pie Chart
+  // Revenue split by category for the pie chart.
   const categoryMap: Record<string, number> = {};
   soldDeals.forEach(deal => {
     const cat = deal.products?.category || 'Unknown';
@@ -71,7 +73,7 @@ export default function TaxAndReports() {
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
-      {/* ======================= NAVBAR ======================= */}
+      {/* NAVBAR */}
       <nav className="sticky top-0 z-50 h-14 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl shrink-0">
         <div className="flex h-full items-center justify-between px-5">
           <div className="flex items-center gap-8">
@@ -92,7 +94,7 @@ export default function TaxAndReports() {
         </div>
       </nav>
 
-      {/* ======================= REPORTS CONTENT ======================= */}
+      {/* REPORTS CONTENT */}
       <div className="flex-1 p-8 max-w-screen-xl mx-auto w-full flex flex-col gap-6">
         
         <div className="mb-2">
@@ -100,7 +102,7 @@ export default function TaxAndReports() {
           <p className="text-[13px] text-gray-500 mt-1">Income and expense tracking for Austrian small-business tax compliance.</p>
         </div>
 
-        {/* TOP KPI CARDS */}
+        {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-2">
             <div className="flex items-center justify-between text-gray-500"><span className="type-label">Total Revenue</span><Target className="h-4 w-4"/></div>
@@ -120,7 +122,7 @@ export default function TaxAndReports() {
           </div>
         </div>
 
-        {/* TAX LIMIT BAR (Austrian small-business VAT exemption threshold) */}
+        {/* VAT exemption threshold (Austrian small business) */}
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
           <div className="flex justify-between items-end mb-3">
             <div>
@@ -137,7 +139,7 @@ export default function TaxAndReports() {
           </div>
         </div>
 
-        {/* CHARTS ROW */}
+        {/* CHARTS */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-96">
           {/* Bar Chart */}
           <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm flex flex-col">
@@ -149,7 +151,7 @@ export default function TaxAndReports() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6b7280' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#6b7280' }} axisLine={false} tickLine={false} tickFormatter={v => `€${v}`} />
-                    {/* Fixed strict types by passing any to formatter */}
+                    {/* recharts ships loose formatter types; `any` avoids a false positive under strict mode. */}
                     <Tooltip cursor={{ fill: '#f9fafb' }} formatter={(value: any) => `€${Number(value).toFixed(2)}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
                     <Bar dataKey="revenue" name="Revenue" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
@@ -167,7 +169,7 @@ export default function TaxAndReports() {
               {categoryChartData.length === 0 ? <div className="h-full flex items-center justify-center text-[13px] text-gray-400">No category data yet.</div> :
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    {/* Fixed strict types by typing props explicitly */}
+                    {/* recharts ships loose label-render types; `any` avoids a false positive under strict mode. */}
                     <Pie data={categoryChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" label={(props: any) => `${props.name} ${(props.percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: '10px', fontWeight: 'bold' }}>
                       {categoryChartData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />

@@ -1,5 +1,7 @@
 'use client';
 
+/** Supabase email/password sign-in. Entry point for every protected route. */
+
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Package, Lock, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';

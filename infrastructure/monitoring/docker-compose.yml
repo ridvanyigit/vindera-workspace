@@ -1,4 +1,8 @@
-version: '3.8'
+# Monitoring stack: Prometheus scrapes the FastAPI backend, Grafana visualizes it.
+#
+# Grafana is published on 3002 because the Next.js dev server owns 3000.
+# Set GRAFANA_ADMIN_PASSWORD in a local `.env` next to this file (or export it)
+# to avoid the insecure default.
 
 services:
   prometheus:
@@ -8,15 +12,22 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
     container_name: vindera_grafana
     ports:
-      - "3000:3000"
+      - "3002:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
     restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

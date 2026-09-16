@@ -1,10 +1,22 @@
-from pydantic import BaseModel, Field
-from openai import OpenAI
-from src.core.config import settings
+"""Deal Analyzer Agent.
+
+Scores an Amazon arbitrage opportunity against the 10-criteria Product
+Acquisition methodology and returns a fully structured verdict. Falls back to a
+deterministic mock result when OpenAI is unavailable, so the pipeline keeps
+working without API credits.
+"""
+
 from datetime import datetime
-import json
+
+from openai import OpenAI
+from pydantic import BaseModel, Field
+
+from src.core.config import settings
 
 client = OpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.OPENAI_API_KEY else "dummy_key")
+
+MODEL = "gpt-4o-mini"
+
 
 class ScoreBreakdown(BaseModel):
     discount: int = Field(description="0-10: How deep is the discount from historical price?")
@@ -14,6 +26,7 @@ class ScoreBreakdown(BaseModel):
     storage_size: int = Field(description="0-10: How easy is it to store? Small items get higher scores.")
     risk_level: int = Field(description="0-10: Lower risk (Amazon/FBA, no expiration) gets higher score.")
     seasonality: int = Field(description="0-10: Is it a good time to buy based on upcoming events/seasons?")
+
 
 class DealAnalysisResult(BaseModel):
     is_profitable: bool = Field(description="True if the deal is highly profitable.")
@@ -26,19 +39,31 @@ class DealAnalysisResult(BaseModel):
     willhaben_realistic_price: float = Field(description="Estimated realistic transaction price on Willhaben (Austria).")
     purchase_thesis: str = Field(description="A short 'Decision Journal' entry starting with 'I am buying this because...' explaining the core market logic.")
 
+
+SYSTEM_PROMPT = (
+    "You are a master Retail Arbitrage AI for the Austrian market (Willhaben). "
+    "You follow the strict '10-Criteria Product Acquisition Score' methodology. "
+    "Evaluate the deal based on Discount, Demand, Competition, Capital Requirement, Storage (smaller is better), Risk, and Seasonality. "
+    "Provide a score from 0-10 for each in the breakdown, and calculate a total deal_score out of 100. "
+    "RULES: If seller is NOT Amazon or FBA, drastically reduce the risk score. "
+    "If the product category matches an upcoming event, increase the seasonality score. "
+    "Provide strict, professional reasoning."
+)
+
+
 class DealAnalyzerAgent:
-    def analyze_deal(self, product_title: str, product_category: str, current_price: float, average_historical_price: float, buybox_seller: str, is_fba: bool, upcoming_events: str) -> DealAnalysisResult:
+    def analyze_deal(
+        self,
+        product_title: str,
+        product_category: str,
+        current_price: float,
+        average_historical_price: float,
+        buybox_seller: str,
+        is_fba: bool,
+        upcoming_events: str,
+    ) -> DealAnalysisResult:
         current_month = datetime.now().strftime("%B")
-        
-        system_prompt = (
-            "You are a master Retail Arbitrage AI for the Austrian market (Willhaben). "
-            "You follow the strict '10-Criteria Product Acquisition Score' methodology. "
-            "Evaluate the deal based on Discount, Demand, Competition, Capital Requirement, Storage (smaller is better), Risk, and Seasonality. "
-            "Provide a score from 0-10 for each in the breakdown, and calculate a total deal_score out of 100. "
-            "RULES: If seller is NOT Amazon or FBA, drastically reduce the risk score. "
-            "If the product category matches an upcoming event, increase the seasonality score. "
-            "Provide strict, professional reasoning."
-        )
+
         user_prompt = (
             f"Product: {product_title}\n"
             f"Category: {product_category}\n"
@@ -50,33 +75,66 @@ class DealAnalyzerAgent:
 
         try:
             completion = client.beta.chat.completions.parse(
-                model="gpt-4o-mini",
+                model=MODEL,
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
                 ],
                 response_format=DealAnalysisResult,
             )
             return completion.choices[0].message.parsed
         except Exception as e:
             print(f"⚠️ OpenAI Error: {str(e)}. Using MOCK AI Data.")
-            
-            risk_text = "Safe" if is_fba else "HIGH RISK"
-            overall_score = 88 if is_fba else 45
-            
-            # Simulated MOCK breakdown for testing without API keys
-            mock_breakdown = ScoreBreakdown(
-                discount=9, demand=8, competition=7, capital_efficiency=8, storage_size=9, risk_level=9 if is_fba else 2, seasonality=8
+            return self._mock_result(
+                product_title=product_title,
+                current_price=current_price,
+                average_historical_price=average_historical_price,
+                is_fba=is_fba,
+                current_month=current_month,
             )
-            
-            return DealAnalysisResult(
-                is_profitable=True,
-                estimated_profit_margin=42.5,
-                reasoning=f"MOCK ANALYSIS: Exceptional {risk_text} arbitrage opportunity based on expert criteria. High demand expected.",
-                deal_score=overall_score,
-                seasonality_analysis=f"Bought in {current_month}, optimal to sell during upcoming peak season.",
-                holding_period_months=2,
-                breakdown=mock_breakdown
-            )
+
+    @staticmethod
+    def _mock_result(
+        product_title: str,
+        current_price: float,
+        average_historical_price: float,
+        is_fba: bool,
+        current_month: str,
+    ) -> DealAnalysisResult:
+        """Deterministic stand-in used when OpenAI is unreachable or out of credit.
+
+        Every field of `DealAnalysisResult` must be populated here: the model has
+        no optional fields, so an incomplete mock would raise a ValidationError
+        instead of degrading gracefully.
+        """
+        risk_text = "Safe" if is_fba else "HIGH RISK"
+        realistic_price = round(current_price + (average_historical_price - current_price) / 2, 2)
+
+        return DealAnalysisResult(
+            is_profitable=True,
+            estimated_profit_margin=42.5,
+            reasoning=(
+                f"MOCK ANALYSIS: Exceptional {risk_text} arbitrage opportunity based on expert criteria. "
+                "High demand expected."
+            ),
+            deal_score=88 if is_fba else 45,
+            seasonality_analysis=f"Bought in {current_month}, optimal to sell during upcoming peak season.",
+            holding_period_months=2,
+            breakdown=ScoreBreakdown(
+                discount=9,
+                demand=8,
+                competition=7,
+                capital_efficiency=8,
+                storage_size=9,
+                risk_level=9 if is_fba else 2,
+                seasonality=8,
+            ),
+            willhaben_realistic_price=realistic_price,
+            purchase_thesis=(
+                f"MOCK THESIS: I am buying {product_title} because it is currently well below its "
+                "historical Amazon price and should resell near that level on Willhaben."
+            ),
+        )
+
 
 deal_analyzer = DealAnalyzerAgent()

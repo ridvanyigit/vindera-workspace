@@ -1,16 +1,30 @@
 import httpx
+from typing import Any, Dict, Optional
+
+from src.core.categories import map_to_canonical_category
 from src.core.config import settings
-from typing import Dict, Any, Optional
+
+# Keepa price indices inside the `stats` arrays.
+AMAZON_PRICE_INDEX = 0
+NEW_MARKETPLACE_PRICE_INDEX = 1
+
+# Keepa reports "no data" / "out of stock" as -1.
+KEEPA_NO_DATA = -1
+
 
 class KeepaService:
+    """Thin client around the Keepa product API plus a parser for its payload."""
+
     def __init__(self):
         self.base_url = "https://api.keepa.com"
         self.api_key = settings.KEEPA_API_KEY.get_secret_value() if settings.KEEPA_API_KEY else None
 
     async def fetch_product_data(self, asin: str, domain: int = 3) -> Optional[Dict[str, Any]]:
-        """
-        Fetches product details and price history from Keepa.
-        Domain 3 = Amazon.de (Germany/Austria)
+        """Fetch product details and price history from Keepa.
+
+        Domain 3 = Amazon.de (serves Germany and Austria).
+        Returns `None` when the key is missing or the call fails, which signals
+        the caller to fall back to mock data.
         """
         if not self.api_key or self.api_key == "your_keepa_api_key_here":
             print("⚠️ WARNING: Keepa API key is missing or invalid.")
@@ -21,8 +35,8 @@ class KeepaService:
             "key": self.api_key,
             "domain": domain,
             "asin": asin,
-            "stats": 1, # Includes historical averages
-            "days": 90, # Look at the last 90 days
+            "stats": 1,  # Include historical averages
+            "days": 90,  # Look at the last 90 days
         }
 
         try:
@@ -30,41 +44,68 @@ class KeepaService:
                 response = await client.get(url, params=params, timeout=30.0)
                 if response.status_code == 200:
                     data = response.json()
-                    if "products" in data and len(data["products"]) > 0:
-                        return data["products"][0]
+                    products = data.get("products") or []
+                    if products:
+                        return products[0]
+                    print(f"Keepa returned no product for ASIN {asin}.")
                 else:
                     print(f"Keepa API Error: {response.status_code} - {response.text}")
         except Exception as e:
             print(f"Exception during Keepa API call: {str(e)}")
-            
+
         return None
 
     def extract_price_info(self, keepa_product: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Parses the complex Keepa response to extract title, current price, and 90-day average.
-        Keepa returns prices as integers (e.g., 1999 means 19.99 Euro).
+        """Parse a Keepa product payload into the fields the pipeline needs.
+
+        Keepa expresses prices as integer cents (1999 -> €19.99) and uses -1 for
+        missing values, so the Amazon index falls back to the third-party New
+        index before giving up.
         """
         try:
-            title = keepa_product.get("title", "Unknown Product")
-            stats = keepa_product.get("stats", {})
-            
-            # Keepa CSV index 0 is Amazon price, index 1 is New Marketplace price. We check Amazon first.
-            current_price_int = stats.get("current", [])[0]
-            avg_90_price_int = stats.get("avg90", [])[0]
-            
-            # Fallback if Amazon is out of stock (value is -1)
-            if current_price_int == -1:
-                current_price_int = stats.get("current", [])[1] # Try 3rd party New
-            if avg_90_price_int == -1:
-                avg_90_price_int = stats.get("avg90", [])[1]
+            title = keepa_product.get("title") or "Unknown Product"
+            stats = keepa_product.get("stats") or {}
+
+            current_price_cents = self._pick_price(stats.get("current"))
+            avg_90_price_cents = self._pick_price(stats.get("avg90"))
 
             return {
                 "title": title,
-                "current_price": current_price_int / 100.0 if current_price_int > 0 else 0.0,
-                "average_historical_price": avg_90_price_int / 100.0 if avg_90_price_int > 0 else 0.0
+                "category": self._extract_category(keepa_product),
+                "current_price": self._to_euro(current_price_cents),
+                "average_historical_price": self._to_euro(avg_90_price_cents),
             }
         except Exception as e:
             print(f"Error parsing Keepa data: {str(e)}")
-            return {"title": "Error", "current_price": 0.0, "average_historical_price": 0.0}
+            return {
+                "title": "Unknown Product",
+                "category": map_to_canonical_category(None),
+                "current_price": 0.0,
+                "average_historical_price": 0.0,
+            }
+
+    @staticmethod
+    def _pick_price(price_array: Any) -> int:
+        """Return the Amazon price, falling back to the third-party New price."""
+        if not isinstance(price_array, list):
+            return KEEPA_NO_DATA
+
+        for index in (AMAZON_PRICE_INDEX, NEW_MARKETPLACE_PRICE_INDEX):
+            if len(price_array) > index and price_array[index] > 0:
+                return price_array[index]
+
+        return KEEPA_NO_DATA
+
+    @staticmethod
+    def _to_euro(price_cents: int) -> float:
+        return price_cents / 100.0 if price_cents > 0 else 0.0
+
+    @staticmethod
+    def _extract_category(keepa_product: Dict[str, Any]) -> str:
+        """Map Keepa's category tree onto the app's canonical categories."""
+        category_tree = keepa_product.get("categoryTree") or []
+        raw_name = category_tree[0].get("name") if category_tree else None
+        return map_to_canonical_category(raw_name)
+
 
 keepa_service = KeepaService()

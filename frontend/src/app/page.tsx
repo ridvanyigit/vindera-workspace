@@ -1,7 +1,19 @@
 'use client';
 
+/**
+ * Workspace dashboard — the main three-pane view.
+ *
+ * Layout:
+ *   Left   : deal explorer (tabs + category filter) and the financial/risk panel
+ *   Center : selected deal inspector and the embedded AI terminal
+ *   Right  : price strategy, price history chart, listing output and the AI radar
+ *
+ * Modals: receiving checklist, quarterly category audit.
+ */
+
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { apiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -24,7 +36,17 @@ interface Opportunity {
   generated_listings: GeneratedListing[];
 }
 
-const TARGET_CATEGORIES = ['All Categories', 'Technology & Electronics', 'Home & Garden', 'Fashion & Clothing', 'Toys & Baby', 'Sports & Outdoors', 'Automotive', 'Books & Stationery'];
+const TARGET_CATEGORIES = [
+  { value: 'All', label: 'All Categories' },
+  { value: 'Technology & Electronics', label: 'Technology & Electronics' },
+  { value: 'Home & Garden', label: 'Home & Garden' },
+  { value: 'Fashion & Clothing', label: 'Fashion & Clothing' },
+  { value: 'Toys & Baby', label: 'Toys & Baby' },
+  { value: 'Sports & Outdoors', label: 'Sports & Outdoors' },
+  { value: 'Automotive', label: 'Automotive' },
+  { value: 'Books & Stationery', label: 'Books & Stationery' },
+  { value: 'Other', label: 'Other' },
+];
 
 export default function Dashboard() {
   const router = useRouter();
@@ -39,7 +61,7 @@ export default function Dashboard() {
 
   // Modals
   const [inventoryModalDeal, setInventoryModalDeal] = useState<Opportunity | null>(null);
-  const [showAuditModal, setShowAuditModal] = useState(false); // Phase 20: Category Audit Modal
+  const [showAuditModal, setShowAuditModal] = useState(false);
   const [checks, setChecks] = useState({ model: false, packaging: false, accessories: false, power: false });
   const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
 
@@ -86,7 +108,7 @@ export default function Dashboard() {
     if (!error && data) setUpcomingEvents(data);
   };
 
-  // Enhanced updateStatus to support Phase 21 thesis updates
+  /** Advances an opportunity's status and optionally patches lifecycle fields. */
   const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean, targetSellPrice?: number, thesisUpdate?: string) => {
     try {
       const payload: any = { status: newStatus };
@@ -95,7 +117,7 @@ export default function Dashboard() {
       if (targetSellPrice !== undefined) payload.target_sell_price = targetSellPrice;
       if (thesisUpdate !== undefined) payload.purchase_thesis = thesisUpdate;
 
-      const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, {
+      const res = await fetch(apiUrl(`/deals/${id}/status`), {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
       });
       if (res.ok) fetchOpportunities(); 
@@ -133,9 +155,34 @@ export default function Dashboard() {
     return tabMatch && (selectedCategory === 'All' || opp.products?.category === selectedCategory);
   });
 
-  const generateYearlyMockData = (currentPrice: number) => {
+  /**
+   * Chart series for the price panel.
+   *
+   * Uses the stored Amazon price history when at least two data points exist.
+   * Otherwise it falls back to a deterministic sample curve so the panel is
+   * never empty — flagged via `isSample` so the UI can label it honestly.
+   */
+  const buildPriceSeries = (deal: Opportunity) => {
+    const history = deal.products?.price_history ?? [];
+
+    if (history.length >= 2) {
+      return {
+        isSample: false,
+        data: [...history]
+          .sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime())
+          .map(point => ({
+            label: new Date(point.recorded_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }),
+            price: Number(point.price_amazon),
+          })),
+      };
+    }
+
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return months.map((month, i) => ({ month, price: Math.round(i === 11 ? currentPrice : currentPrice + (Math.random() * 50 + 20)) }));
+    const curve = [1.42, 1.38, 1.45, 1.33, 1.36, 1.28, 1.31, 1.25, 1.34, 1.29, 1.18, 1.0];
+    return {
+      isSample: true,
+      data: months.map((label, index) => ({ label, price: Math.round(deal.buy_price * curve[index]) })),
+    };
   };
 
   if (!session) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-8 w-8 animate-spin text-indigo-600" /></div>;
@@ -158,7 +205,7 @@ export default function Dashboard() {
   const TAX_LIMIT = 55000;
   const taxLimitProgress = Math.min((revenue / TAX_LIMIT) * 100, 100);
 
-  // Phase 20: Category Performance Audit Data Prep
+  // Category performance, used by the Quarterly Category Audit modal.
   const categoryAuditStats = Array.from(new Set(soldDeals.map(d => d.products?.category))).map(category => {
     const catDeals = soldDeals.filter(d => d.products?.category === category);
     const catRevenue = catDeals.reduce((sum, d) => sum + Number(d.target_sell_price), 0);
@@ -216,9 +263,9 @@ export default function Dashboard() {
       <div className="flex-1 overflow-hidden">
         <Group key={mainHorizontalKey} orientation="horizontal">
           
-          {/* ======================================================================= */}
-          {/* ========================== LEFT PANEL START ========================= */}
-          {/* ======================================================================= */}
+          {/* ---------------------------------------------------------------- */}
+          {/* LEFT PANEL — Deal explorer + financial & risk dashboard           */}
+          {/* ---------------------------------------------------------------- */}
           <Panel defaultSize={25} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
             <Group key={leftVerticalKey} orientation="vertical">
               <Panel defaultSize={70} minSize={0} collapsible={true} className="flex flex-col">
@@ -232,7 +279,7 @@ export default function Dashboard() {
                   <div className="flex items-center gap-2 bg-white rounded-md px-2 py-1 border border-gray-200">
                     <Filter className="h-3 w-3 text-gray-400" />
                     <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full text-xs bg-transparent border-none outline-none text-gray-600 cursor-pointer">
-                      {TARGET_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      {TARGET_CATEGORIES.map(cat => <option key={cat.value} value={cat.value}>{cat.label}</option>)}
                     </select>
                   </div>
                 </div>
@@ -263,7 +310,7 @@ export default function Dashboard() {
               <Panel defaultSize={30} minSize={20} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</div>
-                  {/* Phase 20: Category Audit Button */}
+                  {/* Opens the quarterly category audit */}
                   <button onClick={() => setShowAuditModal(true)} title="Quarterly Category Audit" className="text-gray-400 hover:text-indigo-600 transition"><BarChart2 className="h-4 w-4" /></button>
                 </div>
                 <div className="flex-1 p-4 flex flex-col gap-3 overflow-y-auto">
@@ -293,15 +340,14 @@ export default function Dashboard() {
               </Panel>
             </Group>
           </Panel>
-          {/* ========================== LEFT PANEL END ========================= */}
 
 
           <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
 
-          {/* ======================================================================= */}
-          {/* ========================= CENTER PANEL START ======================== */}
-          {/* ======================================================================= */}
+          {/* ---------------------------------------------------------------- */}
+          {/* CENTER PANEL — Deal inspector + AI terminal                       */}
+          {/* ---------------------------------------------------------------- */}
           <Panel defaultSize={50} minSize={30} className="flex flex-col bg-white">
             <Group key={centerVerticalKey} orientation="vertical">
               <Panel defaultSize={80} className="flex-1 overflow-y-auto p-6 lg:p-10 relative">
@@ -426,7 +472,7 @@ export default function Dashboard() {
                         {selectedDeal.status === 'in_inventory' && !selectedDeal.is_quarantine && <button onClick={() => updateStatus(selectedDeal.id, 'listed')} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>}
                         {selectedDeal.status === 'in_inventory' && selectedDeal.is_quarantine && <div className="flex-1 bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><ShieldAlert className="h-5 w-5" /> In Quarantine (Review Needed)<button onClick={() => updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', false)} className="ml-2 underline text-xs hover:text-red-900">Resolve</button></div>}
                         
-                        {/* Phase 18: Dynamic Pricing Ladder if Listed */}
+                        {/* Dynamic pricing ladder once the item is listed */}
                         {selectedDeal.status === 'listed' && (
                           <>
                             <button onClick={() => updateStatus(selectedDeal.id, 'sold')} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold!</button>
@@ -445,7 +491,7 @@ export default function Dashboard() {
                           </>
                         )}
                         
-                        {/* Phase 21: Lost Opportunity Log in Rejected Tab */}
+                        {/* Post-mortem log for rejected deals */}
                         {selectedDeal.status === 'rejected' && (
                           <button onClick={() => {
                             const lesson = window.prompt("Log your lesson learned for this missed/rejected opportunity:");
@@ -464,15 +510,14 @@ export default function Dashboard() {
               <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
             </Group>
           </Panel>
-          {/* ========================== CENTER PANEL END ========================= */}
 
 
           <ResizeHandle onDoubleClick={resetMainHorizontal} />
 
 
-          {/* ======================================================================= */}
-          {/* ========================== RIGHT PANEL START ======================== */}
-          {/* ======================================================================= */}
+          {/* ---------------------------------------------------------------- */}
+          {/* RIGHT PANEL — Pricing, history, listing output + AI radar         */}
+          {/* ---------------------------------------------------------------- */}
           <Panel defaultSize={30} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
             <Group key={rightVerticalKey} orientation="vertical">
               <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
@@ -486,7 +531,36 @@ export default function Dashboard() {
                         <div className="bg-red-50 border border-red-100 p-3 rounded-xl shadow-sm text-red-700"><p className="text-[9px] text-red-400 font-semibold uppercase tracking-[0.06em] mb-1 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> Emergency</p><p className="text-[17px] font-semibold tabular-nums tracking-[-0.015em]">€{selectedDeal.emergency_sell_price || 'N/A'}</p></div>
                       </div>
                     </div>
-                    <div><h3 className="type-label text-gray-500 mb-3 flex items-center gap-1"><ChartIcon className="h-4 w-4" /> 12-Month Trend</h3><div className="h-48 bg-white border border-gray-200 rounded-xl p-3 shadow-sm"><ResponsiveContainer width="100%" height="100%"><AreaChart data={generateYearlyMockData(selectedDeal.buy_price)}><defs><linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} /><stop offset="95%" stopColor="#4f46e5" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" /><XAxis dataKey="month" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} /><YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={30} /><Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} /><Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" /></AreaChart></ResponsiveContainer></div></div>
+                    {(() => {
+                      const series = buildPriceSeries(selectedDeal);
+                      return (
+                        <div>
+                          <h3 className="type-label text-gray-500 mb-3 flex items-center gap-2">
+                            <span className="flex items-center gap-1"><ChartIcon className="h-4 w-4" /> Amazon Price History</span>
+                            {series.isSample && (
+                              <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] text-amber-700 border border-amber-200">Sample</span>
+                            )}
+                          </h3>
+                          <div className="h-48 bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={series.data}>
+                                <defs>
+                                  <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} />
+                                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
+                                <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={34} />
+                                <Tooltip formatter={(value: any) => `€${Number(value).toFixed(2)}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                <Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {selectedDeal.generated_listings?.length > 0 && <div><h3 className="type-label text-gray-500 mb-3">Target Listing (Willhaben)</h3><div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group"><p className="type-section-title text-gray-900 mb-2 pr-6">{selectedDeal.generated_listings[0].generated_title}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_title, `${selectedDeal.id}-title`)} className="absolute top-3 right-3 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-title` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}</button><div className="border-t border-gray-100 mt-2 pt-2 relative"><p className="type-body text-gray-600 whitespace-pre-wrap pr-6">{selectedDeal.generated_listings[0].generated_description}</p><button onClick={() => copyToClipboard(selectedDeal.generated_listings[0].generated_description, `${selectedDeal.id}-desc`)} className="absolute top-2 right-0 text-gray-400 hover:text-indigo-600 bg-white">{copiedId === `${selectedDeal.id}-desc` ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />} </button></div></div></div>}
                   </div>}
               </Panel>
@@ -522,13 +596,10 @@ export default function Dashboard() {
               </Panel>
             </Group>
           </Panel>
-          {/* ========================== RIGHT PANEL END ======================== */}
         </Group>
       </div>
 
-      {/* ========================================== */}
-      {/* INVENTORY RECEIVING & QUARANTINE MODAL */}
-      {/* ========================================== */}
+      {/* MODAL — Inventory receiving checklist & quarantine */}
       {inventoryModalDeal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
@@ -553,9 +624,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ========================================== */}
-      {/* PHASE 20: CATEGORY PERFORMANCE AUDIT MODAL */}
-      {/* ========================================== */}
+      {/* MODAL — Quarterly category performance audit */}
       {showAuditModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">

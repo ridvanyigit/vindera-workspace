@@ -1,19 +1,51 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel
-from src.services.keepa_service import keepa_service
-from src.agents.deal_analyzer_agent import deal_analyzer
-from src.agents.listing_generator_agent import listing_generator
-from src.services.notification_service import notification_service
-from src.core.database import supabase
+"""Deal orchestration endpoints.
+
+Owns the end-to-end scan pipeline (Keepa -> AI analysis -> guardrails ->
+persistence -> notification) and the opportunity lifecycle status updates.
+"""
+
 import asyncio
-from datetime import datetime, timedelta
 import random
 import uuid
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel
+
+from src.agents.deal_analyzer_agent import deal_analyzer
+from src.agents.listing_generator_agent import listing_generator
+from src.core.categories import FALLBACK_CATEGORY
+from src.core.database import supabase
+from src.services.keepa_service import keepa_service
+from src.services.notification_service import notification_service
 
 router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
 
+# --- Business rules -------------------------------------------------------
+# "No-Buy" guardrails: a deal is rejected unless it clears BOTH thresholds.
+MIN_PROFIT_MARGIN_PCT = 25
+MIN_PROFIT_EUR = 15
+
+# Push notifications are reserved for exceptional deals only.
+HOT_DEAL_SCORE_THRESHOLD = 80
+
+# Liquidation price used when inventory has to be cleared quickly.
+EMERGENCY_PRICE_RATIO = 0.85
+
+DEFAULT_WAREHOUSE_LOCATION = "A01"
+AMAZON_LOCALE = "DE"
+EVENT_LOOKAHEAD_DAYS = 90
+
+# Mock values used when no Keepa API key is configured.
+MOCK_CURRENT_PRICE = 45.0
+MOCK_HISTORICAL_PRICE = 99.0
+
+
+# --- Request models -------------------------------------------------------
+
 class ScanRequest(BaseModel):
     asin: str
+
 
 class StatusUpdateRequest(BaseModel):
     status: str
@@ -22,165 +54,235 @@ class StatusUpdateRequest(BaseModel):
     target_sell_price: float | None = None
     purchase_thesis: str | None = None
 
+
+# --- Pipeline helpers -----------------------------------------------------
+
+def _fetch_upcoming_events() -> str:
+    """Summarize the next 90 days of calendar events as AI prompt context."""
+    today = datetime.now().date()
+    horizon = (today + timedelta(days=EVENT_LOOKAHEAD_DAYS)).isoformat()
+
+    try:
+        events_res = (
+            supabase.table("events_calendar")
+            .select("event_name, event_date")
+            .gte("event_date", today.isoformat())
+            .lte("event_date", horizon)
+            .execute()
+        )
+    except Exception as e:
+        print(f"⚠️ Could not load events_calendar: {str(e)}")
+        return "No major events in the next 90 days."
+
+    if not events_res.data:
+        return "No major events in the next 90 days."
+
+    return ", ".join(f"{e['event_name']} on {e['event_date']}" for e in events_res.data)
+
+
+def _pick_mock_buybox() -> tuple[str, bool]:
+    """Simulate BuyBox ownership.
+
+    TODO: replace with real Keepa merchant data once live credits are active.
+    """
+    mock_sellers = [
+        {"seller": "Amazon", "is_fba": True},
+        {"seller": "MediaMarkt AT", "is_fba": True},
+        {"seller": "TechShenzhen_Direct", "is_fba": False},  # High risk example
+    ]
+    chosen = random.choice(mock_sellers)
+    return chosen["seller"], chosen["is_fba"]
+
+
+def _build_price_history(product_id: str, current_price: float, historical_price: float) -> list[dict]:
+    """Seed six days of price history.
+
+    TODO: replace with Keepa's real daily CSV history once live data is available.
+    """
+    base_date = datetime.now()
+    return [
+        {
+            "product_id": product_id,
+            "price_amazon": historical_price if days_ago > 0 else current_price,
+            "recorded_at": (base_date - timedelta(days=days_ago)).isoformat(),
+        }
+        for days_ago in range(5, -1, -1)
+    ]
+
+
+# --- Pipeline -------------------------------------------------------------
+
 async def run_deal_scan_pipeline(asin: str):
+    """Scan a single ASIN and persist the resulting opportunity."""
     print(f"🚀 Starting Amazon Deal Scan Pipeline for ASIN: {asin}...")
 
+    # 1. Pricing data (Keepa, or mock values when no key is configured)
     raw_keepa_data = await keepa_service.fetch_product_data(asin=asin)
 
     if raw_keepa_data:
         price_info = keepa_service.extract_price_info(raw_keepa_data)
         product_title = price_info["title"]
+        product_category = price_info["category"]
         current_price = price_info["current_price"]
         historical_price = price_info["average_historical_price"]
     else:
         print("⚠️ Using Mock Data (Keepa API key missing or failed).")
         product_title = f"Test Product for ASIN: {asin}"
-        current_price = 45.0
-        historical_price = 99.0
+        product_category = FALLBACK_CATEGORY
+        current_price = MOCK_CURRENT_PRICE
+        historical_price = MOCK_HISTORICAL_PRICE
 
     await asyncio.sleep(1)
 
     amazon_url = f"https://amazon.de/dp/{asin}"
+    buybox_seller, buybox_is_fba = _pick_mock_buybox()
+    events_context = _fetch_upcoming_events()
 
-    # === SIMULATED BUYBOX DATA ===
-    mock_sellers = [
-        {"seller": "Amazon", "is_fba": True},
-        {"seller": "MediaMarkt AT", "is_fba": True},
-        {"seller": "TechShenzhen_Direct", "is_fba": False} # High risk example
-    ]
-
-    chosen_seller = random.choice(mock_sellers)
-    buybox_seller = chosen_seller["seller"]
-    buybox_is_fba = chosen_seller["is_fba"]
-
-    # ==============================
-
-    # === FETCH UPCOMING EVENTS (NEXT 90 DAYS) ===
-    event_limit_date = (datetime.now() + timedelta(days=90)).date().isoformat()
-    current_date = datetime.now().date().isoformat()
-
-    events_res = supabase.table("events_calendar")\
-        .select("event_name, event_date")\
-        .gte("event_date", current_date)\
-        .lte("event_date", event_limit_date).execute()
-
-    events_context = "No major events in the next 90 days."
-
-    if events_res.data:
-        events_context = ", ".join([f"{e['event_name']} on {e['event_date']}" for e in events_res.data])
-
-    # ============================================
-
+    # 2. AI acquisition scorecard
     analysis = deal_analyzer.analyze_deal(
-        product_title=product_title, 
-        product_category="Technology & Electronics",
-        current_price=current_price, 
+        product_title=product_title,
+        product_category=product_category,
+        current_price=current_price,
         average_historical_price=historical_price,
-        buybox_seller=buybox_seller, 
+        buybox_seller=buybox_seller,
         is_fba=buybox_is_fba,
-        upcoming_events=events_context  # Pass events to AI
+        upcoming_events=events_context,
     )
 
-    if analysis.is_profitable:
+    if not analysis.is_profitable:
+        print("🏁 Pipeline execution finished (deal not profitable).")
+        return
 
-        listing_data = listing_generator.generate_willhaben_listing(
-            product_title=product_title, product_category="Technology & Electronics", bought_price=current_price, historical_price=historical_price
+    # 3. Willhaben listing copy and suggested price
+    listing_data = listing_generator.generate_willhaben_listing(
+        product_title=product_title,
+        product_category=product_category,
+        bought_price=current_price,
+        historical_price=historical_price,
+    )
+
+    # 4. "No-Buy" guardrails
+    expected_profit_euro = listing_data.suggested_price - current_price
+    final_status = "pending"
+
+    if analysis.estimated_profit_margin < MIN_PROFIT_MARGIN_PCT or expected_profit_euro < MIN_PROFIT_EUR:
+        final_status = "rejected"
+        print(
+            f"🚫 DEAL REJECTED: Failed No-Buy rules "
+            f"(Margin: {analysis.estimated_profit_margin}%, Profit: €{expected_profit_euro:.2f})"
         )
 
-        # PHASE 12: EXPERT "NO-BUY" GUARDRAILS
-        expected_profit_euro = listing_data.suggested_price - current_price
-        final_status = "pending"
-        
-        # Strict Rule: Reject if ROI/Margin is < 25% OR raw profit is < €15
-        if analysis.estimated_profit_margin < 25 or expected_profit_euro < 15:
-            final_status = "rejected"
-            print(f"🚫 DEAL REJECTED: Failed No-Buy rules (Margin: {analysis.estimated_profit_margin}%, Profit: €{expected_profit_euro:.2f})")
+    # 5. Persistence
+    try:
+        product_res = supabase.table("products").upsert(
+            {
+                "asin": asin,
+                "amazon_locale": AMAZON_LOCALE,
+                "title": product_title,
+                "category": product_category,
+            },
+            on_conflict="asin,amazon_locale",
+        ).execute()
 
-        try:
-            product_res = supabase.table("products").upsert({
-                "asin": asin, "amazon_locale": "DE", "title": product_title, "category": "Technology & Electronics"
-            }, on_conflict="asin,amazon_locale").execute()
-            
-            product_id = product_res.data[0]["id"]
+        product_id = product_res.data[0]["id"]
 
-            history_data = []
-            base_date = datetime.now()
-            for i in range(5, -1, -1):
-                fake_price = historical_price if i > 0 else current_price
-                history_data.append({ "product_id": product_id, "price_amazon": fake_price, "recorded_at": (base_date - timedelta(days=i)).isoformat() })
-            supabase.table("price_history").insert(history_data).execute()
+        supabase.table("price_history").insert(
+            _build_price_history(product_id, current_price, historical_price)
+        ).execute()
 
-            generated_sku = f"GEN-{str(uuid.uuid4())[:6].upper()}"
-            emergency_price = round(listing_data.suggested_price * 0.85, 2)
+        opp_res = supabase.table("opportunities").insert({
+            "product_id": product_id,
+            "buy_price": current_price,
+            "target_sell_price": listing_data.suggested_price,
+            "profit_margin": analysis.estimated_profit_margin,
+            "ai_decision": analysis.reasoning,
+            "status": final_status,
+            "buybox_seller": buybox_seller,
+            "buybox_is_fba": buybox_is_fba,
+            "deal_score": analysis.deal_score,
+            "holding_period_months": analysis.holding_period_months,
+            "seasonality_analysis": analysis.seasonality_analysis,
+            "sku": f"GEN-{str(uuid.uuid4())[:6].upper()}",
+            "emergency_sell_price": round(listing_data.suggested_price * EMERGENCY_PRICE_RATIO, 2),
+            "warehouse_location": DEFAULT_WAREHOUSE_LOCATION,
+            "product_condition": "NEW",
+            "score_breakdown": analysis.breakdown.model_dump(),
+            "willhaben_realistic_price": analysis.willhaben_realistic_price,
+            "purchase_thesis": analysis.purchase_thesis,
+        }).execute()
 
-            # Insert with dynamic final_status (pending or rejected)
-            opp_res = supabase.table("opportunities").insert({
-                "product_id": product_id, 
-                "buy_price": current_price, 
-                "target_sell_price": listing_data.suggested_price,
-                "profit_margin": analysis.estimated_profit_margin, 
-                "ai_decision": analysis.reasoning, 
-                "status": final_status,
-                "buybox_seller": buybox_seller, 
-                "buybox_is_fba": buybox_is_fba,
-                "deal_score": analysis.deal_score,
-                "holding_period_months": analysis.holding_period_months,
-                "seasonality_analysis": analysis.seasonality_analysis,
-                "sku": generated_sku,
-                "emergency_sell_price": emergency_price,
-                "warehouse_location": "A01", 
-                "product_condition": "NEW",
-                "score_breakdown": analysis.breakdown.model_dump(),
-                "willhaben_realistic_price": analysis.willhaben_realistic_price,
-                "purchase_thesis": analysis.purchase_thesis
-            }).execute()
+        supabase.table("generated_listings").insert({
+            "opportunity_id": opp_res.data[0]["id"],
+            "target_platform": "Willhaben",
+            "language": "de",
+            "generated_title": listing_data.generated_title,
+            "generated_description": listing_data.generated_description,
+        }).execute()
 
-            opp_id = opp_res.data[0]["id"]
+        print(f"✅ Successfully saved to Supabase (Status: {final_status})!")
+    except Exception as e:
+        print(f"❌ Supabase Error: {str(e)}")
 
-            supabase.table("generated_listings").insert({
-                "opportunity_id": opp_id, "target_platform": "Willhaben", "language": "de",
-                "generated_title": listing_data.generated_title, "generated_description": listing_data.generated_description
-            }).execute()
-            
-            print(f"✅ Successfully saved to Supabase (Status: {final_status})!")
-        except Exception as e:
-            print(f"❌ Supabase Error: {str(e)}")
-
-        # Send push notification ONLY if the deal score is exceptionally high (>= 80) AND not rejected
-        if analysis.deal_score >= 80 and final_status != "rejected":
-            print(f"🔥 HOT DEAL ({analysis.deal_score}%)! Sending push notification to iPhone...")
-            await notification_service.send_deal_alert(
-                product_title=product_title, 
-                buy_price=current_price, 
-                profit_margin=analysis.estimated_profit_margin, 
-                amazon_url=amazon_url
-            )
-        else:
-            if final_status == "rejected":
-                print("🔕 No notification sent because deal was rejected by No-Buy Guardrails.")
-            else:
-                print(f"ℹ️ Deal score is {analysis.deal_score}%. No push notification sent (must be >= 80).")
+    # 6. Push notification for exceptional deals only
+    if final_status == "rejected":
+        print("🔕 No notification sent because deal was rejected by No-Buy Guardrails.")
+    elif analysis.deal_score >= HOT_DEAL_SCORE_THRESHOLD:
+        print(f"🔥 HOT DEAL ({analysis.deal_score}%)! Sending push notification to iPhone...")
+        await notification_service.send_deal_alert(
+            product_title=product_title,
+            buy_price=current_price,
+            profit_margin=analysis.estimated_profit_margin,
+            amazon_url=amazon_url,
+        )
+    else:
+        print(
+            f"ℹ️ Deal score is {analysis.deal_score}%. No push notification sent "
+            f"(must be >= {HOT_DEAL_SCORE_THRESHOLD})."
+        )
 
     print("🏁 Pipeline execution finished.")
 
+
+# --- Endpoints ------------------------------------------------------------
+
+@router.post("/scan", status_code=202)
+async def scan_asin(request: ScanRequest, background_tasks: BackgroundTasks):
+    """Queue a deal scan for a single ASIN.
+
+    Returns immediately; the pipeline runs in the background. Used by the n8n
+    daily batch workflow and by any external trigger.
+    """
+    asin = request.asin.strip().upper()
+
+    if not asin:
+        raise HTTPException(status_code=422, detail="ASIN must not be empty.")
+
+    background_tasks.add_task(run_deal_scan_pipeline, asin)
+    return {"status": "accepted", "asin": asin, "message": "Deal scan started in the background."}
+
+
 @router.patch("/{opportunity_id}/status")
 async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
-    try:
-        payload = {"status": request.status}
-        
-        if request.status == "sold":
-            payload["sold_at"] = datetime.now().isoformat()
-            
-        if request.product_condition is not None:
-            payload["product_condition"] = request.product_condition
-        if request.is_quarantine is not None:
-            payload["is_quarantine"] = request.is_quarantine
-        if request.target_sell_price is not None:
-            payload["target_sell_price"] = request.target_sell_price
-        if request.purchase_thesis is not None:
-            payload["purchase_thesis"] = request.purchase_thesis
+    """Advance an opportunity through its lifecycle and patch optional fields."""
+    payload: dict = {"status": request.status}
 
+    if request.status == "sold":
+        payload["sold_at"] = datetime.now().isoformat()
+
+    optional_fields = {
+        "product_condition": request.product_condition,
+        "is_quarantine": request.is_quarantine,
+        "target_sell_price": request.target_sell_price,
+        "purchase_thesis": request.purchase_thesis,
+    }
+    payload.update({key: value for key, value in optional_fields.items() if value is not None})
+
+    try:
         res = supabase.table("opportunities").update(payload).eq("id", opportunity_id).execute()
-        return {"status": "success", "data": res.data[0]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
+
+    return {"status": "success", "data": res.data[0]}

@@ -1,4 +1,5 @@
-version: '3.8'
+# Local n8n automation engine.
+# Imports n8n/Vindera_Daily_Scan.json, which triggers POST /api/v1/deals/scan.
 
 services:
   n8n:

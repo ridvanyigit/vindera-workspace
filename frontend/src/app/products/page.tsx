@@ -1,5 +1,7 @@
 'use client';
 
+/** Product Master — searchable table with drag-resizable columns and CSV export. */
+
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
@@ -42,7 +44,13 @@ export default function ProductMaster() {
   const [startX, setStartX] = useState(0);
   const [startWidth, setStartWidth] = useState(0);
 
-  useEffect(() => { fetchOpportunities(); }, []);
+  useEffect(() => {
+    // Protected route: RLS now requires an authenticated session for every read.
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) router.push('/login');
+      else fetchOpportunities();
+    });
+  }, [router]);
 
   const fetchOpportunities = async () => {
     setLoading(true);
@@ -103,7 +111,9 @@ export default function ProductMaster() {
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-amber-50 text-amber-700 border-amber-200';
-      case 'inventory': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'bought': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+      case 'in_inventory': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'listed': return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'sold': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'rejected': return 'bg-red-50 text-red-700 border-red-200';
       default: return 'bg-gray-50 text-gray-600 border-gray-200';
@@ -304,7 +314,7 @@ export default function ProductMaster() {
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle" style={{ width: widths.status, minWidth: widths.status }}>
                         <span className={`inline-flex rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] ${getStatusStyle(item.status)}`}>
-                          {item.status}
+                          {item.status?.replace('_', ' ')}
                         </span>
                       </td>
 
