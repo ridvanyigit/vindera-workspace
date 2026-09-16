@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, Box, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, Settings, ClipboardCheck, X } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -11,33 +11,13 @@ import { differenceInDays } from 'date-fns';
 
 interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
-
-interface ScoreBreakdown {
-  discount: number;
-  demand: number;
-  competition: number;
-  capital_efficiency: number;
-  storage_size: number;
-  risk_level: number;
-  seasonality: number;
-}
+interface ScoreBreakdown { discount: number; demand: number; competition: number; capital_efficiency: number; storage_size: number; risk_level: number; seasonality: number; }
 
 interface Opportunity {
   id: string; buy_price: number; target_sell_price: number; profit_margin: number; ai_decision: string; status: string;
-  buybox_seller: string; buybox_is_fba: boolean;
-  deal_score?: number; 
-  holding_period_months?: number; 
-  seasonality_analysis?: string;
-  sku?: string;
-  emergency_sell_price?: number;
-  warehouse_location?: string;
-  product_condition?: string;
-  days_in_inventory?: number;
-  is_quarantine?: boolean;
-  score_breakdown?: ScoreBreakdown;
-  willhaben_realistic_price?: number;
-  purchase_thesis?: string;  
-  created_at: string; 
+  buybox_seller: string; buybox_is_fba: boolean; deal_score?: number; holding_period_months?: number; seasonality_analysis?: string;
+  sku?: string; emergency_sell_price?: number; warehouse_location?: string; product_condition?: string; days_in_inventory?: number;
+  is_quarantine?: boolean; score_breakdown?: ScoreBreakdown; willhaben_realistic_price?: number; purchase_thesis?: string; created_at: string;
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
@@ -54,15 +34,22 @@ export default function Dashboard() {
   const [selectedDeal, setSelectedDeal] = useState<Opportunity | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Layout resize keys
   const [mainHorizontalKey, setMainHorizontalKey] = useState(0);
   const [leftVerticalKey, setLeftVerticalKey] = useState(0);
   const [centerVerticalKey, setCenterVerticalKey] = useState(0);
   const [rightVerticalKey, setRightVerticalKey] = useState(0);
-
   const resetMainHorizontal = () => setMainHorizontalKey(k => k + 1);
   const resetLeftVertical = () => setLeftVerticalKey(k => k + 1);
   const resetCenterVertical = () => setCenterVerticalKey(k => k + 1);
   const resetRightVertical = () => setRightVerticalKey(k => k + 1);
+
+  // ==========================================
+  // INVENTORY CHECKLIST MODAL STATES
+  // ==========================================
+  const [inventoryModalDeal, setInventoryModalDeal] = useState<Opportunity | null>(null);
+  const [checks, setChecks] = useState({ model: false, packaging: false, accessories: false, power: false });
+  const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -116,14 +103,36 @@ export default function Dashboard() {
     setLoading(false);
   };
 
-  const updateStatus = async (id: string, newStatus: string) => {
+  // Enhanced updateStatus to accept condition and quarantine flags
+  const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean) => {
     try {
+      const payload: any = { status: newStatus };
+      if (condition) payload.product_condition = condition;
+      if (isQuarantine !== undefined) payload.is_quarantine = isQuarantine;
+
       const res = await fetch(`http://localhost:8000/api/v1/deals/${id}/status`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(payload)
       });
-      if (res.ok) fetchOpportunities();
+      if (res.ok) fetchOpportunities(); // Realtime will also trigger, but manual fetch ensures UI sync
     } catch (error) { console.error(error); }
+  };
+
+  // Handler for the Quarantine/Receiving check
+  const handleInventorySubmit = (action: 'approve' | 'quarantine') => {
+    if (!inventoryModalDeal) return;
+    
+    if (action === 'approve') {
+      // Passes all checks: Mark as NEW and in inventory
+      updateStatus(inventoryModalDeal.id, 'in_inventory', 'NEW', false);
+    } else {
+      // Failed check: Mark as DAMAGED/REVIEW and place in quarantine
+      updateStatus(inventoryModalDeal.id, 'in_inventory', 'REVIEW NEEDED', true);
+    }
+    
+    // Close modal and reset checks
+    setInventoryModalDeal(null);
+    setChecks({ model: false, packaging: false, accessories: false, power: false });
   };
 
   const copyToClipboard = (text: string, id: string) => {
@@ -430,8 +439,27 @@ export default function Dashboard() {
                       <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Action Pipeline</h3>
                       <div className="flex flex-wrap gap-3">
                         {selectedDeal.status === 'pending' && <><a href={`https://amazon.de/dp/${selectedDeal.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-3 rounded-xl text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-5 w-5" /> Buy on Amazon</a><button onClick={() => updateStatus(selectedDeal.id, 'bought')} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-5 w-5" /></button></>}
-                        {selectedDeal.status === 'bought' && <button onClick={() => updateStatus(selectedDeal.id, 'in_inventory')} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><Box className="h-5 w-5" /> Arrived (Add to Inventory)</button>}
-                        {selectedDeal.status === 'in_inventory' && <button onClick={() => updateStatus(selectedDeal.id, 'listed')} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>}
+                        
+                        {/* Modified: Open Quality Check Modal instead of direct update */}
+                        {selectedDeal.status === 'bought' && (
+                          <button onClick={() => setInventoryModalDeal(selectedDeal)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">
+                            <ClipboardCheck className="h-5 w-5" /> Receive & Check Quality
+                          </button>
+                        )}
+                        
+                        {/* Modified: Differentiate between healthy inventory and quarantine */}
+                        {selectedDeal.status === 'in_inventory' && !selectedDeal.is_quarantine && (
+                          <button onClick={() => updateStatus(selectedDeal.id, 'listed')} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>
+                        )}
+                        
+                        {selectedDeal.status === 'in_inventory' && selectedDeal.is_quarantine && (
+                          <div className="flex-1 bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2">
+                            <ShieldAlert className="h-5 w-5" /> In Quarantine (Review Needed)
+                            {/* Option to clear quarantine manually */}
+                            <button onClick={() => updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', false)} className="ml-2 underline text-xs hover:text-red-900">Resolve</button>
+                          </div>
+                        )}
+                        
                         {selectedDeal.status === 'listed' && <button onClick={() => updateStatus(selectedDeal.id, 'sold')} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold! (Claim Profit)</button>}
                         {selectedDeal.status === 'sold' && <div className="flex-1 bg-green-50 text-green-700 border border-green-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Deal Successfully Closed</div>}
                       </div>
@@ -520,6 +548,63 @@ export default function Dashboard() {
 
         </Group>
       </div>
+
+    {/* ========================================== */}
+      {/* INVENTORY RECEIVING & QUARANTINE MODAL */}
+      {/* ========================================== */}
+      {inventoryModalDeal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2"><ClipboardCheck className="h-5 w-5 text-indigo-600"/> Receiving Checklist</h3>
+              <button onClick={() => { setInventoryModalDeal(null); setChecks({ model: false, packaging: false, accessories: false, power: false }); }} className="text-gray-400 hover:text-gray-700 transition">
+                <X className="h-5 w-5"/>
+              </button>
+            </div>
+            <div className="p-5 flex flex-col gap-4">
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Before adding <strong>{inventoryModalDeal.products?.title}</strong> to active inventory, perform the mandatory physical checks.
+              </p>
+              
+              <div className="flex flex-col gap-3 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={checks.model} onChange={e => setChecks({...checks, model: e.target.checked})} className="w-4 h-4 text-indigo-600 rounded border-gray-300" />
+                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Verify Model & Serial Number match</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={checks.packaging} onChange={e => setChecks({...checks, packaging: e.target.checked})} className="w-4 h-4 text-indigo-600 rounded border-gray-300" />
+                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Check for packaging damage / seals</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={checks.accessories} onChange={e => setChecks({...checks, accessories: e.target.checked})} className="w-4 h-4 text-indigo-600 rounded border-gray-300" />
+                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Verify all accessories are included</span>
+                </label>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input type="checkbox" checked={checks.power} onChange={e => setChecks({...checks, power: e.target.checked})} className="w-4 h-4 text-indigo-600 rounded border-gray-300" />
+                  <span className="text-sm font-medium text-gray-700 group-hover:text-gray-900">Power on / Functional test (if applicable)</span>
+                </label>
+              </div>
+
+              <div className="flex gap-3 mt-2">
+                <button 
+                  onClick={() => handleInventorySubmit('quarantine')}
+                  className="flex-1 py-2.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-bold hover:bg-red-100 transition"
+                >
+                  Fail (Quarantine)
+                </button>
+                <button 
+                  disabled={!allChecked}
+                  onClick={() => handleInventorySubmit('approve')}
+                  className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:bg-indigo-300 transition"
+                >
+                  Approve (Add)
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -17,6 +17,8 @@ class ScanRequest(BaseModel):
 
 class StatusUpdateRequest(BaseModel):
     status: str
+    product_condition: str | None = None
+    is_quarantine: bool | None = None
 
 async def run_deal_scan_pipeline(asin: str):
     print(f"🚀 Starting Amazon Deal Scan Pipeline for ASIN: {asin}...")
@@ -160,7 +162,14 @@ async def trigger_deal_scan(request: ScanRequest, background_tasks: BackgroundTa
 @router.patch("/{opportunity_id}/status")
 async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
     try:
-        res = supabase.table("opportunities").update({"status": request.status}).eq("id", opportunity_id).execute()
+        # Build dynamic update payload based on provided fields
+        payload = {"status": request.status}
+        if request.product_condition is not None:
+            payload["product_condition"] = request.product_condition
+        if request.is_quarantine is not None:
+            payload["is_quarantine"] = request.is_quarantine
+
+        res = supabase.table("opportunities").update(payload).eq("id", opportunity_id).execute()
         return {"status": "success", "data": res.data[0]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
