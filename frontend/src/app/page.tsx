@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { apiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen, Pencil } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
@@ -349,6 +349,13 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 mb-2">
                         <span className="px-2 py-1 bg-gray-100 text-gray-600 text-[10px] font-bold uppercase rounded">{selectedDeal.products?.category}</span>
                         <span className={`px-2 py-1 text-[10px] font-bold uppercase rounded ${selectedDeal.status === 'rejected' ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'}`}>{selectedDeal.status.replace('_', ' ')}</span>
+                        <button
+                          onClick={() => router.push(`/manual-entry?id=${selectedDeal.id}`)}
+                          title="Edit every field of this deal, or delete it"
+                          className="ml-auto flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[12px] font-medium text-gray-600 transition hover:border-indigo-300 hover:text-indigo-600"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Edit
+                        </button>
                       </div>
                       <h2 className="type-page-title text-gray-900">{selectedDeal.products?.title}</h2>
                       

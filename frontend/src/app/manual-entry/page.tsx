@@ -1,13 +1,17 @@
 'use client';
 
 /**
- * Manual Entry — create a complete opportunity by hand, without Keepa or OpenAI.
+ * Manual Entry — create or edit a complete opportunity by hand, without Keepa
+ * or OpenAI.
+ *
+ * Visiting /manual-entry opens a blank form. Visiting /manual-entry?id=<uuid>
+ * loads that opportunity and switches the page into edit mode.
  *
  * Every field the workspace, product master and reports read is available here,
  * so a manually entered deal renders exactly like a scanned one.
  *
- * Writes go through POST /api/v1/deals/manual (service role) because RLS only
- * grants the browser SELECT on these tables — see
+ * Writes go through the backend (service role) because RLS only grants the
+ * browser SELECT on these tables — see
  * supabase/migrations/20260916140000_enable_rls_policies.sql
  */
 
@@ -17,7 +21,7 @@ import { apiUrl } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import {
   Package, LogOut, HelpCircle, Save, RefreshCw, RotateCcw, CheckCircle, XCircle,
-  Barcode, Euro, Activity, MapPin, FileText, ShoppingCart,
+  Barcode, Euro, Activity, MapPin, FileText, ShoppingCart, Trash2,
 } from 'lucide-react';
 import { PRODUCT_CATEGORIES, STATUS_OPTIONS, CONDITION_OPTIONS, SCORE_CRITERIA } from '@/lib/constants';
 
@@ -35,6 +39,8 @@ interface FormState {
   target_sell_price: string;
   emergency_sell_price: string;
   willhaben_realistic_price: string;
+  amazon_price_today: string;
+  amazon_price_90d_avg: string;
   status: string;
   product_condition: string;
   warehouse_location: string;
@@ -65,6 +71,8 @@ const EMPTY_FORM: FormState = {
   target_sell_price: '',
   emergency_sell_price: '',
   willhaben_realistic_price: '',
+  amazon_price_today: '',
+  amazon_price_90d_avg: '',
   status: 'pending',
   product_condition: 'NEW',
   warehouse_location: 'A01',
@@ -82,6 +90,9 @@ const EMPTY_FORM: FormState = {
 };
 
 const generateSku = () => `GEN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+
+/** Written by the backend when no analysis notes were supplied. */
+const DEFAULT_AI_DECISION = 'Manually entered deal. No automated analysis was performed.';
 
 const INPUT_CLASS =
   'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-[14px] text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50';
@@ -130,21 +141,86 @@ const Section = ({ icon, title, description, children }: {
 export default function ManualEntry() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [scores, setScores] = useState<ScoreBreakdown>(EMPTY_SCORES);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Read from location rather than useSearchParams: no Suspense boundary needed.
+    const id = new URLSearchParams(window.location.search).get('id');
+
     // Protected route, same guard as every other page.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) router.push('/login');
-      else {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) {
+        router.push('/login');
+        return;
+      }
+
+      if (!id) {
         // Generated after mount to avoid a server/client hydration mismatch.
         setForm(current => ({ ...current, sku: generateSku() }));
         setReady(true);
+        return;
       }
+
+      const { data, error: loadError } = await supabase
+        .from('opportunities')
+        .select(`
+          id, buy_price, target_sell_price, emergency_sell_price, willhaben_realistic_price,
+          deal_score, holding_period_months, seasonality_analysis, sku, warehouse_location,
+          product_condition, is_quarantine, score_breakdown, purchase_thesis, ai_decision,
+          status, buybox_seller, buybox_is_fba,
+          products ( asin, title, category, image_url ),
+          generated_listings ( generated_title, generated_description )
+        `)
+        .eq('id', id)
+        .single();
+
+      if (loadError || !data) {
+        setError('Could not load that deal. It may have been deleted.');
+        setForm(current => ({ ...current, sku: generateSku() }));
+        setReady(true);
+        return;
+      }
+
+      const deal = data as any;
+      const product = deal.products || {};
+      const listing = deal.generated_listings?.[0] || {};
+
+      setEditingId(id);
+      setForm({
+        asin: product.asin || '',
+        title: product.title || '',
+        category: product.category || PRODUCT_CATEGORIES[0].value,
+        image_url: product.image_url || '',
+        buy_price: String(deal.buy_price ?? ''),
+        target_sell_price: String(deal.target_sell_price ?? ''),
+        emergency_sell_price: String(deal.emergency_sell_price ?? ''),
+        willhaben_realistic_price: String(deal.willhaben_realistic_price ?? ''),
+        // Not stored on the opportunity; left blank so existing price history is kept.
+        amazon_price_today: '',
+        amazon_price_90d_avg: '',
+        status: deal.status || 'pending',
+        product_condition: deal.product_condition || 'NEW',
+        warehouse_location: deal.warehouse_location || 'A01',
+        is_quarantine: Boolean(deal.is_quarantine),
+        sku: deal.sku || generateSku(),
+        buybox_seller: deal.buybox_seller || 'Manual',
+        buybox_is_fba: Boolean(deal.buybox_is_fba),
+        deal_score: String(deal.deal_score ?? 85),
+        holding_period_months: String(deal.holding_period_months ?? 2),
+        ai_decision: deal.ai_decision === DEFAULT_AI_DECISION ? '' : (deal.ai_decision || ''),
+        purchase_thesis: deal.purchase_thesis || '',
+        seasonality_analysis: deal.seasonality_analysis || '',
+        listing_title: listing.generated_title || '',
+        listing_description: listing.generated_description || '',
+      });
+      if (deal.score_breakdown) setScores({ ...EMPTY_SCORES, ...deal.score_breakdown });
+      setReady(true);
     });
   }, [router]);
 
@@ -158,6 +234,12 @@ export default function ManualEntry() {
   const grossProfit = targetPrice - buyPrice;
   const profitMargin = buyPrice > 0 ? (grossProfit / buyPrice) * 100 : 0;
   const autoEmergencyPrice = targetPrice > 0 ? targetPrice * 0.85 : 0;
+
+  const amazonToday = Number(form.amazon_price_today) || 0;
+  const amazon90Avg = Number(form.amazon_price_90d_avg) || 0;
+  const discountPct = amazon90Avg > 0 && amazonToday > 0
+    ? ((amazon90Avg - amazonToday) / amazon90Avg) * 100
+    : null;
 
   // Mirrors the backend No-Buy Guardrails so the verdict is visible before saving.
   const passesGuardrails = profitMargin >= 25 && grossProfit >= 15;
@@ -193,36 +275,43 @@ export default function ManualEntry() {
 
     setSaving(true);
 
+    const body = {
+      asin: form.asin.trim().toUpperCase(),
+      title: form.title.trim(),
+      category: form.category,
+      image_url: form.image_url.trim() || null,
+      buy_price: buyPrice,
+      target_sell_price: targetPrice,
+      emergency_sell_price: form.emergency_sell_price ? Number(form.emergency_sell_price) : null,
+      willhaben_realistic_price: form.willhaben_realistic_price ? Number(form.willhaben_realistic_price) : null,
+      amazon_price_today: amazonToday || null,
+      amazon_price_90d_avg: amazon90Avg || null,
+      status: form.status,
+      product_condition: form.product_condition,
+      warehouse_location: form.warehouse_location.trim() || 'A01',
+      is_quarantine: form.is_quarantine,
+      sku: form.sku.trim() || null,
+      buybox_seller: form.buybox_seller.trim() || 'Manual',
+      buybox_is_fba: form.buybox_is_fba,
+      deal_score: Number(form.deal_score) || 0,
+      holding_period_months: Number(form.holding_period_months) || 0,
+      ai_decision: form.ai_decision.trim() || null,
+      purchase_thesis: form.purchase_thesis.trim() || null,
+      seasonality_analysis: form.seasonality_analysis.trim() || null,
+      score_breakdown: scores,
+      listing_title: form.listing_title.trim(),
+      listing_description: form.listing_description.trim(),
+    };
+
     try {
-      const res = await fetch(apiUrl('/deals/manual'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asin: form.asin.trim().toUpperCase(),
-          title: form.title.trim(),
-          category: form.category,
-          image_url: form.image_url.trim() || null,
-          buy_price: buyPrice,
-          target_sell_price: targetPrice,
-          emergency_sell_price: form.emergency_sell_price ? Number(form.emergency_sell_price) : null,
-          willhaben_realistic_price: form.willhaben_realistic_price ? Number(form.willhaben_realistic_price) : null,
-          status: form.status,
-          product_condition: form.product_condition,
-          warehouse_location: form.warehouse_location.trim() || 'A01',
-          is_quarantine: form.is_quarantine,
-          sku: form.sku.trim() || null,
-          buybox_seller: form.buybox_seller.trim() || 'Manual',
-          buybox_is_fba: form.buybox_is_fba,
-          deal_score: Number(form.deal_score) || 0,
-          holding_period_months: Number(form.holding_period_months) || 0,
-          ai_decision: form.ai_decision.trim() || null,
-          purchase_thesis: form.purchase_thesis.trim() || null,
-          seasonality_analysis: form.seasonality_analysis.trim() || null,
-          score_breakdown: scores,
-          listing_title: form.listing_title.trim(),
-          listing_description: form.listing_description.trim(),
-        }),
-      });
+      const res = await fetch(
+        editingId ? apiUrl(`/deals/${editingId}/manual`) : apiUrl('/deals/manual'),
+        {
+          method: editingId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
 
       const payload = await res.json().catch(() => ({}));
 
@@ -230,14 +319,37 @@ export default function ManualEntry() {
         throw new Error(payload?.detail || `Request failed with status ${res.status}.`);
       }
 
-      setSuccess(`Deal successfully saved! SKU ${payload.sku} — check your Workspace.`);
-      resetForm();
+      if (editingId) {
+        setSuccess(`Deal updated! SKU ${payload.sku} — margin recalculated to ${payload.profit_margin}%.`);
+      } else {
+        setSuccess(`Deal successfully saved! SKU ${payload.sku} — check your Workspace.`);
+        resetForm();
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err: any) {
       setError(err?.message || 'Could not reach the backend. Is it running on port 8000?');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editingId) return;
+    if (!window.confirm(`Delete "${form.title}" permanently? The product's price history is kept, everything else about this deal is removed.`)) return;
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(apiUrl(`/deals/${editingId}`), { method: 'DELETE' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.detail || `Request failed with status ${res.status}.`);
+      router.push('/');
+    } catch (err: any) {
+      setError(err?.message || 'Could not delete the deal.');
+      setDeleting(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
@@ -268,7 +380,7 @@ export default function ManualEntry() {
             <div className="hidden items-center gap-1 md:flex">
               <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
               <button onClick={() => router.push('/products')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Product Master</button>
-              <button onClick={() => router.push('/manual-entry')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">Manual Entry</button>
+              <button onClick={() => router.push('/manual-entry')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">{editingId ? 'Edit Deal' : 'Manual Entry'}</button>
               <button onClick={() => router.push('/reports')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Tax & Reports</button>
             </div>
           </div>
@@ -289,10 +401,19 @@ export default function ManualEntry() {
       <main className="mx-auto w-full max-w-4xl flex-1 p-8">
 
         <div className="mb-6">
-          <h1 className="type-page-title text-gray-900">Manual Entry</h1>
+          <h1 className="type-page-title text-gray-900">{editingId ? 'Edit Deal' : 'Manual Entry'}</h1>
           <p className="mt-1 text-[13px] text-gray-500">
-            Add an arbitrage opportunity by hand — no Keepa credits, no OpenAI calls. Hover any{' '}
-            <HelpCircle className="inline h-3.5 w-3.5 -translate-y-px text-gray-400" /> for guidance on where to find the value.
+            {editingId ? (
+              <>
+                Correcting an existing deal. Leave the two Amazon reference prices empty to keep the stored price history{' '}
+                untouched — filling them in replaces it.
+              </>
+            ) : (
+              <>
+                Add an arbitrage opportunity by hand — no Keepa credits, no OpenAI calls. Hover any{' '}
+                <HelpCircle className="inline h-3.5 w-3.5 -translate-y-px text-gray-400" /> for guidance on where to find the value.
+              </>
+            )}
           </p>
         </div>
 
@@ -448,6 +569,32 @@ export default function ManualEntry() {
                   className={`${INPUT_CLASS} tabular-nums`}
                 />
               </Field>
+
+              <Field
+                label="Amazon Price Today (€)"
+                hint="The price Amazon shows right now on the product page. Together with the 90-day average this becomes the real price history chart in the workspace."
+              >
+                <input
+                  type="number" step="0.01" min="0" inputMode="decimal"
+                  value={form.amazon_price_today}
+                  onChange={e => set('amazon_price_today', e.target.value)}
+                  placeholder="Usually the same as your buy price"
+                  className={`${INPUT_CLASS} tabular-nums`}
+                />
+              </Field>
+
+              <Field
+                label="Amazon 90-Day Average (€)"
+                hint="What this normally costs on Amazon. Without Keepa, use the crossed-out list price, or check camelcamelcamel.com / the price history shown by the Keepa browser extension (free for viewing)."
+              >
+                <input
+                  type="number" step="0.01" min="0" inputMode="decimal"
+                  value={form.amazon_price_90d_avg}
+                  onChange={e => set('amazon_price_90d_avg', e.target.value)}
+                  placeholder="Its normal, non-discounted price"
+                  className={`${INPUT_CLASS} tabular-nums`}
+                />
+              </Field>
             </div>
 
             {buyPrice > 0 && targetPrice > 0 && (
@@ -464,6 +611,14 @@ export default function ManualEntry() {
                   <span className="type-label text-gray-500">Margin</span>
                   <span className="text-[15px] font-semibold tabular-nums text-gray-900">{profitMargin.toFixed(1)}%</span>
                 </div>
+                {discountPct !== null && (
+                  <div className="flex items-center gap-2">
+                    <span className="type-label text-gray-500">Amazon Discount</span>
+                    <span className={`text-[15px] font-semibold tabular-nums ${discountPct >= 25 ? 'text-emerald-700' : 'text-gray-900'}`}>
+                      {discountPct.toFixed(1)}%
+                    </span>
+                  </div>
+                )}
                 <div className="flex-1" />
                 <span
                   title="The scan pipeline rejects deals below 25% margin or under €15 raw profit. This preview applies the same rule — nothing is blocked, you can still save it."
@@ -735,21 +890,32 @@ export default function ManualEntry() {
               Fields marked <span className="text-red-500">*</span> are required. Everything else has a sensible default.
             </p>
             <div className="flex gap-3">
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={saving || deleting}
+                  className="flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-white px-4 text-[14px] font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                >
+                  {deleting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={resetForm}
-                disabled={saving}
+                onClick={editingId ? () => router.push('/') : resetForm}
+                disabled={saving || deleting}
                 className="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-[14px] font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
               >
-                Clear
+                {editingId ? 'Cancel' : 'Clear'}
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || deleting}
                 className="flex h-10 items-center gap-2 rounded-lg bg-indigo-600 px-5 text-[14px] font-semibold text-white transition hover:bg-indigo-700 disabled:bg-indigo-300"
               >
                 {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {saving ? 'Saving...' : 'Save Deal to Workspace'}
+                {saving ? 'Saving...' : editingId ? 'Update Deal' : 'Save Deal to Workspace'}
               </button>
             </div>
           </div>

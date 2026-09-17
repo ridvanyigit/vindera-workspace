@@ -272,6 +272,8 @@ Frontend additionally uses `frontend/.env.local` with `NEXT_PUBLIC_SUPABASE_URL`
 | `POST` | `/api/v1/chat/` | Dispatches a message to `ChatbotAgent` |
 | `POST` | `/api/v1/deals/scan` | Queues a background deal scan for one ASIN. Returns `202 Accepted` immediately. Used by the n8n daily batch |
 | `POST` | `/api/v1/deals/manual` | Persists a hand-entered deal (`products` → `opportunities` → `generated_listings`) through the service role. Returns `201` with the generated SKU and computed margin |
+| `PUT` | `/api/v1/deals/{opportunity_id}/manual` | Replaces every editable field of an existing deal across all three tables. Stamps or clears `sold_at` as the status changes |
+| `DELETE` | `/api/v1/deals/{opportunity_id}` | Deletes one opportunity and its generated listing. The `products` row and its price history are kept |
 | `PATCH` | `/api/v1/deals/{opportunity_id}/status` | Updates lifecycle status and optional fields (`product_condition`, `is_quarantine`, `target_sell_price`, `purchase_thesis`); stamps `sold_at` when status becomes `sold`; returns `404` for an unknown id |
 
 > The scan pipeline is also reachable from the workspace terminal via `/scan <ASIN>`.
@@ -477,6 +479,8 @@ A full-width form for entering a deal by hand when Keepa or OpenAI credits are u
 - **Live preview:** gross profit and margin update as you type, with a badge mirroring the backend's No-Buy Guardrails (>= 25% margin AND >= €15 profit). It is informational — manual entries are never blocked.
 - **Defaults:** SKU is auto-generated (regenerable), emergency price falls back to 85% of the target, realistic Willhaben price falls back to the target, and `profit_margin` is always recomputed server-side from the two prices.
 - **Persistence:** `POST /api/v1/deals/manual`. The browser cannot write directly — RLS grants it `SELECT` only.
+- **Edit mode:** `/manual-entry?id=<opportunity_id>` loads an existing deal into the same form. Reached from the **Edit** button in the workspace deal inspector, or by clicking any row in the Product Master. Saving issues `PUT .../manual`; a **Delete** button issues `DELETE`. The two Amazon reference prices stay blank on load so the stored price history is preserved unless you deliberately re-enter them.
+- **Price history:** filling in *Amazon Price Today* and *Amazon 90-Day Average* writes two real `price_history` rows (today, and 90 days back), which the workspace chart prefers over its sample curve.
 - **Shared vocabulary:** categories, statuses, conditions and score criteria come from `src/lib/constants.ts`, which the workspace filter also uses.
 
 ---

@@ -295,7 +295,12 @@ export default function ProductMaster() {
                   const age = differenceInDays(new Date(), new Date(item.created_at));
 
                   return (
-                    <tr key={item.id} className="group transition-colors hover:bg-gray-50/80">
+                    <tr
+                      key={item.id}
+                      onClick={() => router.push(`/manual-entry?id=${item.id}`)}
+                      title="Open this deal in the editor"
+                      className="group cursor-pointer transition-colors hover:bg-gray-50/80"
+                    >
 
                       <td className="border-r border-gray-100 px-4 py-4 align-middle" style={{ width: widths.sku, minWidth: widths.sku }}>
                         <span className="block truncate font-mono text-[12px] font-medium text-gray-600">

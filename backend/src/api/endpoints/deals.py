@@ -317,6 +317,12 @@ class ManualDealRequest(BaseModel):
     emergency_sell_price: float | None = None
     willhaben_realistic_price: float | None = None
 
+    # Optional Amazon reference points. When both are supplied they are written
+    # to price_history so the workspace chart shows a real slope instead of the
+    # deterministic sample curve.
+    amazon_price_today: float | None = None
+    amazon_price_90d_avg: float | None = None
+
     # Lifecycle
     status: str = "pending"
     product_condition: str = "NEW"
@@ -376,6 +382,25 @@ async def create_manual_deal(request: ManualDealRequest):
         ).execute()
         product_id = product_res.data[0]["id"]
 
+        # Two honest data points, when supplied: Amazon's price today and its
+        # 90-day average dated 90 days back. Nothing is invented in between, and
+        # the workspace chart prefers these over its sample curve.
+        if request.amazon_price_today and request.amazon_price_90d_avg:
+            now = datetime.now()
+            supabase.table("price_history").insert([
+                {
+                    "product_id": product_id,
+                    "price_amazon": request.amazon_price_90d_avg,
+                    "recorded_at": (now - timedelta(days=90)).isoformat(),
+                },
+                {
+                    "product_id": product_id,
+                    "price_amazon": request.amazon_price_today,
+                    "recorded_at": now.isoformat(),
+                    "is_deal": request.amazon_price_today < request.amazon_price_90d_avg,
+                },
+            ]).execute()
+
         opp_payload = {
             "product_id": product_id,
             "buy_price": request.buy_price,
@@ -425,3 +450,146 @@ async def create_manual_deal(request: ManualDealRequest):
         "sku": sku,
         "profit_margin": profit_margin,
     }
+
+
+@router.put("/{opportunity_id}/manual")
+async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
+    """Replace every editable field of an existing opportunity.
+
+    Updates the linked `products` row, the `opportunities` row and its
+    `generated_listings` row in one call. `sold_at` is stamped when the deal
+    moves into `sold` and cleared when it moves back out.
+
+    Price history is only touched when BOTH Amazon reference prices are
+    supplied: in that case the product's existing history is replaced by the
+    two new data points. Leave them empty to keep the stored history intact.
+    """
+    asin = request.asin.strip().upper()
+
+    if not asin:
+        raise HTTPException(status_code=422, detail="ASIN must not be empty.")
+    if request.buy_price <= 0 or request.target_sell_price <= 0:
+        raise HTTPException(status_code=422, detail="Prices must be greater than zero.")
+
+    existing_res = supabase.table("opportunities").select(
+        "id, product_id, sold_at"
+    ).eq("id", opportunity_id).execute()
+
+    if not existing_res.data:
+        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
+
+    existing = existing_res.data[0]
+    product_id = existing["product_id"]
+
+    profit_margin = round(((request.target_sell_price - request.buy_price) / request.buy_price) * 100, 2)
+    emergency_price = request.emergency_sell_price or round(request.target_sell_price * EMERGENCY_PRICE_RATIO, 2)
+    sku = (request.sku or "").strip() or f"GEN-{str(uuid.uuid4())[:6].upper()}"
+
+    try:
+        product_payload = {
+            "asin": asin,
+            "amazon_locale": AMAZON_LOCALE,
+            "title": request.title.strip(),
+            "category": request.category,
+            "image_url": request.image_url.strip() if request.image_url else None,
+        }
+        supabase.table("products").update(product_payload).eq("id", product_id).execute()
+
+        if request.amazon_price_today and request.amazon_price_90d_avg:
+            now = datetime.now()
+            supabase.table("price_history").delete().eq("product_id", product_id).execute()
+            supabase.table("price_history").insert([
+                {
+                    "product_id": product_id,
+                    "price_amazon": request.amazon_price_90d_avg,
+                    "recorded_at": (now - timedelta(days=90)).isoformat(),
+                },
+                {
+                    "product_id": product_id,
+                    "price_amazon": request.amazon_price_today,
+                    "recorded_at": now.isoformat(),
+                    "is_deal": request.amazon_price_today < request.amazon_price_90d_avg,
+                },
+            ]).execute()
+
+        opp_payload = {
+            "buy_price": request.buy_price,
+            "target_sell_price": request.target_sell_price,
+            "emergency_sell_price": emergency_price,
+            "willhaben_realistic_price": request.willhaben_realistic_price or request.target_sell_price,
+            "profit_margin": profit_margin,
+            "ai_decision": request.ai_decision or "Manually entered deal. No automated analysis was performed.",
+            "status": request.status,
+            "buybox_seller": request.buybox_seller,
+            "buybox_is_fba": request.buybox_is_fba,
+            "deal_score": request.deal_score,
+            "holding_period_months": request.holding_period_months,
+            "seasonality_analysis": request.seasonality_analysis,
+            "sku": sku,
+            "warehouse_location": request.warehouse_location,
+            "product_condition": request.product_condition,
+            "is_quarantine": request.is_quarantine,
+            "score_breakdown": request.score_breakdown.model_dump(),
+            "purchase_thesis": request.purchase_thesis,
+        }
+
+        if request.status == "sold":
+            opp_payload["sold_at"] = existing.get("sold_at") or datetime.now().isoformat()
+        else:
+            opp_payload["sold_at"] = None
+
+        supabase.table("opportunities").update(opp_payload).eq("id", opportunity_id).execute()
+
+        listing_payload = {
+            "generated_title": request.listing_title.strip(),
+            "generated_description": request.listing_description.strip(),
+        }
+        listing_res = supabase.table("generated_listings").select("id").eq(
+            "opportunity_id", opportunity_id
+        ).execute()
+
+        if listing_res.data:
+            supabase.table("generated_listings").update(listing_payload).eq(
+                "id", listing_res.data[0]["id"]
+            ).execute()
+        else:
+            supabase.table("generated_listings").insert({
+                **listing_payload,
+                "opportunity_id": opportunity_id,
+                "target_platform": "Willhaben",
+                "language": "de",
+            }).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Manual deal update error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    print(f"✏️ Manual deal updated for ASIN {asin} (SKU {sku}, status {request.status}).")
+    return {
+        "status": "success",
+        "opportunity_id": opportunity_id,
+        "product_id": product_id,
+        "sku": sku,
+        "profit_margin": profit_margin,
+    }
+
+
+@router.delete("/{opportunity_id}")
+async def delete_opportunity(opportunity_id: str):
+    """Delete one opportunity and its generated listing (cascade).
+
+    The `products` row is intentionally kept: it carries the price history and
+    can be reused if the same ASIN is entered again. Products with no remaining
+    opportunities are invisible in the UI.
+    """
+    try:
+        res = supabase.table("opportunities").delete().eq("id", opportunity_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
+
+    print(f"🗑️ Opportunity {opportunity_id} deleted.")
+    return {"status": "success", "deleted_id": opportunity_id}
