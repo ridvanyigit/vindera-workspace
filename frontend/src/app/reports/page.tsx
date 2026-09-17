@@ -84,6 +84,7 @@ export default function TaxAndReports() {
             <div className="hidden items-center gap-1 md:flex">
               <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
               <button onClick={() => router.push('/products')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Product Master</button>
+              <button onClick={() => router.push('/manual-entry')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Manual Entry</button>
               <button onClick={() => router.push('/reports')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">Tax & Reports</button>
             </div>
           </div>

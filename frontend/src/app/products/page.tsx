@@ -194,6 +194,9 @@ export default function ProductMaster() {
               <button onClick={() => router.push('/products')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">
                 Product Master
               </button>
+              <button onClick={() => router.push('/manual-entry')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
+                Manual Entry
+              </button>
               <button onClick={() => router.push('/reports')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
                 Tax & Reports
               </button>

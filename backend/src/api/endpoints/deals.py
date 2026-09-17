@@ -286,3 +286,142 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
         raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
 
     return {"status": "success", "data": res.data[0]}
+
+
+# --- Manual entry ---------------------------------------------------------
+# The frontend cannot write directly: RLS grants `authenticated` SELECT only
+# (plus UPDATE on opportunities for invoice attachment). Manual deals are
+# therefore persisted here, through the service role, mirroring exactly what
+# `run_deal_scan_pipeline` writes — minus Keepa and OpenAI.
+
+class ManualScoreBreakdown(BaseModel):
+    discount: int = 5
+    demand: int = 5
+    competition: int = 5
+    capital_efficiency: int = 5
+    storage_size: int = 5
+    risk_level: int = 5
+    seasonality: int = 5
+
+
+class ManualDealRequest(BaseModel):
+    # Product
+    asin: str
+    title: str
+    category: str = FALLBACK_CATEGORY
+    image_url: str | None = None
+
+    # Pricing
+    buy_price: float
+    target_sell_price: float
+    emergency_sell_price: float | None = None
+    willhaben_realistic_price: float | None = None
+
+    # Lifecycle
+    status: str = "pending"
+    product_condition: str = "NEW"
+    warehouse_location: str = DEFAULT_WAREHOUSE_LOCATION
+    is_quarantine: bool = False
+    sku: str | None = None
+
+    # Market context
+    buybox_seller: str = "Manual"
+    buybox_is_fba: bool = False
+
+    # Analysis (normally produced by DealAnalyzerAgent)
+    deal_score: int = 85
+    holding_period_months: int = 2
+    ai_decision: str | None = None
+    purchase_thesis: str | None = None
+    seasonality_analysis: str | None = None
+    score_breakdown: ManualScoreBreakdown = ManualScoreBreakdown()
+
+    # Willhaben listing
+    listing_title: str
+    listing_description: str
+
+
+@router.post("/manual", status_code=201)
+async def create_manual_deal(request: ManualDealRequest):
+    """Create a complete opportunity from hand-entered data.
+
+    Writes `products` -> `opportunities` -> `generated_listings` in one call so
+    the workspace, product master and reports all render the deal exactly as if
+    the scan pipeline had produced it. No Keepa or OpenAI calls are made.
+    """
+    asin = request.asin.strip().upper()
+
+    if not asin:
+        raise HTTPException(status_code=422, detail="ASIN must not be empty.")
+    if request.buy_price <= 0 or request.target_sell_price <= 0:
+        raise HTTPException(status_code=422, detail="Prices must be greater than zero.")
+
+    # Recomputed server-side so the stored margin always matches the prices.
+    profit_margin = round(((request.target_sell_price - request.buy_price) / request.buy_price) * 100, 2)
+    emergency_price = request.emergency_sell_price or round(request.target_sell_price * EMERGENCY_PRICE_RATIO, 2)
+    sku = (request.sku or "").strip() or f"GEN-{str(uuid.uuid4())[:6].upper()}"
+
+    try:
+        product_payload = {
+            "asin": asin,
+            "amazon_locale": AMAZON_LOCALE,
+            "title": request.title.strip(),
+            "category": request.category,
+        }
+        if request.image_url:
+            product_payload["image_url"] = request.image_url.strip()
+
+        product_res = supabase.table("products").upsert(
+            product_payload, on_conflict="asin,amazon_locale"
+        ).execute()
+        product_id = product_res.data[0]["id"]
+
+        opp_payload = {
+            "product_id": product_id,
+            "buy_price": request.buy_price,
+            "target_sell_price": request.target_sell_price,
+            "emergency_sell_price": emergency_price,
+            "willhaben_realistic_price": request.willhaben_realistic_price or request.target_sell_price,
+            "profit_margin": profit_margin,
+            "ai_decision": request.ai_decision or "Manually entered deal. No automated analysis was performed.",
+            "status": request.status,
+            "buybox_seller": request.buybox_seller,
+            "buybox_is_fba": request.buybox_is_fba,
+            "deal_score": request.deal_score,
+            "holding_period_months": request.holding_period_months,
+            "seasonality_analysis": request.seasonality_analysis,
+            "sku": sku,
+            "warehouse_location": request.warehouse_location,
+            "product_condition": request.product_condition,
+            "is_quarantine": request.is_quarantine,
+            "score_breakdown": request.score_breakdown.model_dump(),
+            "purchase_thesis": request.purchase_thesis,
+        }
+
+        if request.status == "sold":
+            opp_payload["sold_at"] = datetime.now().isoformat()
+
+        opp_res = supabase.table("opportunities").insert(opp_payload).execute()
+        opportunity_id = opp_res.data[0]["id"]
+
+        supabase.table("generated_listings").insert({
+            "opportunity_id": opportunity_id,
+            "target_platform": "Willhaben",
+            "language": "de",
+            "generated_title": request.listing_title.strip(),
+            "generated_description": request.listing_description.strip(),
+        }).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Manual deal error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    print(f"✅ Manual deal saved for ASIN {asin} (SKU {sku}, status {request.status}).")
+    return {
+        "status": "success",
+        "opportunity_id": opportunity_id,
+        "product_id": product_id,
+        "sku": sku,
+        "profit_margin": profit_margin,
+    }

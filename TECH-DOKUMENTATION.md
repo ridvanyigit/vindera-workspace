@@ -2,9 +2,9 @@
 
 > **Cross-Border AI Arbitrage Engine** — A full-stack business intelligence platform that detects high-margin opportunities on Amazon (via Keepa API) using an AI agent pipeline, and generates localized, SEO-optimized listings for the Austrian second-hand marketplace Willhaben.
 
-**Document Version:** 3.0
+**Document Version:** 3.1
 **Last Updated:** 2026-09-16
-**Baseline Release:** `v1.18.0`
+**Baseline Release:** `v1.19.0`
 **Source:** Regenerated via full codebase inspection of `/Users/ridvanyigit/Desktop/vindera-workspace`.
 
 ---
@@ -74,7 +74,7 @@ graph TB
     subgraph BackendApp ["Backend Layer (FastAPI) :8000"]
         API_ROUTER["API Router (/api/v1)"]
         CHAT_EP["/chat/"]
-        DEALS_EP["/deals/scan & /deals/{id}/status"]
+        DEALS_EP["/deals/scan, /deals/manual<br/>/deals/{id}/status"]
 
         subgraph Agents ["AI Agent Pipeline"]
             CHATBOT_AGENT["ChatbotAgent<br/>slash commands + function calling"]
@@ -200,11 +200,13 @@ vindera-workspace/
 │   │   ├── globals.css           # Design tokens & typography scale
 │   │   ├── page.tsx              # Workspace dashboard (protected)
 │   │   ├── login/page.tsx        # Supabase Auth login
+│   │   ├── manual-entry/page.tsx # Manual deal entry form (no Keepa / OpenAI)
 │   │   ├── products/page.tsx     # Product Master (resizable table + CSV export)
 │   │   └── reports/page.tsx      # Tax & Financial Reports
 │   ├── src/components/CommandBar.tsx
 │   ├── src/lib/
 │   │   ├── api.ts                # Backend base URL helper (NEXT_PUBLIC_API_URL)
+│   │   ├── constants.ts          # Categories, statuses, conditions, score criteria
 │   │   └── supabase.ts
 │   └── next.config.ts · tsconfig.json · eslint.config.mjs · postcss.config.mjs
 │
@@ -269,6 +271,7 @@ Frontend additionally uses `frontend/.env.local` with `NEXT_PUBLIC_SUPABASE_URL`
 | `GET` | `/metrics` | Prometheus scrape endpoint |
 | `POST` | `/api/v1/chat/` | Dispatches a message to `ChatbotAgent` |
 | `POST` | `/api/v1/deals/scan` | Queues a background deal scan for one ASIN. Returns `202 Accepted` immediately. Used by the n8n daily batch |
+| `POST` | `/api/v1/deals/manual` | Persists a hand-entered deal (`products` → `opportunities` → `generated_listings`) through the service role. Returns `201` with the generated SKU and computed margin |
 | `PATCH` | `/api/v1/deals/{opportunity_id}/status` | Updates lifecycle status and optional fields (`product_condition`, `is_quarantine`, `target_sell_price`, `purchase_thesis`); stamps `sold_at` when status becomes `sold`; returns `404` for an unknown id |
 
 > The scan pipeline is also reachable from the workspace terminal via `/scan <ASIN>`.
@@ -451,6 +454,7 @@ stateDiagram-v2
 | `/login` | Supabase email/password auth, password visibility toggle, hard redirect on success |
 | `/` | Three-pane resizable workspace (protected) |
 | `/products` | Product Master: searchable table with pointer-driven column resizing and CSV export (protected) |
+| `/manual-entry` | Manual deal entry form — create a full opportunity without Keepa or OpenAI (protected) |
 | `/reports` | Tax & Financial Reports: KPI cards, VAT threshold bar, monthly bar chart, category pie chart (protected) |
 
 ### 8.2 Workspace (`src/app/page.tsx`)
@@ -464,6 +468,16 @@ stateDiagram-v2
 ### 8.3 Embedded Terminal (`src/components/CommandBar.tsx`)
 
 Typing `/` opens a React-Portal command palette anchored above the input (avoids overflow clipping). Messages are POSTed to the backend chat endpoint resolved by `src/lib/api.ts`.
+
+### 8.4 Manual Entry (`src/app/manual-entry/page.tsx`)
+
+A full-width form for entering a deal by hand when Keepa or OpenAI credits are unavailable, or when back-filling stock that is already in the storage room. It covers every column the rest of the app reads, grouped into six sections: product identity, pricing strategy, acquisition scorecard (overall score plus the seven 0-10 criteria as sliders), lifecycle and logistics, decision notes, and the German Willhaben listing.
+
+- **Guidance:** every field label carries a hover hint explaining where to find the value (ASIN in the Amazon URL, realistic price from comparable Willhaben listings, and so on).
+- **Live preview:** gross profit and margin update as you type, with a badge mirroring the backend's No-Buy Guardrails (>= 25% margin AND >= €15 profit). It is informational — manual entries are never blocked.
+- **Defaults:** SKU is auto-generated (regenerable), emergency price falls back to 85% of the target, realistic Willhaben price falls back to the target, and `profit_margin` is always recomputed server-side from the two prices.
+- **Persistence:** `POST /api/v1/deals/manual`. The browser cannot write directly — RLS grants it `SELECT` only.
+- **Shared vocabulary:** categories, statuses, conditions and score criteria come from `src/lib/constants.ts`, which the workspace filter also uses.
 
 ---
 
