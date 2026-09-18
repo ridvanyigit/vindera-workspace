@@ -4,16 +4,53 @@ import Link from 'next/link';
 import { Heart, Package, ExternalLink } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 
+export type ProductCardSize = 'standard' | 'compact' | 'large' | 'tall';
+
 interface ProductCardProps {
   item: StorefrontListing;
   isFavorited: boolean;
   onToggleWishlist: (id: string) => void;
+  size?: ProductCardSize;
 }
 
-/** A single storefront product tile — used on the homepage, wishlist and "related products". */
-export default function ProductCard({ item, isFavorited, onToggleWishlist }: ProductCardProps) {
+const IMAGE_ASPECT: Record<ProductCardSize, string> = {
+  standard: 'aspect-square',
+  compact: 'aspect-square',
+  large: 'aspect-square',
+  tall: 'aspect-[3/4]',
+};
+
+const TITLE_CLASS: Record<ProductCardSize, string> = {
+  standard: 'text-[14px]',
+  compact: 'text-[13px]',
+  large: 'text-[15px]',
+  tall: 'text-[14px]',
+};
+
+const PRICE_CLASS: Record<ProductCardSize, string> = {
+  standard: 'text-[19px]',
+  compact: 'text-[16px]',
+  large: 'text-[22px]',
+  tall: 'text-[18px]',
+};
+
+const PADDING_CLASS: Record<ProductCardSize, string> = {
+  standard: 'p-4',
+  compact: 'p-3',
+  large: 'p-5',
+  tall: 'p-3',
+};
+
+/**
+ * A single storefront product tile — fills whatever width its parent gives
+ * it (a grid cell or a fixed-width rail slot). `size` only changes internal
+ * proportions (image aspect ratio, type scale), never the outer width, so
+ * the same component works in a CSS grid (wishlist) and in a horizontal
+ * rail (homepage) alike.
+ */
+export default function ProductCard({ item, isFavorited, onToggleWishlist, size = 'standard' }: ProductCardProps) {
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
+    <div className="group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
       <button
         onClick={() => onToggleWishlist(item.id)}
         title={isFavorited ? 'Remove from wishlist' : 'Add to wishlist'}
@@ -22,7 +59,7 @@ export default function ProductCard({ item, isFavorited, onToggleWishlist }: Pro
         <Heart className={`h-4.5 w-4.5 transition-colors ${isFavorited ? 'fill-red-500 text-red-500' : 'text-gray-400'}`} />
       </button>
 
-      <Link href={`/product/${item.id}`} className="flex aspect-square items-center justify-center overflow-hidden bg-gray-50">
+      <Link href={`/product/${item.id}`} className={`flex ${IMAGE_ASPECT[size]} items-center justify-center overflow-hidden bg-gray-50`}>
         {item.image_url ? (
           <img src={item.image_url} alt={item.title} className="h-full w-full object-contain p-4" />
         ) : (
@@ -30,16 +67,16 @@ export default function ProductCard({ item, isFavorited, onToggleWishlist }: Pro
         )}
       </Link>
 
-      <div className="flex flex-1 flex-col gap-2 p-4">
+      <div className={`flex flex-1 flex-col gap-2 ${PADDING_CLASS[size]}`}>
         <span className="self-start rounded bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-600">
           {item.product_condition || 'NEW'}
         </span>
-        <Link href={`/product/${item.id}`} className="line-clamp-2 text-[14px] font-semibold leading-snug text-gray-900 hover:text-indigo-600">
+        <Link href={`/product/${item.id}`} className={`line-clamp-2 font-semibold leading-snug text-gray-900 hover:text-indigo-600 ${TITLE_CLASS[size]}`}>
           {item.title}
         </Link>
 
         <div className="mt-auto flex items-center justify-between pt-1">
-          <span className="text-[19px] font-bold tabular-nums text-indigo-600">€{Number(item.target_sell_price).toFixed(2)}</span>
+          <span className={`font-bold tabular-nums text-indigo-600 ${PRICE_CLASS[size]}`}>€{Number(item.target_sell_price).toFixed(2)}</span>
         </div>
 
         {item.willhaben_url ? (

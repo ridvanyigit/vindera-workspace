@@ -11,4 +11,5 @@ export interface StorefrontListing {
   gallery_image_urls: string[] | null;
   generated_title: string | null;
   generated_description: string | null;
+  created_at: string;
 }

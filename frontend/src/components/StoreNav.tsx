@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { Package, Heart, LogOut, Search, X } from 'lucide-react';
+import { TARGET_CATEGORIES } from '@/lib/constants';
 import type { StorefrontListing } from '@/lib/types';
 
 export default function StoreNav() {
@@ -63,6 +64,8 @@ export default function StoreNav() {
     }, 250);
     return () => clearTimeout(timeout);
   }, [query]);
+
+  const categories = TARGET_CATEGORIES.filter(c => c.value !== 'All');
 
   return (
     <div className={`sticky top-0 z-50 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl transition-transform duration-300 ${hidden ? '-translate-y-full' : 'translate-y-0'}`}>
@@ -136,6 +139,23 @@ export default function StoreNav() {
               Sign In
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="border-t border-gray-100 bg-white">
+        <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-6 py-2">
+          <Link href="/" className="shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium text-gray-600 transition hover:bg-gray-100">
+            All
+          </Link>
+          {categories.map(cat => (
+            <Link
+              key={cat.value}
+              href={`/?category=${encodeURIComponent(cat.value)}`}
+              className="shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium text-gray-600 transition hover:bg-gray-100"
+            >
+              {cat.label}
+            </Link>
+          ))}
         </div>
       </div>
     </div>

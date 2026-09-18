@@ -9,30 +9,56 @@
  * ...). There is no cart and no payment flow on purpose: "Buy" opens the
  * live Willhaben ad in a new tab, sidestepping the legal and
  * payment-processing overhead of running an actual checkout.
+ *
+ * Two views, both driven by the same fetched listings:
+ *   - `/`               a curated homepage of horizontally scrollable rails.
+ *   - `/?category=X`     a single filtered grid for that category.
+ *
+ * Every rail here is backed by real data (listing date, condition, category,
+ * per-browser recently-viewed via localStorage) — none of it is decorative
+ * or fake-personalized. There's no "recommended for you" or "based on your
+ * browsing history" section because nothing here tracks that.
  */
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useWishlist } from '@/lib/useWishlist';
-import { Package, RefreshCw, ShieldCheck } from 'lucide-react';
-import { TARGET_CATEGORIES } from '@/lib/constants';
+import { getRecentlyViewedIds } from '@/lib/recentlyViewed';
+import { Package, RefreshCw, ArrowLeft } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
-import ProductCard from '@/components/ProductCard';
+import ProductCard, { ProductCardSize } from '@/components/ProductCard';
+import CategoryQuadTile from '@/components/CategoryQuadTile';
+import HorizontalRail from '@/components/HorizontalRail';
+
+const SLOT_WIDTH: Record<ProductCardSize, string> = {
+  standard: 'w-[220px]',
+  compact: 'w-[160px]',
+  large: 'w-[280px]',
+  tall: 'w-[200px]',
+};
+
+function ProductSlot({ item, size, isFavorited, onToggleWishlist }: {
+  item: StorefrontListing; size: ProductCardSize; isFavorited: boolean; onToggleWishlist: (id: string) => void;
+}) {
+  return (
+    <div className={`shrink-0 snap-start ${SLOT_WIDTH[size]}`}>
+      <ProductCard item={item} size={size} isFavorited={isFavorited} onToggleWishlist={onToggleWishlist} />
+    </div>
+  );
+}
 
 function StorefrontContent() {
-  // useSearchParams (not a one-time window.location.search read): the category
-  // tabs in StoreNav link to `/?category=X`, which is a same-page client-side
-  // navigation that would never re-run a mount-only effect.
-  const categoryParam = useSearchParams().get('category') || 'All';
+  // useSearchParams (not a one-time window.location.search read): category
+  // links (nav, quad tiles, breadcrumbs) are same-page client-side
+  // navigations that would never re-run a mount-only effect otherwise.
+  const categoryParam = useSearchParams().get('category');
   const [userId, setUserId] = useState<string | null>(null);
   const [listings, setListings] = useState<StorefrontListing[]>([]);
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState(categoryParam);
   const { wishlistIds, toggle } = useWishlist(userId);
-
-  useEffect(() => { setCategory(categoryParam); }, [categoryParam]);
 
   useEffect(() => {
     fetchListings();
@@ -49,60 +75,120 @@ function StorefrontContent() {
     const { data, error } = await supabase
       .from('storefront_listings')
       .select('*')
-      .order('target_sell_price', { ascending: true });
+      .order('created_at', { ascending: false });
     if (!error && data) setListings(data as StorefrontListing[]);
     setLoading(false);
   };
 
-  const categories = ['All', ...TARGET_CATEGORIES.filter(c => c.value !== 'All').map(c => c.value)];
-  const filteredListings = category === 'All' ? listings : listings.filter(l => l.category === category);
+  const categories = useMemo(
+    () => Array.from(new Set(listings.map(l => l.category).filter((c): c is string => Boolean(c)))),
+    [listings],
+  );
 
+  const newArrivals = listings.slice(0, 12);
+  const openBoxDeals = useMemo(
+    () => listings.filter(l => (l.product_condition || 'NEW').toUpperCase() !== 'NEW').slice(0, 12),
+    [listings],
+  );
+  const recentlyViewed = useMemo(() => {
+    if (typeof window === 'undefined') return [];
+    const ids = getRecentlyViewedIds();
+    return ids.map(id => listings.find(l => l.id === id)).filter((l): l is StorefrontListing => Boolean(l));
+  }, [listings]);
+
+  // --- Category-filtered view -------------------------------------------
+  if (categoryParam) {
+    const filtered = listings.filter(l => l.category === categoryParam);
+    return (
+      <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+        <StoreNav />
+        <main className="mx-auto max-w-7xl px-6 py-8">
+          <div className="mb-6 flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-1.5 text-[13px] font-medium text-gray-500 transition hover:text-gray-900">
+              <ArrowLeft className="h-4 w-4" /> All categories
+            </Link>
+            <span className="text-gray-300">|</span>
+            <h1 className="text-[18px] font-semibold text-gray-900">{categoryParam}</h1>
+          </div>
+
+          {loading ? (
+            <div className="flex h-64 items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-indigo-600" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center text-gray-400">
+              <Package className="mb-3 h-12 w-12 text-gray-200" />
+              <p className="text-[14px]">No items in this category right now — check back soon.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {filtered.map(item => (
+                <ProductCard key={item.id} item={item} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // --- Curated homepage ---------------------------------------------------
   return (
     <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
       <StoreNav />
 
-      <header className="border-b border-gray-200/70 bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-12 text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[12px] font-semibold text-indigo-700">
-            <ShieldCheck className="h-3.5 w-3.5" /> Inspected & Hand-Picked
-          </span>
-          <h1 className="mt-4 text-[32px] font-semibold tracking-[-0.02em] text-gray-900">
-            Certified Pre-Owned & Open-Box Deals
-          </h1>
-          <p className="mx-auto mt-2 max-w-xl text-[14px] text-gray-500">
-            Every item is quality-checked before listing. Find something you like and buy it directly on Willhaben.
-          </p>
-        </div>
-      </header>
-
       <main className="mx-auto max-w-7xl px-6 py-8">
-        <div className="mb-6 flex flex-wrap gap-2">
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition ${
-                category === cat ? 'bg-indigo-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-
         {loading ? (
           <div className="flex h-64 items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-indigo-600" /></div>
-        ) : filteredListings.length === 0 ? (
+        ) : listings.length === 0 ? (
           <div className="flex h-64 flex-col items-center justify-center text-gray-400">
             <Package className="mb-3 h-12 w-12 text-gray-200" />
-            <p className="text-[14px]">No items in this category right now — check back soon.</p>
+            <p className="text-[14px]">No items in stock right now — check back soon.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {filteredListings.map(item => (
-              <ProductCard key={item.id} item={item} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
-            ))}
-          </div>
+          <>
+            {categories.length > 0 && (
+              <HorizontalRail title="Shop by Category">
+                {categories.map(cat => (
+                  <div key={cat} className="w-[220px] shrink-0 snap-start">
+                    <CategoryQuadTile category={cat} items={listings.filter(l => l.category === cat)} />
+                  </div>
+                ))}
+              </HorizontalRail>
+            )}
+
+            <HorizontalRail title="New Arrivals" subtitle="Freshly added to the store">
+              {newArrivals.map((item, i) => (
+                <ProductSlot key={item.id} item={item} size={i === 0 ? 'large' : 'standard'} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+              ))}
+            </HorizontalRail>
+
+            {openBoxDeals.length > 0 && (
+              <HorizontalRail title="Open-Box & Great Value" subtitle="Inspected, not sealed — priced accordingly">
+                {openBoxDeals.map(item => (
+                  <ProductSlot key={item.id} item={item} size="compact" isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                ))}
+              </HorizontalRail>
+            )}
+
+            {recentlyViewed.length > 0 && (
+              <HorizontalRail title="Recently Viewed">
+                {recentlyViewed.map(item => (
+                  <ProductSlot key={item.id} item={item} size="standard" isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                ))}
+              </HorizontalRail>
+            )}
+
+            {categories.map((cat, i) => {
+              const items = listings.filter(l => l.category === cat);
+              const size: ProductCardSize = i % 2 === 0 ? 'tall' : 'standard';
+              return (
+                <HorizontalRail key={cat} title={cat}>
+                  {items.map(item => (
+                    <ProductSlot key={item.id} item={item} size={size} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                  ))}
+                </HorizontalRail>
+              );
+            })}
+          </>
         )}
       </main>
     </div>

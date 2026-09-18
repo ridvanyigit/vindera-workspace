@@ -14,12 +14,13 @@
 import { use, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useWishlist } from '@/lib/useWishlist';
-import { useRouter } from 'next/navigation';
+import { recordProductView } from '@/lib/recentlyViewed';
 import Link from 'next/link';
 import { Package, Heart, ExternalLink, RefreshCw, ChevronDown, ChevronRight, ShieldCheck, Truck } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
 import ProductCard from '@/components/ProductCard';
+import HorizontalRail from '@/components/HorizontalRail';
 
 const Accordion = ({ title, defaultOpen = false, children }: { title: string; defaultOpen?: boolean; children: React.ReactNode }) => {
   const [open, setOpen] = useState(defaultOpen);
@@ -36,7 +37,6 @@ const Accordion = ({ title, defaultOpen = false, children }: { title: string; de
 
 export default function ProductDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [item, setItem] = useState<StorefrontListing | null>(null);
   const [related, setRelated] = useState<StorefrontListing[]>([]);
@@ -70,6 +70,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
     setItem(listing);
     setActiveImage(listing.image_url || listing.gallery_image_urls?.[0] || null);
     setLoading(false);
+    recordProductView(listing.id);
 
     if (listing.category) {
       const { data: relatedData } = await supabase
@@ -77,7 +78,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
         .select('*')
         .eq('category', listing.category)
         .neq('id', listing.id)
-        .limit(4);
+        .limit(8);
       if (relatedData) setRelated(relatedData as StorefrontListing[]);
     }
   };
@@ -219,12 +220,13 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
 
         {related.length > 0 && (
           <div className="mt-16">
-            <h2 className="mb-4 text-[18px] font-semibold text-gray-900">You might also like</h2>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <HorizontalRail title="You might also like">
               {related.map(r => (
-                <ProductCard key={r.id} item={r} isFavorited={wishlistIds.has(r.id)} onToggleWishlist={toggle} />
+                <div key={r.id} className="w-[220px] shrink-0 snap-start">
+                  <ProductCard item={r} isFavorited={wishlistIds.has(r.id)} onToggleWishlist={toggle} />
+                </div>
               ))}
-            </div>
+            </HorizontalRail>
           </div>
         )}
       </main>
