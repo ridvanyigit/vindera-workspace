@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Package, LogOut, RefreshCw, BarChart2, PieChart as PieChartIcon, Target, TrendingUp, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -22,9 +23,10 @@ export default function TaxAndReports() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) router.push('/login');
-      else fetchOpportunities();
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { router.push('/admin/login'); return; }
+      if (!(await checkIsAdmin())) { router.push('/'); return; }
+      fetchOpportunities();
     });
   }, [router]);
 
@@ -82,15 +84,15 @@ export default function TaxAndReports() {
               <div className="leading-tight"><div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div><div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div></div>
             </div>
             <div className="hidden items-center gap-1 md:flex">
-              <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
-              <button onClick={() => router.push('/products')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Product Master</button>
-              <button onClick={() => router.push('/manual-entry')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Manual Entry</button>
-              <button onClick={() => router.push('/reports')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">Tax & Reports</button>
+              <button onClick={() => router.push('/admin')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
+              <button onClick={() => router.push('/admin/products')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Product Master</button>
+              <button onClick={() => router.push('/admin/manual-entry')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Manual Entry</button>
+              <button onClick={() => router.push('/admin/reports')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">Tax & Reports</button>
             </div>
           </div>
           <div className="flex items-center gap-1">
             <div className="h-4 w-px bg-gray-200 mx-1" />
-            <button title="Sign out" onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-red-600"><LogOut className="h-4 w-4" /></button>
+            <button title="Sign out" onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }} className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-red-600"><LogOut className="h-4 w-4" /></button>
           </div>
         </div>
       </nav>

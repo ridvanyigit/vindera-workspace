@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Package, LogOut, RefreshCw, Search, ArrowUpDown, Download, Filter } from 'lucide-react';
 import { differenceInDays } from 'date-fns';
@@ -45,10 +46,11 @@ export default function ProductMaster() {
   const [startWidth, setStartWidth] = useState(0);
 
   useEffect(() => {
-    // Protected route: RLS now requires an authenticated session for every read.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) router.push('/login');
-      else fetchOpportunities();
+    // Protected route: admin-only, enforced again by RLS on every read.
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { router.push('/admin/login'); return; }
+      if (!(await checkIsAdmin())) { router.push('/'); return; }
+      fetchOpportunities();
     });
   }, [router]);
 
@@ -188,16 +190,16 @@ export default function ProductMaster() {
             </div>
 
             <div className="hidden items-center gap-1 md:flex">
-              <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
+              <button onClick={() => router.push('/admin')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
                 Workspace
               </button>
-              <button onClick={() => router.push('/products')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">
+              <button onClick={() => router.push('/admin/products')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">
                 Product Master
               </button>
-              <button onClick={() => router.push('/manual-entry')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
+              <button onClick={() => router.push('/admin/manual-entry')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
                 Manual Entry
               </button>
-              <button onClick={() => router.push('/reports')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
+              <button onClick={() => router.push('/admin/reports')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">
                 Tax & Reports
               </button>
             </div>
@@ -207,7 +209,7 @@ export default function ProductMaster() {
             <div className="mx-1 h-4 w-px bg-gray-200" />
             <button
               title="Sign out"
-              onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }}
+              onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }}
               className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-red-600"
             >
               <LogOut className="h-4 w-4" />
@@ -297,7 +299,7 @@ export default function ProductMaster() {
                   return (
                     <tr
                       key={item.id}
-                      onClick={() => router.push(`/manual-entry?id=${item.id}`)}
+                      onClick={() => router.push(`/admin/manual-entry?id=${item.id}`)}
                       title="Open this deal in the editor"
                       className="group cursor-pointer transition-colors hover:bg-gray-50/80"
                     >

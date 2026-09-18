@@ -17,10 +17,15 @@ Vindera is a full-stack, AI-powered arbitrage platform that finds profitable dea
 
 | Route | Purpose |
 |---|---|
-| `/login` | Supabase email/password authentication |
-| `/` | Three-pane workspace: deal explorer, deal inspector, analytics + AI terminal |
-| `/products` | Product Master — searchable, resizable table with CSV export |
-| `/reports` | Tax & financial reports, VAT threshold tracking |
+| `/` | Public storefront — anyone can browse in_inventory/listed items and wishlist them; no cart, "Buy" opens the live Willhaben ad |
+| `/login` | Shared Supabase email/password sign-in + sign-up (customers and admin) |
+| `/wishlist` | A signed-in customer's favorited items |
+| `/admin` | Admin-only: three-pane workspace — deal explorer, deal inspector, analytics + AI terminal |
+| `/admin/products` | Admin-only: Product Master — searchable, resizable table with CSV export |
+| `/admin/manual-entry` | Admin-only: hand-enter or edit a complete opportunity |
+| `/admin/reports` | Admin-only: tax & financial reports, VAT threshold tracking |
+
+Admin access is granted via the `admin_users` table (checked by the `is_admin()` RPC), not just "being logged in" — see the `20260918084045_public_storefront_and_wishlists` migration.
 
 ## 🧠 AI Agents
 

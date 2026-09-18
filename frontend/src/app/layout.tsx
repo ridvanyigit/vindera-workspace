@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vindera Arbitrage",
-  description: "Cross-Border Deal Hunter Dashboard",
+  title: "Vindera",
+  description: "Certified pre-owned and open-box deals, hand-picked and quality-checked.",
 };
 
 export default function RootLayout({

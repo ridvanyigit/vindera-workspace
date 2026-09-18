@@ -65,10 +65,12 @@ flowchart TD
 ```mermaid
 graph TB
     subgraph Client ["Client Layer (Next.js 16 / React 19)"]
+        STORE["/ — Public Storefront"]
         LOGIN["/login — Supabase Auth"]
-        DASH["/ — 3-pane Workspace"]
-        PROD["/products — Product Master table"]
-        REP["/reports — Tax & Financial Reports"]
+        WISH["/wishlist — Customer Wishlist"]
+        DASH["/admin — 3-pane Workspace"]
+        PROD["/admin/products — Product Master table"]
+        REP["/admin/reports — Tax & Financial Reports"]
     end
 
     subgraph BackendApp ["Backend Layer (FastAPI) :8000"]
@@ -451,15 +453,19 @@ stateDiagram-v2
 
 ### 8.1 Routes
 
+Since `v1.20.0`, the app is split into a public storefront and an admin-only area gated on `admin_users` / `is_admin()` (not just "being logged in") — see §5.x on RLS and the `20260918084045_public_storefront_and_wishlists` migration.
+
 | Route | Description |
 |---|---|
-| `/login` | Supabase email/password auth, password visibility toggle, hard redirect on success |
-| `/` | Three-pane resizable workspace (protected) |
-| `/products` | Product Master: searchable table with pointer-driven column resizing and CSV export (protected) |
-| `/manual-entry` | Manual deal entry form — create a full opportunity without Keepa or OpenAI (protected) |
-| `/reports` | Tax & Financial Reports: KPI cards, VAT threshold bar, monthly bar chart, category pie chart (protected) |
+| `/` | Public storefront — grid of `in_inventory`/`listed` items from the `storefront_listings` view, wishlist heart, "Buy on Willhaben" deep link. No cart, no payment flow. |
+| `/login` | Shared Supabase email/password auth (sign-in + sign-up tabs), redirects to `/admin` for admins and `/` for everyone else |
+| `/wishlist` | A signed-in customer's favorited items (protected: any authenticated user) |
+| `/admin` | Three-pane resizable workspace (admin-only) |
+| `/admin/products` | Product Master: searchable table with pointer-driven column resizing and CSV export (admin-only) |
+| `/admin/manual-entry` | Manual deal entry form — create a full opportunity without Keepa or OpenAI (admin-only) |
+| `/admin/reports` | Tax & Financial Reports: KPI cards, VAT threshold bar, monthly bar chart, category pie chart (admin-only) |
 
-### 8.2 Workspace (`src/app/page.tsx`)
+### 8.2 Workspace (`src/app/admin/page.tsx`)
 
 - **Left panel** — Tabs (`NEW`, `INVENTORY`, `SOLD`, `REJECTED`), category filter, deal list with inventory-age badges; lower sub-panel holds the Financial & Risk dashboard (revenue vs. €55,000 threshold, gross profit, average ROI, average days-to-sell, inventory value, stress-test liquidation net) and the Quarterly Category Audit modal.
 - **Center panel** — Deal inspector: SKU / ASIN / warehouse location / condition strip, invoice upload to Supabase Storage, BuyBox trust badges, high-capital-exposure warning, AI scorecard with a 7-metric breakdown, Decision Journal, dead-stock alert after 60 days, and the action pipeline. Lower sub-panel embeds the AI terminal.
@@ -471,7 +477,7 @@ stateDiagram-v2
 
 Typing `/` opens a React-Portal command palette anchored above the input (avoids overflow clipping). Messages are POSTed to the backend chat endpoint resolved by `src/lib/api.ts`.
 
-### 8.4 Manual Entry (`src/app/manual-entry/page.tsx`)
+### 8.4 Manual Entry (`src/app/admin/manual-entry/page.tsx`)
 
 A full-width form for entering a deal by hand when Keepa or OpenAI credits are unavailable, or when back-filling stock that is already in the storage room. It covers every column the rest of the app reads, grouped into six sections: product identity, pricing strategy, acquisition scorecard (overall score plus the seven 0-10 criteria as sliders), lifecycle and logistics, decision notes, and the German Willhaben listing.
 
@@ -479,7 +485,7 @@ A full-width form for entering a deal by hand when Keepa or OpenAI credits are u
 - **Live preview:** gross profit and margin update as you type, with a badge mirroring the backend's No-Buy Guardrails (>= 25% margin AND >= €15 profit). It is informational — manual entries are never blocked.
 - **Defaults:** SKU is auto-generated (regenerable), emergency price falls back to 85% of the target, realistic Willhaben price falls back to the target, and `profit_margin` is always recomputed server-side from the two prices.
 - **Persistence:** `POST /api/v1/deals/manual`. The browser cannot write directly — RLS grants it `SELECT` only.
-- **Edit mode:** `/manual-entry?id=<opportunity_id>` loads an existing deal into the same form. Reached from the **Edit** button in the workspace deal inspector, or by clicking any row in the Product Master. Saving issues `PUT .../manual`; a **Delete** button issues `DELETE`. The two Amazon reference prices stay blank on load so the stored price history is preserved unless you deliberately re-enter them.
+- **Edit mode:** `/admin/manual-entry?id=<opportunity_id>` loads an existing deal into the same form. Reached from the **Edit** button in the workspace deal inspector, or by clicking any row in the Product Master. Saving issues `PUT .../manual`; a **Delete** button issues `DELETE`. The two Amazon reference prices stay blank on load so the stored price history is preserved unless you deliberately re-enter them.
 - **Price history:** filling in *Amazon Price Today* and *Amazon 90-Day Average* writes two real `price_history` rows (today, and 90 days back), which the workspace chart prefers over its sample curve.
 - **Shared vocabulary:** categories, statuses, conditions and score criteria come from `src/lib/constants.ts`, which the workspace filter also uses.
 

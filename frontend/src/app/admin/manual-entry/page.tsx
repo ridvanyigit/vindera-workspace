@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { apiUrl } from '@/lib/api';
+import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import {
   Package, LogOut, HelpCircle, Save, RefreshCw, RotateCcw, CheckCircle, XCircle,
@@ -35,10 +36,12 @@ interface FormState {
   title: string;
   category: string;
   image_url: string;
+  gallery_image_urls: string;
   buy_price: string;
   target_sell_price: string;
   emergency_sell_price: string;
   willhaben_realistic_price: string;
+  willhaben_url: string;
   amazon_price_today: string;
   amazon_price_90d_avg: string;
   status: string;
@@ -77,10 +80,12 @@ const EMPTY_FORM: FormState = {
   title: '',
   category: PRODUCT_CATEGORIES[0].value,
   image_url: '',
+  gallery_image_urls: '',
   buy_price: '',
   target_sell_price: '',
   emergency_sell_price: '',
   willhaben_realistic_price: '',
+  willhaben_url: '',
   amazon_price_today: '',
   amazon_price_90d_avg: '',
   status: 'pending',
@@ -169,10 +174,14 @@ export default function ManualEntry() {
     // Read from location rather than useSearchParams: no Suspense boundary needed.
     const id = new URLSearchParams(window.location.search).get('id');
 
-    // Protected route, same guard as every other page.
+    // Protected route, same guard as every other admin page.
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) {
-        router.push('/login');
+        router.push('/admin/login');
+        return;
+      }
+      if (!(await checkIsAdmin())) {
+        router.push('/');
         return;
       }
 
@@ -186,13 +195,13 @@ export default function ManualEntry() {
       const { data, error: loadError } = await supabase
         .from('opportunities')
         .select(`
-          id, buy_price, target_sell_price, emergency_sell_price, willhaben_realistic_price,
+          id, buy_price, target_sell_price, emergency_sell_price, willhaben_realistic_price, willhaben_url,
           deal_score, holding_period_months, seasonality_analysis, sku, warehouse_location,
           product_condition, is_quarantine, score_breakdown, purchase_thesis, ai_decision,
           status, buybox_seller, buybox_is_fba,
           actual_sell_price, shipping_and_prep_cost, platform_fees, customer_inquiries_count,
           customer_messages_summary, sold_during_event,
-          products ( asin, title, category, image_url ),
+          products ( asin, title, category, image_url, gallery_image_urls ),
           generated_listings ( generated_title, generated_description )
         `)
         .eq('id', id)
@@ -215,10 +224,12 @@ export default function ManualEntry() {
         title: product.title || '',
         category: product.category || PRODUCT_CATEGORIES[0].value,
         image_url: product.image_url || '',
+        gallery_image_urls: Array.isArray(product.gallery_image_urls) ? product.gallery_image_urls.join('\n') : '',
         buy_price: String(deal.buy_price ?? ''),
         target_sell_price: String(deal.target_sell_price ?? ''),
         emergency_sell_price: String(deal.emergency_sell_price ?? ''),
         willhaben_realistic_price: String(deal.willhaben_realistic_price ?? ''),
+        willhaben_url: deal.willhaben_url || '',
         // Not stored on the opportunity; left blank so existing price history is kept.
         amazon_price_today: '',
         amazon_price_90d_avg: '',
@@ -304,10 +315,12 @@ export default function ManualEntry() {
       title: form.title.trim(),
       category: form.category,
       image_url: form.image_url.trim() || null,
+      gallery_image_urls: form.gallery_image_urls.split('\n').map(u => u.trim()).filter(Boolean),
       buy_price: buyPrice,
       target_sell_price: targetPrice,
       emergency_sell_price: form.emergency_sell_price ? Number(form.emergency_sell_price) : null,
       willhaben_realistic_price: form.willhaben_realistic_price ? Number(form.willhaben_realistic_price) : null,
+      willhaben_url: form.willhaben_url.trim() || null,
       amazon_price_today: amazonToday || null,
       amazon_price_90d_avg: amazon90Avg || null,
       status: form.status,
@@ -371,7 +384,16 @@ export default function ManualEntry() {
 
   const handleDelete = async () => {
     if (!editingId) return;
-    if (!window.confirm(`Delete "${form.title}" permanently? The product's price history is kept, everything else about this deal is removed.`)) return;
+
+    // Vindera has no Willhaben API access, so this can only ever be a manual
+    // nudge — not an automatic cross-delete. Willhaben->Vindera deletion sync
+    // isn't offered at all: there is no reliable way to detect a listing was
+    // removed there short of scraping, which is fragile and not something
+    // this app does.
+    const confirmMessage = form.willhaben_url
+      ? `Delete "${form.title}" permanently? The product's price history is kept, everything else about this deal is removed.\n\nThis item is still live on Willhaben — after you confirm, its listing page will open in a new tab so you can remove it there too.`
+      : `Delete "${form.title}" permanently? The product's price history is kept, everything else about this deal is removed.`;
+    if (!window.confirm(confirmMessage)) return;
 
     setDeleting(true);
     setError(null);
@@ -380,7 +402,8 @@ export default function ManualEntry() {
       const res = await fetch(apiUrl(`/deals/${editingId}`), { method: 'DELETE' });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(payload?.detail || `Request failed with status ${res.status}.`);
-      router.push('/');
+      if (form.willhaben_url) window.open(form.willhaben_url, '_blank', 'noopener,noreferrer');
+      router.push('/admin');
     } catch (err: any) {
       setError(err?.message || 'Could not delete the deal.');
       setDeleting(false);
@@ -413,17 +436,17 @@ export default function ManualEntry() {
               </div>
             </div>
             <div className="hidden items-center gap-1 md:flex">
-              <button onClick={() => router.push('/')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
-              <button onClick={() => router.push('/products')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Product Master</button>
-              <button onClick={() => router.push('/manual-entry')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">{editingId ? 'Edit Deal' : 'Manual Entry'}</button>
-              <button onClick={() => router.push('/reports')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Tax & Reports</button>
+              <button onClick={() => router.push('/admin')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Workspace</button>
+              <button onClick={() => router.push('/admin/products')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Product Master</button>
+              <button onClick={() => router.push('/admin/manual-entry')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">{editingId ? 'Edit Deal' : 'Manual Entry'}</button>
+              <button onClick={() => router.push('/admin/reports')} className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900">Tax & Reports</button>
             </div>
           </div>
           <div className="flex items-center gap-1">
             <div className="mx-1 h-4 w-px bg-gray-200" />
             <button
               title="Sign out"
-              onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }}
+              onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }}
               className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-red-600"
             >
               <LogOut className="h-4 w-4" />
@@ -460,7 +483,7 @@ export default function ManualEntry() {
               <p className="type-body text-emerald-700">{success}</p>
             </div>
             <button
-              onClick={() => router.push('/')}
+              onClick={() => router.push('/admin')}
               className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-[13px] font-semibold text-white transition hover:bg-emerald-700"
             >
               Open Workspace
@@ -538,6 +561,21 @@ export default function ManualEntry() {
                     onChange={e => set('image_url', e.target.value)}
                     placeholder="https://m.media-amazon.com/images/I/..."
                     className={INPUT_CLASS}
+                  />
+                </Field>
+              </div>
+
+              <div className="md:col-span-2">
+                <Field
+                  label="Gallery Image URLs"
+                  hint="Optional. One URL per line — extra photos for the storefront's product page thumbnail strip, in addition to the cover image above."
+                >
+                  <textarea
+                    rows={3}
+                    value={form.gallery_image_urls}
+                    onChange={e => set('gallery_image_urls', e.target.value)}
+                    placeholder={'https://m.media-amazon.com/images/I/angle2.jpg\nhttps://m.media-amazon.com/images/I/angle3.jpg'}
+                    className={`${TEXTAREA_CLASS} font-mono text-[13px]`}
                   />
                 </Field>
               </div>
@@ -982,6 +1020,18 @@ export default function ManualEntry() {
           >
             <div className="flex flex-col gap-5">
               <Field
+                label="Live Willhaben URL"
+                hint="Once the ad is actually published on Willhaben, paste its link here. The public storefront's 'Buy on Willhaben' button sends customers straight to it — leave empty and the button shows 'Bald verfügbar' instead."
+              >
+                <input
+                  value={form.willhaben_url}
+                  onChange={e => set('willhaben_url', e.target.value)}
+                  placeholder="https://www.willhaben.at/iad/object?adId=..."
+                  className={`${INPUT_CLASS} font-mono`}
+                />
+              </Field>
+
+              <Field
                 label="Listing Title"
                 required
                 hint="German, keyword-first, under about 70 characters. Lead with brand and model, then condition."
@@ -1035,7 +1085,7 @@ export default function ManualEntry() {
               )}
               <button
                 type="button"
-                onClick={editingId ? () => router.push('/') : resetForm}
+                onClick={editingId ? () => router.push('/admin') : resetForm}
                 disabled={saving || deleting}
                 className="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-[14px] font-medium text-gray-600 transition hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
               >

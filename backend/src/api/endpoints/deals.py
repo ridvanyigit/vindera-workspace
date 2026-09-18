@@ -63,6 +63,9 @@ class StatusUpdateRequest(BaseModel):
     customer_messages_summary: str | None = None
     sold_during_event: str | None = None
 
+    # Public storefront: the live Willhaben listing the "Buy" button opens.
+    willhaben_url: str | None = None
+
 
 # --- Pipeline helpers -----------------------------------------------------
 
@@ -305,6 +308,7 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
         "customer_inquiries_count": request.customer_inquiries_count,
         "customer_messages_summary": request.customer_messages_summary,
         "sold_during_event": request.sold_during_event,
+        "willhaben_url": request.willhaben_url,
     }
     payload.update({key: value for key, value in optional_fields.items() if value is not None})
 
@@ -341,12 +345,16 @@ class ManualDealRequest(BaseModel):
     title: str
     category: str = FALLBACK_CATEGORY
     image_url: str | None = None
+    # Extra photos for the storefront's product detail gallery, beyond the cover image.
+    gallery_image_urls: list[str] = []
 
     # Pricing
     buy_price: float
     target_sell_price: float
     emergency_sell_price: float | None = None
     willhaben_realistic_price: float | None = None
+    # Public storefront: the live Willhaben listing the "Buy" button opens.
+    willhaben_url: str | None = None
 
     # Optional Amazon reference points. When both are supplied they are written
     # to price_history so the workspace chart shows a real slope instead of the
@@ -432,6 +440,7 @@ async def create_manual_deal(request: ManualDealRequest):
         }
         if request.image_url:
             product_payload["image_url"] = request.image_url.strip()
+        product_payload["gallery_image_urls"] = [u.strip() for u in request.gallery_image_urls if u.strip()]
 
         product_res = supabase.table("products").upsert(
             product_payload, on_conflict="asin,amazon_locale"
@@ -463,6 +472,7 @@ async def create_manual_deal(request: ManualDealRequest):
             "target_sell_price": request.target_sell_price,
             "emergency_sell_price": emergency_price,
             "willhaben_realistic_price": request.willhaben_realistic_price or request.target_sell_price,
+            "willhaben_url": request.willhaben_url,
             "profit_margin": profit_margin,
             "ai_decision": request.ai_decision or "Manually entered deal. No automated analysis was performed.",
             "status": request.status,
@@ -549,6 +559,7 @@ async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
             "title": request.title.strip(),
             "category": request.category,
             "image_url": request.image_url.strip() if request.image_url else None,
+            "gallery_image_urls": [u.strip() for u in request.gallery_image_urls if u.strip()],
         }
         supabase.table("products").update(product_payload).eq("id", product_id).execute()
 
@@ -574,6 +585,7 @@ async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
             "target_sell_price": request.target_sell_price,
             "emergency_sell_price": emergency_price,
             "willhaben_realistic_price": request.willhaben_realistic_price or request.target_sell_price,
+            "willhaben_url": request.willhaben_url,
             "profit_margin": profit_margin,
             "ai_decision": request.ai_decision or "Manually entered deal. No automated analysis was performed.",
             "status": request.status,
