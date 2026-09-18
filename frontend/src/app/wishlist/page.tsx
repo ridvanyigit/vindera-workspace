@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { Heart, RefreshCw } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
+import StoreFooter from '@/components/StoreFooter';
 import ProductCard from '@/components/ProductCard';
 
 export default function Wishlist() {
@@ -52,10 +53,10 @@ export default function Wishlist() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
       <StoreNav />
 
-      <main className="mx-auto max-w-7xl px-6 py-10">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-10">
         <div className="mb-6 flex items-center gap-2">
           <Heart className="h-5 w-5 fill-red-500 text-red-500" />
           <h1 className="text-[22px] font-semibold tracking-[-0.015em] text-gray-900">My Wishlist</h1>
@@ -76,6 +77,7 @@ export default function Wishlist() {
           </div>
         )}
       </main>
+      <StoreFooter />
     </div>
   );
 }

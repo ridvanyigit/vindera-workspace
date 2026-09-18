@@ -29,6 +29,7 @@ import { getRecentlyViewedIds } from '@/lib/recentlyViewed';
 import { Package, RefreshCw, ArrowLeft } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
+import StoreFooter from '@/components/StoreFooter';
 import ProductCard, { ProductCardSize } from '@/components/ProductCard';
 import CategoryQuadTile from '@/components/CategoryQuadTile';
 import HorizontalRail from '@/components/HorizontalRail';
@@ -100,9 +101,9 @@ function StorefrontContent() {
   if (categoryParam) {
     const filtered = listings.filter(l => l.category === categoryParam);
     return (
-      <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+      <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
         <StoreNav />
-        <main className="mx-auto max-w-7xl px-6 py-8">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
           <div className="mb-6 flex items-center gap-3">
             <Link href="/" className="flex items-center gap-1.5 text-[13px] font-medium text-gray-500 transition hover:text-gray-900">
               <ArrowLeft className="h-4 w-4" /> All categories
@@ -126,16 +127,17 @@ function StorefrontContent() {
             </div>
           )}
         </main>
+        <StoreFooter />
       </div>
     );
   }
 
   // --- Curated homepage ---------------------------------------------------
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
       <StoreNav />
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
         {loading ? (
           <div className="flex h-64 items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-indigo-600" /></div>
         ) : listings.length === 0 ? (
@@ -191,6 +193,7 @@ function StorefrontContent() {
           </>
         )}
       </main>
+      <StoreFooter />
     </div>
   );
 }

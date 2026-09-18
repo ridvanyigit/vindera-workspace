@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { Package, Heart, ExternalLink, RefreshCw, ChevronDown, ChevronRight, ShieldCheck, Truck } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
+import StoreFooter from '@/components/StoreFooter';
 import ProductCard from '@/components/ProductCard';
 import HorizontalRail from '@/components/HorizontalRail';
 
@@ -94,13 +95,14 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
 
   if (notFound || !item) {
     return (
-      <div className="min-h-screen bg-[#f7f8fa]">
+      <div className="flex min-h-screen flex-col bg-[#f7f8fa]">
         <StoreNav />
-        <div className="flex h-96 flex-col items-center justify-center gap-3 text-gray-400">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-gray-400">
           <Package className="h-12 w-12 text-gray-200" />
           <p className="text-[14px]">This item isn&apos;t available anymore.</p>
           <Link href="/" className="text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">Back to the store</Link>
         </div>
+        <StoreFooter />
       </div>
     );
   }
@@ -109,10 +111,10 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   const isFavorited = wishlistIds.has(item.id);
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
       <StoreNav />
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
         <div className="mb-6 flex items-center gap-1.5 text-[13px] text-gray-500">
           <Link href="/" className="hover:text-gray-900">Home</Link>
           {item.category && (
@@ -230,6 +232,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
           </div>
         )}
       </main>
+      <StoreFooter />
     </div>
   );
 }
