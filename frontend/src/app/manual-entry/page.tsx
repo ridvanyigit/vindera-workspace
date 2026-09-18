@@ -55,7 +55,17 @@ interface FormState {
   seasonality_analysis: string;
   listing_title: string;
   listing_description: string;
+  // Sale outcome — only sent when status is 'sold'. Feeds the future ML model.
+  actual_sell_price: string;
+  shipping_and_prep_cost: string;
+  platform_fees: string;
+  customer_inquiries_count: string;
+  customer_messages_summary: string;
+  sold_during_event: string;
 }
+
+/** Mirrors the events_calendar seed data — see supabase/seed.sql. */
+const SALE_EVENT_OPTIONS = ['Black Friday', 'Christmas', 'Halloween', 'Winter Sales (WSV)', "Valentine's Day", 'Easter', 'Cyber Monday', 'Other'];
 
 const EMPTY_SCORES: ScoreBreakdown = {
   discount: 5, demand: 5, competition: 5, capital_efficiency: 5,
@@ -87,6 +97,12 @@ const EMPTY_FORM: FormState = {
   seasonality_analysis: '',
   listing_title: '',
   listing_description: '',
+  actual_sell_price: '',
+  shipping_and_prep_cost: '',
+  platform_fees: '',
+  customer_inquiries_count: '',
+  customer_messages_summary: '',
+  sold_during_event: '',
 };
 
 const generateSku = () => `GEN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
@@ -174,6 +190,8 @@ export default function ManualEntry() {
           deal_score, holding_period_months, seasonality_analysis, sku, warehouse_location,
           product_condition, is_quarantine, score_breakdown, purchase_thesis, ai_decision,
           status, buybox_seller, buybox_is_fba,
+          actual_sell_price, shipping_and_prep_cost, platform_fees, customer_inquiries_count,
+          customer_messages_summary, sold_during_event,
           products ( asin, title, category, image_url ),
           generated_listings ( generated_title, generated_description )
         `)
@@ -218,6 +236,12 @@ export default function ManualEntry() {
         seasonality_analysis: deal.seasonality_analysis || '',
         listing_title: listing.generated_title || '',
         listing_description: listing.generated_description || '',
+        actual_sell_price: deal.actual_sell_price != null ? String(deal.actual_sell_price) : '',
+        shipping_and_prep_cost: deal.shipping_and_prep_cost != null ? String(deal.shipping_and_prep_cost) : '',
+        platform_fees: deal.platform_fees != null ? String(deal.platform_fees) : '',
+        customer_inquiries_count: deal.customer_inquiries_count != null ? String(deal.customer_inquiries_count) : '',
+        customer_messages_summary: deal.customer_messages_summary || '',
+        sold_during_event: deal.sold_during_event || '',
       });
       if (deal.score_breakdown) setScores({ ...EMPTY_SCORES, ...deal.score_breakdown });
       setReady(true);
@@ -301,6 +325,17 @@ export default function ManualEntry() {
       score_breakdown: scores,
       listing_title: form.listing_title.trim(),
       listing_description: form.listing_description.trim(),
+      ...(form.status === 'sold' ? {
+        actual_sell_price: form.actual_sell_price ? Number(form.actual_sell_price) : null,
+        actual_profit: form.actual_sell_price
+          ? Number((Number(form.actual_sell_price) - buyPrice - (Number(form.shipping_and_prep_cost) || 0) - (Number(form.platform_fees) || 0)).toFixed(2))
+          : null,
+        shipping_and_prep_cost: form.shipping_and_prep_cost ? Number(form.shipping_and_prep_cost) : null,
+        platform_fees: form.platform_fees ? Number(form.platform_fees) : null,
+        customer_inquiries_count: form.customer_inquiries_count ? Number(form.customer_inquiries_count) : null,
+        customer_messages_summary: form.customer_messages_summary.trim() || null,
+        sold_during_event: form.sold_during_event || null,
+      } : {}),
     };
 
     try {
@@ -794,6 +829,103 @@ export default function ManualEntry() {
               </div>
             </div>
           </Section>
+
+          {/* Sale outcome — only relevant once the deal is actually sold */}
+          {form.status === 'sold' && (
+            <Section
+              icon={<CheckCircle className="h-5 w-5" />}
+              title="Sale Outcome"
+              description="What actually happened. This is the ground-truth data the future ML model will train on."
+            >
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <Field
+                  label="Actual Sell Price (€)"
+                  hint="The final, haggled price the buyer actually paid — not your target price."
+                >
+                  <input
+                    type="number" step="0.01" min="0" inputMode="decimal"
+                    value={form.actual_sell_price}
+                    onChange={e => set('actual_sell_price', e.target.value)}
+                    placeholder={targetPrice ? targetPrice.toFixed(2) : '0.00'}
+                    className={`${INPUT_CLASS} tabular-nums`}
+                  />
+                </Field>
+
+                <Field
+                  label="Number of Customer Inquiries"
+                  hint="How many different buyers messaged you about this listing. A proxy for demand."
+                >
+                  <input
+                    type="number" step="1" min="0" inputMode="numeric"
+                    value={form.customer_inquiries_count}
+                    onChange={e => set('customer_inquiries_count', e.target.value)}
+                    placeholder="0"
+                    className={`${INPUT_CLASS} tabular-nums`}
+                  />
+                </Field>
+
+                <Field
+                  label="Shipping & Prep Costs (€)"
+                  hint="Packaging, tape, boxes and shipping paid out of pocket for this sale."
+                >
+                  <input
+                    type="number" step="0.01" min="0" inputMode="decimal"
+                    value={form.shipping_and_prep_cost}
+                    onChange={e => set('shipping_and_prep_cost', e.target.value)}
+                    placeholder="0.00"
+                    className={`${INPUT_CLASS} tabular-nums`}
+                  />
+                </Field>
+
+                <Field
+                  label="Platform Fees (€)"
+                  hint="Commission or fees Willhaben (or whichever platform sold it) kept."
+                >
+                  <input
+                    type="number" step="0.01" min="0" inputMode="decimal"
+                    value={form.platform_fees}
+                    onChange={e => set('platform_fees', e.target.value)}
+                    placeholder="0.00"
+                    className={`${INPUT_CLASS} tabular-nums`}
+                  />
+                </Field>
+
+                <Field
+                  label="Sold during event?"
+                  hint="Optional. Was a seasonal event active when this sold? Leave as None if not."
+                >
+                  <select value={form.sold_during_event} onChange={e => set('sold_during_event', e.target.value)} className={SELECT_CLASS}>
+                    <option value="">None</option>
+                    {SALE_EVENT_OPTIONS.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </Field>
+
+                <div className="md:col-span-2">
+                  <Field
+                    label="Notes / Messages Summary"
+                    hint="Summarize what buyers asked about or objected to — useful signal for pricing and listing quality."
+                  >
+                    <textarea
+                      rows={3}
+                      value={form.customer_messages_summary}
+                      onChange={e => set('customer_messages_summary', e.target.value)}
+                      placeholder="Buyers mostly asked about the warranty and whether the box was still sealed."
+                      className={TEXTAREA_CLASS}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              {form.actual_sell_price && (
+                <div className="mt-5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <span className="type-label text-gray-500">Net Profit</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-emerald-700">
+                    €{(Number(form.actual_sell_price) - buyPrice - (Number(form.shipping_and_prep_cost) || 0) - (Number(form.platform_fees) || 0)).toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </Section>
+          )}
 
           {/* Decision notes */}
           <Section

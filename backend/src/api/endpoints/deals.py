@@ -54,6 +54,15 @@ class StatusUpdateRequest(BaseModel):
     target_sell_price: float | None = None
     purchase_thesis: str | None = None
 
+    # Sale outcome (ML training data) — sent when status moves to 'sold'.
+    actual_sell_price: float | None = None
+    actual_profit: float | None = None
+    shipping_and_prep_cost: float | None = None
+    platform_fees: float | None = None
+    customer_inquiries_count: int | None = None
+    customer_messages_summary: str | None = None
+    sold_during_event: str | None = None
+
 
 # --- Pipeline helpers -----------------------------------------------------
 
@@ -263,17 +272,39 @@ async def scan_asin(request: ScanRequest, background_tasks: BackgroundTasks):
 
 @router.patch("/{opportunity_id}/status")
 async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
-    """Advance an opportunity through its lifecycle and patch optional fields."""
+    """Advance an opportunity through its lifecycle and patch optional fields.
+
+    When the status moves to 'sold', also stamps `time_to_sell_days` (measured
+    against `created_at`) so the sale outcome fields form a complete row for
+    future ML training, alongside whatever actual_* fields the sale-confirm
+    modal sent.
+    """
     payload: dict = {"status": request.status}
 
     if request.status == "sold":
-        payload["sold_at"] = datetime.now().isoformat()
+        now = datetime.now()
+        payload["sold_at"] = now.isoformat()
+
+        created_res = (
+            supabase.table("opportunities").select("created_at").eq("id", opportunity_id).execute()
+        )
+        if created_res.data and created_res.data[0].get("created_at"):
+            created_at = datetime.fromisoformat(created_res.data[0]["created_at"].replace("Z", "+00:00"))
+            now_ref = datetime.now(created_at.tzinfo) if created_at.tzinfo else now
+            payload["time_to_sell_days"] = max((now_ref - created_at).days, 0)
 
     optional_fields = {
         "product_condition": request.product_condition,
         "is_quarantine": request.is_quarantine,
         "target_sell_price": request.target_sell_price,
         "purchase_thesis": request.purchase_thesis,
+        "actual_sell_price": request.actual_sell_price,
+        "actual_profit": request.actual_profit,
+        "shipping_and_prep_cost": request.shipping_and_prep_cost,
+        "platform_fees": request.platform_fees,
+        "customer_inquiries_count": request.customer_inquiries_count,
+        "customer_messages_summary": request.customer_messages_summary,
+        "sold_during_event": request.sold_during_event,
     }
     payload.update({key: value for key, value in optional_fields.items() if value is not None})
 
@@ -345,6 +376,31 @@ class ManualDealRequest(BaseModel):
     # Willhaben listing
     listing_title: str
     listing_description: str
+
+    # Sale outcome (ML training data) — only meaningful when status == 'sold'.
+    actual_sell_price: float | None = None
+    actual_profit: float | None = None
+    shipping_and_prep_cost: float | None = None
+    platform_fees: float | None = None
+    customer_inquiries_count: int | None = None
+    customer_messages_summary: str | None = None
+    sold_during_event: str | None = None
+    time_to_sell_days: int | None = None
+
+
+def _sale_outcome_fields(request: "ManualDealRequest") -> dict:
+    """Extract the ML-training sale outcome fields that were actually filled in."""
+    fields = {
+        "actual_sell_price": request.actual_sell_price,
+        "actual_profit": request.actual_profit,
+        "shipping_and_prep_cost": request.shipping_and_prep_cost,
+        "platform_fees": request.platform_fees,
+        "customer_inquiries_count": request.customer_inquiries_count,
+        "customer_messages_summary": request.customer_messages_summary,
+        "sold_during_event": request.sold_during_event,
+        "time_to_sell_days": request.time_to_sell_days,
+    }
+    return {key: value for key, value in fields.items() if value is not None}
 
 
 @router.post("/manual", status_code=201)
@@ -425,6 +481,7 @@ async def create_manual_deal(request: ManualDealRequest):
 
         if request.status == "sold":
             opp_payload["sold_at"] = datetime.now().isoformat()
+            opp_payload.update(_sale_outcome_fields(request))
 
         opp_res = supabase.table("opportunities").insert(opp_payload).execute()
         opportunity_id = opp_res.data[0]["id"]
@@ -535,6 +592,7 @@ async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
 
         if request.status == "sold":
             opp_payload["sold_at"] = existing.get("sold_at") or datetime.now().isoformat()
+            opp_payload.update(_sale_outcome_fields(request))
         else:
             opp_payload["sold_at"] = None
 

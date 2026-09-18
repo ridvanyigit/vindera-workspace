@@ -33,9 +33,23 @@ interface Opportunity {
   sku?: string; emergency_sell_price?: number; warehouse_location?: string; product_condition?: string; days_in_inventory?: number;
   is_quarantine?: boolean; score_breakdown?: ScoreBreakdown; willhaben_realistic_price?: number; purchase_thesis?: string;
   invoice_url?: string; created_at: string; sold_at?: string;
+  // Sale outcome — filled in via the "Item Sold!" confirmation modal, feeds the future ML model.
+  actual_sell_price?: number; actual_profit?: number; shipping_and_prep_cost?: number; platform_fees?: number;
+  customer_inquiries_count?: number; customer_messages_summary?: string; sold_during_event?: string; time_to_sell_days?: number;
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
+
+/** Predefined options for the "Sold during event?" dropdown, mirrors events_calendar seed data. */
+const SALE_EVENT_OPTIONS = ['Black Friday', 'Christmas', 'Halloween', 'Winter Sales (WSV)', "Valentine's Day", 'Easter', 'Cyber Monday', 'Other'];
+
+const EMPTY_SALE_FORM = {
+  actual_sell_price: '', shipping_and_prep_cost: '', platform_fees: '',
+  customer_inquiries_count: '', customer_messages_summary: '', sold_during_event: '',
+};
+
+const SALE_INPUT_CLASS =
+  'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-[14px] text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -53,6 +67,10 @@ export default function Dashboard() {
   const [showAuditModal, setShowAuditModal] = useState(false);
   const [checks, setChecks] = useState({ model: false, packaging: false, accessories: false, power: false });
   const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
+
+  const [saleModalDeal, setSaleModalDeal] = useState<Opportunity | null>(null);
+  const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
+  const [confirmingSale, setConfirmingSale] = useState(false);
 
   const [mainHorizontalKey, setMainHorizontalKey] = useState(0);
   const [leftVerticalKey, setLeftVerticalKey] = useState(0);
@@ -82,6 +100,7 @@ export default function Dashboard() {
     const { data, error } = await supabase.from('opportunities').select(`
       id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
       deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, created_at, sold_at,
+      actual_sell_price, actual_profit, shipping_and_prep_cost, platform_fees, customer_inquiries_count, customer_messages_summary, sold_during_event, time_to_sell_days,
       products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
       generated_listings ( generated_title, generated_description )
     `).order('created_at', { ascending: false });
@@ -119,6 +138,39 @@ export default function Dashboard() {
     else updateStatus(inventoryModalDeal.id, 'in_inventory', 'REVIEW NEEDED', true);
     setInventoryModalDeal(null);
     setChecks({ model: false, packaging: false, accessories: false, power: false });
+  };
+
+  /** Confirms a sale: computes actual_profit client-side and patches the full outcome to the backend. */
+  const handleConfirmSale = async () => {
+    if (!saleModalDeal) return;
+    const actualSellPrice = Number(saleForm.actual_sell_price) || 0;
+    const shipping = Number(saleForm.shipping_and_prep_cost) || 0;
+    const fees = Number(saleForm.platform_fees) || 0;
+    const inquiries = Number(saleForm.customer_inquiries_count) || 0;
+    const actualProfit = actualSellPrice - Number(saleModalDeal.buy_price) - shipping - fees;
+
+    setConfirmingSale(true);
+    try {
+      const res = await fetch(apiUrl(`/deals/${saleModalDeal.id}/status`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          status: 'sold',
+          actual_sell_price: actualSellPrice,
+          actual_profit: Number(actualProfit.toFixed(2)),
+          shipping_and_prep_cost: shipping,
+          platform_fees: fees,
+          customer_inquiries_count: inquiries,
+          customer_messages_summary: saleForm.customer_messages_summary.trim() || undefined,
+          sold_during_event: saleForm.sold_during_event || undefined,
+        }),
+      });
+      if (res.ok) {
+        fetchOpportunities();
+        setSaleModalDeal(null);
+        setSaleForm(EMPTY_SALE_FORM);
+      }
+    } catch (error) { console.error(error); } finally { setConfirmingSale(false); }
   };
 
   const handleInvoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>, dealId: string) => {
@@ -472,7 +524,7 @@ export default function Dashboard() {
                         {/* Dynamic pricing ladder once the item is listed */}
                         {selectedDeal.status === 'listed' && (
                           <>
-                            <button onClick={() => updateStatus(selectedDeal.id, 'sold')} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold!</button>
+                            <button onClick={() => { setSaleModalDeal(selectedDeal); setSaleForm({ ...EMPTY_SALE_FORM, actual_sell_price: String(selectedDeal.target_sell_price) }); }} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold!</button>
                             {selectedDealAge > 14 && (
                               <button onClick={() => updateStatus(selectedDeal.id, 'listed', undefined, undefined, Number((selectedDeal.target_sell_price * 0.95).toFixed(2)))} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="Item listed for >14 days. Drop target price by 5%.">
                                 <TrendingDown className="h-5 w-5" /> Drop Price 5%
@@ -616,6 +668,69 @@ export default function Dashboard() {
                 <button onClick={() => handleInventorySubmit('quarantine')} className="flex-1 py-2.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm font-bold hover:bg-red-100 transition">Fail (Quarantine)</button>
                 <button disabled={!allChecked} onClick={() => handleInventorySubmit('approve')} className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 disabled:bg-indigo-300 transition">Approve (Add)</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL — Sale confirmation (captures the real outcome for ML training) */}
+      {saleModalDeal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
+            <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center shrink-0">
+              <h3 className="type-section-title text-gray-800 flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> Confirm Sale</h3>
+              <button onClick={() => { setSaleModalDeal(null); setSaleForm(EMPTY_SALE_FORM); }} className="text-gray-400 hover:text-gray-700 transition"><X className="h-5 w-5"/></button>
+            </div>
+            <div className="p-5 flex flex-col gap-4 overflow-y-auto">
+              <p className="type-body text-gray-600">Record what actually happened selling <strong>{saleModalDeal.products?.title}</strong>. This becomes training data for the future pricing model.</p>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="type-label text-gray-500">Actual Sell Price (€) <span className="text-red-500">*</span></span>
+                <input type="number" step="0.01" min="0" inputMode="decimal" value={saleForm.actual_sell_price} onChange={e => setSaleForm({ ...saleForm, actual_sell_price: e.target.value })} placeholder={String(saleModalDeal.target_sell_price)} className={`${SALE_INPUT_CLASS} tabular-nums`} />
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1.5">
+                  <span className="type-label text-gray-500">Shipping & Prep (€)</span>
+                  <input type="number" step="0.01" min="0" inputMode="decimal" value={saleForm.shipping_and_prep_cost} onChange={e => setSaleForm({ ...saleForm, shipping_and_prep_cost: e.target.value })} placeholder="0.00" className={`${SALE_INPUT_CLASS} tabular-nums`} />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="type-label text-gray-500">Platform Fees (€)</span>
+                  <input type="number" step="0.01" min="0" inputMode="decimal" value={saleForm.platform_fees} onChange={e => setSaleForm({ ...saleForm, platform_fees: e.target.value })} placeholder="0.00" className={`${SALE_INPUT_CLASS} tabular-nums`} />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="flex flex-col gap-1.5">
+                  <span className="type-label text-gray-500">Customer Inquiries</span>
+                  <input type="number" step="1" min="0" inputMode="numeric" value={saleForm.customer_inquiries_count} onChange={e => setSaleForm({ ...saleForm, customer_inquiries_count: e.target.value })} placeholder="0" className={`${SALE_INPUT_CLASS} tabular-nums`} />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="type-label text-gray-500">Sold during event?</span>
+                  <select value={saleForm.sold_during_event} onChange={e => setSaleForm({ ...saleForm, sold_during_event: e.target.value })} className={`${SALE_INPUT_CLASS} cursor-pointer`}>
+                    <option value="">None</option>
+                    {SALE_EVENT_OPTIONS.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="type-label text-gray-500">Notes / Messages Summary</span>
+                <textarea rows={3} value={saleForm.customer_messages_summary} onChange={e => setSaleForm({ ...saleForm, customer_messages_summary: e.target.value })} placeholder="What buyers asked about or objected to..." className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[14px] leading-relaxed text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50" />
+              </label>
+
+              {Number(saleForm.actual_sell_price) > 0 && (
+                <div className="flex justify-between items-center bg-emerald-50 border border-emerald-100 p-3 rounded-lg">
+                  <span className="text-[13px] font-semibold text-emerald-800">Net Profit</span>
+                  <span className="text-[15px] font-bold tabular-nums text-emerald-700">
+                    €{(Number(saleForm.actual_sell_price) - Number(saleModalDeal.buy_price) - (Number(saleForm.shipping_and_prep_cost) || 0) - (Number(saleForm.platform_fees) || 0)).toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="p-5 pt-0 flex gap-3 shrink-0">
+              <button onClick={() => { setSaleModalDeal(null); setSaleForm(EMPTY_SALE_FORM); }} disabled={confirmingSale} className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-50 transition disabled:opacity-50">Cancel</button>
+              <button onClick={handleConfirmSale} disabled={!(Number(saleForm.actual_sell_price) > 0) || confirmingSale} className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 disabled:bg-green-300 transition">{confirmingSale ? 'Saving...' : 'Confirm Sale'}</button>
             </div>
           </div>
         </div>
