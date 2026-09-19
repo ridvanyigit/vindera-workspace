@@ -1,15 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Heart, Package, ExternalLink } from 'lucide-react';
+import { Package, ExternalLink } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 
 export type ProductCardSize = 'standard' | 'compact' | 'large' | 'tall';
 
 interface ProductCardProps {
   item: StorefrontListing;
-  isFavorited: boolean;
-  onToggleWishlist: (id: string) => void;
   size?: ProductCardSize;
 }
 
@@ -45,20 +43,11 @@ const PADDING_CLASS: Record<ProductCardSize, string> = {
  * A single storefront product tile — fills whatever width its parent gives
  * it (a grid cell or a fixed-width rail slot). `size` only changes internal
  * proportions (image aspect ratio, type scale), never the outer width, so
- * the same component works in a CSS grid (wishlist) and in a horizontal
- * rail (homepage) alike.
+ * the same component works in a CSS grid and in a horizontal rail alike.
  */
-export default function ProductCard({ item, isFavorited, onToggleWishlist, size = 'standard' }: ProductCardProps) {
+export default function ProductCard({ item, size = 'standard' }: ProductCardProps) {
   return (
     <div className="group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
-      <button
-        onClick={() => onToggleWishlist(item.id)}
-        title={isFavorited ? 'Remove from wishlist' : 'Add to wishlist'}
-        className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 shadow-sm backdrop-blur transition hover:scale-105 hover:bg-white"
-      >
-        <Heart className={`h-4.5 w-4.5 transition-colors ${isFavorited ? 'fill-red-500 text-red-500' : 'text-gray-400'}`} />
-      </button>
-
       <Link href={`/product/${item.id}`} className={`flex ${IMAGE_ASPECT[size]} items-center justify-center overflow-hidden bg-gray-50`}>
         {item.image_url ? (
           <img src={item.image_url} alt={item.title} className="h-full w-full object-contain p-4" />

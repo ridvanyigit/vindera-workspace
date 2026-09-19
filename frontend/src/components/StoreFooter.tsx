@@ -27,7 +27,6 @@ export default function StoreFooter() {
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-100">Shop</h3>
             <ul className="mt-3 flex flex-col gap-2 text-[13px]">
               <li><Link href="/" className="transition hover:text-white">Alle Produkte</Link></li>
-              <li><Link href="/wishlist" className="transition hover:text-white">Wunschliste</Link></li>
             </ul>
           </div>
 

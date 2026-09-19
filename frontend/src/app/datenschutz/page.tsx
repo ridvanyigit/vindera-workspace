@@ -3,14 +3,16 @@
 /**
  * Datenschutzerklärung (DSGVO / GDPR).
  *
- * Written to match what this codebase actually does — no invented data
- * flows. Notably:
- *   - Supabase (auth + database) runs in the eu-central-1 (Frankfurt)
- *     region — verified directly against the project, not assumed.
- *   - Email/password is the only sign-in method right now — Google/Apple
- *     were pulled from /login (see that file), so this doesn't claim them.
+ * Deliberately short: Vindera has no customer accounts, no login and no
+ * wishlist (removed — nothing on the site is purchasable, so an account
+ * never had anything to do). What's left to disclose is genuinely small:
+ * anonymous server logs, a public read-only product catalog, and one
+ * local-storage feature that never leaves the visitor's browser.
+ *
+ *   - Supabase (database) runs in the eu-central-1 (Frankfurt) region —
+ *     verified directly against the project, not assumed.
  *   - No analytics/tracking is in place today, so none is claimed; a
- *     forward-looking clause in section 8 covers adding Google Analytics
+ *     forward-looking clause in section 5 covers adding Google Analytics
  *     later, which will need a cookie-consent mechanism this site doesn't
  *     have yet — build that consent flow before actually turning GA on.
  *   - The hosting provider for the Next.js frontend itself is not yet
@@ -39,10 +41,10 @@ export default function Datenschutz() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
       <StoreNav />
 
-      <main className="mx-auto max-w-3xl px-6 py-12">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
         <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-gray-900">Datenschutzerklärung</h1>
         <p className="mt-2 text-[13px] text-gray-500">Stand: {new Date().toLocaleDateString('de-AT', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 
@@ -58,11 +60,11 @@ export default function Datenschutz() {
 
           <Section title="2. Grundsätzliches">
             <p>
-              Wir verarbeiten personenbezogene Daten nur, soweit dies zur Bereitstellung unserer Website und
-              unserer Funktionen (insbesondere der Wunschliste) erforderlich ist, und ausschließlich auf Grundlage
-              einer gesetzlichen Erlaubnis (Art. 6 DSGVO). Vindera ist eine Produktvitrine: Käufe finden nicht auf
-              dieser Website statt, sondern ausschließlich auf Willhaben, an die Sie über die jeweilige
-              Produktseite weitergeleitet werden. Wir erheben daher keine Zahlungs- oder Versanddaten.
+              Vindera ist eine reine Produktvitrine: Sie können unsere Website ohne Registrierung und ohne
+              Nutzerkonto durchsuchen. Käufe finden nicht auf dieser Website statt, sondern ausschließlich auf
+              Willhaben, an die Sie über die jeweilige Produktseite weitergeleitet werden. Wir erheben daher weder
+              Konto-, Zahlungs- noch Versanddaten. Die im Folgenden beschriebene Verarbeitung erfolgt ausschließlich
+              auf Grundlage einer gesetzlichen Erlaubnis (Art. 6 DSGVO).
             </p>
           </Section>
 
@@ -76,46 +78,27 @@ export default function Datenschutz() {
             </p>
           </Section>
 
-          <Section title="4. Datenbank und Authentifizierung (Supabase)">
+          <Section title="4. Produktkatalog (Supabase)">
             <p>
-              Für Nutzerkonten, die Wunschliste und die zugrunde liegende Datenbank verwenden wir den Dienst{' '}
-              <strong>Supabase</strong>. Die Daten werden auf Servern in der EU (Region Frankfurt, eu-central-1)
-              gespeichert und verarbeitet. Mit Supabase besteht ein Auftragsverarbeitungsvertrag gemäß Art. 28
-              DSGVO.
+              Die auf dieser Website angezeigten Produktdaten (Titel, Bild, Preis, Kategorie, Zustand) stammen aus
+              unserer Datenbank, betrieben über den Dienst <strong>Supabase</strong> auf Servern in der EU (Region
+              Frankfurt, eu-central-1). Der Abruf dieser öffentlichen Produktdaten ist rein lesend und ohne
+              Personenbezug — es werden dabei keine Daten über Sie gespeichert.
             </p>
           </Section>
 
-          <Section title="5. Registrierung und Nutzerkonto">
+          <Section title="5. Lokale Speicherung im Browser">
             <p>
-              Wenn Sie ein Konto anlegen, verarbeiten wir Ihre E-Mail-Adresse und ein von Ihnen gewähltes,
-              verschlüsselt gespeichertes Passwort. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (Erfüllung des
-              Nutzungsverhältnisses). Ein Nutzerkonto ist ausschließlich erforderlich, um Produkte auf die
-              Wunschliste zu setzen — das Durchsuchen der Website ist ohne Konto möglich. Sollten wir künftig eine
-              Anmeldung über Drittanbieter (z. B. Google) anbieten, aktualisieren wir diese Erklärung vorab
-              entsprechend.
+              Für die Funktion „Kürzlich angesehen“ speichern wir die IDs der von Ihnen besuchten Produktseiten im
+              lokalen Speicher (Local Storage) Ihres Browsers. Diese Information verbleibt ausschließlich auf
+              Ihrem Gerät, wird nicht an uns oder Dritte übertragen und dient ausschließlich der von Ihnen aktiv
+              genutzten Funktion. Da dies technisch notwendig für eine von Ihnen gewünschte Funktion ist, ist
+              hierfür keine gesonderte Einwilligung erforderlich (§ 165 Abs. 3 TKG 2021). Sie können diese Daten
+              jederzeit über die Einstellungen Ihres Browsers löschen.
             </p>
           </Section>
 
-          <Section title="6. Wunschliste">
-            <p>
-              Speichern Sie ein Produkt auf Ihrer Wunschliste, verknüpfen wir dies mit Ihrem Nutzerkonto, um Ihnen
-              die gespeicherten Produkte bei jedem Besuch anzuzeigen (Art. 6 Abs. 1 lit. b DSGVO). Diese Daten
-              werden gelöscht, sobald Sie das jeweilige Produkt von der Liste entfernen oder Ihr Konto löschen
-              lassen.
-            </p>
-          </Section>
-
-          <Section title="7. Lokale Speicherung im Browser">
-            <p>
-              Für die Anmeldesitzung sowie für die Funktion „Kürzlich angesehen“ verwenden wir den lokalen
-              Speicher (Local Storage) Ihres Browsers. Diese Informationen verbleiben ausschließlich auf Ihrem
-              Gerät, werden nicht an uns oder Dritte übertragen und dienen ausschließlich der von Ihnen aktiv
-              genutzten Funktion. Da dies technisch notwendig ist, ist hierfür keine gesonderte Einwilligung
-              erforderlich (§ 165 Abs. 3 TKG 2021).
-            </p>
-          </Section>
-
-          <Section title="8. Analyse- und Tracking-Tools">
+          <Section title="6. Analyse- und Tracking-Tools">
             <p>
               Wir setzen derzeit <strong>keine</strong> Analyse-, Marketing- oder Trackingdienste (z. B. Google
               Analytics) und keine entsprechenden Cookies ein. Sollten wir künftig solche Dienste einsetzen, werden
@@ -124,28 +107,20 @@ export default function Datenschutz() {
             </p>
           </Section>
 
-          <Section title="9. Empfänger und Weitergabe">
+          <Section title="7. Empfänger und Weitergabe">
             <p>
-              Eine Weitergabe Ihrer Daten an Dritte erfolgt nicht, außer an den in dieser Erklärung genannten
-              Auftragsverarbeiter (Supabase). Klicken Sie auf „Auf Willhaben Kaufen“, verlassen Sie unsere
-              Website; für die Datenverarbeitung auf Willhaben ist ausschließlich die willhaben internet service
-              GmbH verantwortlich.
+              Eine Weitergabe Ihrer Daten an Dritte erfolgt nicht. Klicken Sie auf „Auf Willhaben Kaufen“, verlassen
+              Sie unsere Website; für die Datenverarbeitung auf Willhaben ist ausschließlich die willhaben internet
+              service GmbH verantwortlich — es gelten deren eigene Datenschutzhinweise.
             </p>
           </Section>
 
-          <Section title="10. Speicherdauer">
+          <Section title="8. Ihre Rechte">
             <p>
-              Kontobezogene Daten speichern wir, solange Ihr Konto besteht. Nach Löschung Ihres Kontos werden Ihre
-              Daten unverzüglich gelöscht, soweit keine gesetzlichen Aufbewahrungspflichten entgegenstehen.
-            </p>
-          </Section>
-
-          <Section title="11. Ihre Rechte">
-            <p>
-              Ihnen stehen nach der DSGVO folgende Rechte zu: Auskunft (Art. 15), Berichtigung (Art. 16), Löschung
-              (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) sowie Widerspruch
-              gegen die Verarbeitung (Art. 21). Erteilte Einwilligungen können Sie jederzeit mit Wirkung für die
-              Zukunft widerrufen. Kontaktieren Sie uns hierzu unter{' '}
+              Soweit wir personenbezogene Daten verarbeiten (siehe Abschnitt 3), stehen Ihnen nach der DSGVO
+              folgende Rechte zu: Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der
+              Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) sowie Widerspruch gegen die Verarbeitung
+              (Art. 21). Kontaktieren Sie uns hierzu unter{' '}
               <a href="mailto:info@rai-recht.at" className="text-indigo-600 hover:text-indigo-700">info@rai-recht.at</a>.
             </p>
             <p>
@@ -155,7 +130,7 @@ export default function Datenschutz() {
             </p>
           </Section>
 
-          <Section title="12. Änderungen dieser Datenschutzerklärung">
+          <Section title="9. Änderungen dieser Datenschutzerklärung">
             <p>
               Wir passen diese Datenschutzerklärung an, sobald sich unsere Datenverarbeitung ändert (z. B. bei
               Wahl eines Hosting-Anbieters oder Einführung neuer Funktionen). Die jeweils aktuelle Fassung finden

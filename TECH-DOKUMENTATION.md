@@ -65,12 +65,12 @@ flowchart TD
 ```mermaid
 graph TB
     subgraph Client ["Client Layer (Next.js 16 / React 19)"]
-        STORE["/ — Public Storefront"]
-        LOGIN["/login — Supabase Auth"]
-        WISH["/wishlist — Customer Wishlist"]
+        STORE["/ — Public Storefront (no account)"]
+        LEGAL["/impressum, /datenschutz"]
         DASH["/admin — 3-pane Workspace"]
         PROD["/admin/products — Product Master table"]
         REP["/admin/reports — Tax & Financial Reports"]
+        ALOGIN["/admin/login — separate admin sign-in"]
     end
 
     subgraph BackendApp ["Backend Layer (FastAPI) :8000"]
@@ -453,17 +453,17 @@ stateDiagram-v2
 
 ### 8.1 Routes
 
-Since `v1.20.0`, the app is split into a public storefront and an admin-only area gated on `admin_users` / `is_admin()` (not just "being logged in") — see §5.x on RLS and the `20260918084045_public_storefront_and_wishlists` migration.
+Since `v1.20.0`, the app is split into a public storefront and an admin-only area gated on `admin_users` / `is_admin()` (not just "being logged in") — see §5.x on RLS. Since `v2.3.0` the storefront has **no customer account system**: nothing is purchasable on Vindera itself (every item redirects to its live Willhaben listing), so an account had nothing to do — the `wishlists` table, `/login` and `/wishlist` were removed. `/admin/login` is the sole, separate sign-in, used only by the admin.
 
 | Route | Description |
 |---|---|
-| `/` | Public storefront — grid of `in_inventory`/`listed` items from the `storefront_listings` view, wishlist heart, "Buy on Willhaben" deep link. No cart, no payment flow. |
-| `/login` | Shared Supabase email/password auth (sign-in + sign-up tabs), redirects to `/admin` for admins and `/` for everyone else |
-| `/wishlist` | A signed-in customer's favorited items (protected: any authenticated user) |
+| `/` | Public storefront — grid of `in_inventory`/`listed` items from the `storefront_listings` view, "Buy on Willhaben" deep link. No account, no cart, no payment flow. |
+| `/impressum` / `/datenschutz` | Legal notice and privacy policy |
 | `/admin` | Three-pane resizable workspace (admin-only) |
 | `/admin/products` | Product Master: searchable table with pointer-driven column resizing and CSV export (admin-only) |
 | `/admin/manual-entry` | Manual deal entry form — create a full opportunity without Keepa or OpenAI (admin-only) |
 | `/admin/reports` | Tax & Financial Reports: KPI cards, VAT threshold bar, monthly bar chart, category pie chart (admin-only) |
+| `/admin/login` | Separate, unlinked admin sign-in |
 
 ### 8.2 Workspace (`src/app/admin/page.tsx`)
 

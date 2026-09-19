@@ -6,9 +6,10 @@
  * Reads exclusively from the `storefront_listings` view (see
  * supabase/migrations), which already filters to in_inventory/listed items
  * and strips every internal column (buy price, margin, purchase thesis,
- * ...). There is no cart and no payment flow on purpose: "Buy" opens the
- * live Willhaben ad in a new tab, sidestepping the legal and
- * payment-processing overhead of running an actual checkout.
+ * ...). There is no cart, no account and no payment flow on purpose: "Buy"
+ * opens the live Willhaben ad in a new tab. Nothing here can be purchased on
+ * Vindera itself, so there is nothing a customer account would do — see
+ * the admin dashboard for the separate, unlinked back office.
  *
  * Two views, both driven by the same fetched listings:
  *   - `/`               a curated homepage of horizontally scrollable rails.
@@ -24,7 +25,6 @@ import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { useWishlist } from '@/lib/useWishlist';
 import { getRecentlyViewedIds } from '@/lib/recentlyViewed';
 import { Package, RefreshCw, ArrowLeft } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
@@ -41,12 +41,10 @@ const SLOT_WIDTH: Record<ProductCardSize, string> = {
   tall: 'w-[200px]',
 };
 
-function ProductSlot({ item, size, isFavorited, onToggleWishlist }: {
-  item: StorefrontListing; size: ProductCardSize; isFavorited: boolean; onToggleWishlist: (id: string) => void;
-}) {
+function ProductSlot({ item, size }: { item: StorefrontListing; size: ProductCardSize }) {
   return (
     <div className={`shrink-0 snap-start ${SLOT_WIDTH[size]}`}>
-      <ProductCard item={item} size={size} isFavorited={isFavorited} onToggleWishlist={onToggleWishlist} />
+      <ProductCard item={item} size={size} />
     </div>
   );
 }
@@ -56,19 +54,11 @@ function StorefrontContent() {
   // links (nav, quad tiles, breadcrumbs) are same-page client-side
   // navigations that would never re-run a mount-only effect otherwise.
   const categoryParam = useSearchParams().get('category');
-  const [userId, setUserId] = useState<string | null>(null);
   const [listings, setListings] = useState<StorefrontListing[]>([]);
   const [loading, setLoading] = useState(true);
-  const { wishlistIds, toggle } = useWishlist(userId);
 
   useEffect(() => {
     fetchListings();
-
-    supabase.auth.getSession().then(({ data: { session } }) => setUserId(session?.user.id ?? null));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user.id ?? null);
-    });
-    return () => subscription.unsubscribe();
   }, []);
 
   const fetchListings = async () => {
@@ -122,7 +112,7 @@ function StorefrontContent() {
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {filtered.map(item => (
-                <ProductCard key={item.id} item={item} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                <ProductCard key={item.id} item={item} />
               ))}
             </div>
           )}
@@ -159,14 +149,14 @@ function StorefrontContent() {
 
             <HorizontalRail title="New Arrivals" subtitle="Freshly added to the store">
               {newArrivals.map((item, i) => (
-                <ProductSlot key={item.id} item={item} size={i === 0 ? 'large' : 'standard'} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                <ProductSlot key={item.id} item={item} size={i === 0 ? 'large' : 'standard'} />
               ))}
             </HorizontalRail>
 
             {openBoxDeals.length > 0 && (
               <HorizontalRail title="Open-Box & Great Value" subtitle="Inspected, not sealed — priced accordingly">
                 {openBoxDeals.map(item => (
-                  <ProductSlot key={item.id} item={item} size="compact" isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                  <ProductSlot key={item.id} item={item} size="compact" />
                 ))}
               </HorizontalRail>
             )}
@@ -174,7 +164,7 @@ function StorefrontContent() {
             {recentlyViewed.length > 0 && (
               <HorizontalRail title="Recently Viewed">
                 {recentlyViewed.map(item => (
-                  <ProductSlot key={item.id} item={item} size="standard" isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                  <ProductSlot key={item.id} item={item} size="standard" />
                 ))}
               </HorizontalRail>
             )}
@@ -185,7 +175,7 @@ function StorefrontContent() {
               return (
                 <HorizontalRail key={cat} title={cat}>
                   {items.map(item => (
-                    <ProductSlot key={item.id} item={item} size={size} isFavorited={wishlistIds.has(item.id)} onToggleWishlist={toggle} />
+                    <ProductSlot key={item.id} item={item} size={size} />
                   ))}
                 </HorizontalRail>
               );

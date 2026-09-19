@@ -1,42 +1,31 @@
 'use client';
 
 /**
- * Storefront navigation: logo, live search and account actions. Shared by
- * every public storefront page (/, /product/[id], /wishlist) — never
- * rendered on /admin/* or on either login page.
+ * Storefront navigation: logo, live search, category tabs. Shared by every
+ * public storefront page (/, /product/[id]) — never rendered on /admin/*.
  *
- * Deliberately has no link to /admin, even for an admin account: the admin
- * back office is reached only through the separate, unlinked /admin/login —
- * see that page and the /admin/* route guards for the actual enforcement
- * (RLS + is_admin()), which is what really matters; this just avoids
- * advertising the admin path in the customer-facing UI.
+ * No accounts here on purpose: nothing on this site can be bought — every
+ * item redirects to its live Willhaben listing — so there is nothing a
+ * customer account would actually do. See the admin dashboard for the
+ * separate, unlinked back office (/admin/login).
  *
  * Hides on scroll-down and reappears on scroll-up, like most storefronts.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Package, Heart, LogOut, Search, X } from 'lucide-react';
+import { Package, Search, X } from 'lucide-react';
 import { TARGET_CATEGORIES } from '@/lib/constants';
 import type { StorefrontListing } from '@/lib/types';
 
 export default function StoreNav() {
-  const router = useRouter();
-  const [session, setSession] = useState<any>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StorefrontListing[]>([]);
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [hidden, setHidden] = useState(false);
   const lastScrollY = useRef(0);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session));
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -115,30 +104,6 @@ export default function StoreNav() {
               </div>
             )}
           </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-1">
-          {session ? (
-            <>
-              <Link href="/wishlist" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-100">
-                <Heart className="h-4 w-4" /> Wishlist
-              </Link>
-              <button
-                title="Sign out"
-                onClick={async () => { await supabase.auth.signOut(); }}
-                className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-red-600"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => router.push('/login')}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700"
-            >
-              Sign In
-            </button>
-          )}
         </div>
       </div>
 

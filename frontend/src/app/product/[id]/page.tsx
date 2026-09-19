@@ -13,10 +13,9 @@
 
 import { use, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useWishlist } from '@/lib/useWishlist';
 import { recordProductView } from '@/lib/recentlyViewed';
 import Link from 'next/link';
-import { Package, Heart, ExternalLink, RefreshCw, ChevronDown, ChevronRight, ShieldCheck, Truck } from 'lucide-react';
+import { Package, ExternalLink, RefreshCw, ChevronDown, ChevronRight, ShieldCheck, Truck } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
 import StoreFooter from '@/components/StoreFooter';
@@ -38,21 +37,11 @@ const Accordion = ({ title, defaultOpen = false, children }: { title: string; de
 
 export default function ProductDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const [userId, setUserId] = useState<string | null>(null);
   const [item, setItem] = useState<StorefrontListing | null>(null);
   const [related, setRelated] = useState<StorefrontListing[]>([]);
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const { wishlistIds, toggle } = useWishlist(userId);
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => setUserId(session?.user.id ?? null));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user.id ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     fetchItem();
@@ -108,7 +97,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
   }
 
   const images = [item.image_url, ...(item.gallery_image_urls || [])].filter((url): url is string => Boolean(url));
-  const isFavorited = wishlistIds.has(item.id);
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
@@ -206,16 +194,6 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
                   Bald verfügbar
                 </button>
               )}
-
-              <button
-                onClick={() => toggle(item.id)}
-                className={`mt-2 flex w-full items-center justify-center gap-2 rounded-xl border py-3 text-[14px] font-semibold transition ${
-                  isFavorited ? 'border-red-200 bg-red-50 text-red-600' : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                }`}
-              >
-                <Heart className={`h-4 w-4 ${isFavorited ? 'fill-red-500 text-red-500' : ''}`} />
-                {isFavorited ? 'Saved to Wishlist' : 'Add to Wishlist'}
-              </button>
             </div>
           </div>
         </div>
@@ -225,7 +203,7 @@ export default function ProductDetail({ params }: { params: Promise<{ id: string
             <HorizontalRail title="You might also like">
               {related.map(r => (
                 <div key={r.id} className="w-[220px] shrink-0 snap-start">
-                  <ProductCard item={r} isFavorited={wishlistIds.has(r.id)} onToggleWishlist={toggle} />
+                  <ProductCard item={r} />
                 </div>
               ))}
             </HorizontalRail>

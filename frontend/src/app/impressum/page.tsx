@@ -24,10 +24,10 @@ export default function Impressum() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#f7f8fa] text-gray-900">
+    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
       <StoreNav />
 
-      <main className="mx-auto max-w-3xl px-6 py-12">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12">
         <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-gray-900">Impressum</h1>
         <p className="mt-2 text-[13px] text-gray-500">Offenlegung gemäß § 5 ECG und § 25 Mediengesetz</p>
 
