@@ -309,7 +309,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-sm"><Package className="h-5 w-5 text-white" /></div>
-              <div className="leading-tight"><div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div><div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div></div>
+              <div className="leading-tight"><div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div></div>
             </div>
             <div className="hidden items-center gap-1 md:flex">
               <button onClick={() => router.push('/admin')} className="rounded-lg bg-indigo-50 px-3.5 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100">Workspace</button>
@@ -668,7 +668,7 @@ export default function Dashboard() {
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</span>
                     {upcomingEvents.length > 0 && (
-                      <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-semibold">
+                      <span className="flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-semibold border border-amber-200 animate-pulse">
                         <CalendarClock className="h-3 w-3" />
                         Next: {upcomingEvents[0].event_name} (T-{differenceInDays(new Date(upcomingEvents[0].event_date), new Date())})
                       </span>
