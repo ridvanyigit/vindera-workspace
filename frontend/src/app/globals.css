@@ -129,3 +129,116 @@ table,
     letter-spacing: var(--tracking-body);
   }
 }
+
+/* ==========================================================================
+   DARK MODE
+   Class-based (.dark on <html>), scoped to .vindera-admin so the public
+   storefront is unaffected. The login page uses explicit dark: Tailwind
+   variants instead of CSS overrides.
+   ========================================================================== */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---- Backgrounds ---- */
+.dark .vindera-admin .bg-white       { background-color: #161b22; }
+.dark .vindera-admin .bg-white\/80   { background-color: rgb(22 27 34 / 0.88); }
+.dark .vindera-admin .bg-gray-50     { background-color: #0d1117; }
+.dark .vindera-admin .bg-gray-50\/30 { background-color: rgb(13 17 23 / 0.3); }
+.dark .vindera-admin .bg-gray-50\/50 { background-color: rgb(13 17 23 / 0.5); }
+.dark .vindera-admin .bg-gray-100    { background-color: #21262d; }
+.dark .vindera-admin .bg-gray-200    { background-color: #30363d; }
+.dark .vindera-admin .bg-gray-300    { background-color: #3d444d; }
+
+/* ---- Text ---- */
+.dark .vindera-admin .text-gray-900  { color: #e6edf3; }
+.dark .vindera-admin .text-gray-800  { color: #c9d1d9; }
+.dark .vindera-admin .text-gray-700  { color: #b1bac4; }
+.dark .vindera-admin .text-gray-600  { color: #8b949e; }
+.dark .vindera-admin .text-gray-500  { color: #6e7681; }
+.dark .vindera-admin .text-gray-400  { color: #484f58; }
+.dark .vindera-admin .text-gray-300  { color: #30363d; }
+
+/* ---- Borders ---- */
+.dark .vindera-admin .border-gray-200      { border-color: #30363d; }
+.dark .vindera-admin .border-gray-200\/70  { border-color: rgb(48 54 61 / 0.7); }
+.dark .vindera-admin .border-gray-100      { border-color: #21262d; }
+.dark .vindera-admin .border-gray-300      { border-color: #444c56; }
+
+/* ---- Indigo ---- */
+.dark .vindera-admin .bg-indigo-50       { background-color: #1e1b4b; }
+.dark .vindera-admin .bg-indigo-50\/50   { background-color: rgb(30 27 75 / 0.5); }
+.dark .vindera-admin .text-indigo-600    { color: #818cf8; }
+.dark .vindera-admin .text-indigo-700    { color: #a5b4fc; }
+.dark .vindera-admin .text-indigo-200    { color: #c7d2fe; }
+.dark .vindera-admin .border-indigo-200  { border-color: #3730a3; }
+.dark .vindera-admin .border-indigo-100  { border-color: #312e81; }
+.dark .vindera-admin .border-indigo-300  { border-color: #4f46e5; }
+
+/* ---- Red ---- */
+.dark .vindera-admin .bg-red-50          { background-color: #1a0c0c; }
+.dark .vindera-admin .bg-red-100         { background-color: #2d0f0f; }
+.dark .vindera-admin .text-red-600       { color: #f87171; }
+.dark .vindera-admin .text-red-700       { color: #fca5a5; }
+.dark .vindera-admin .text-red-800       { color: #fecaca; }
+.dark .vindera-admin .border-red-200     { border-color: #7f1d1d; }
+.dark .vindera-admin .border-red-100     { border-color: #3d0c0c; }
+
+/* ---- Amber ---- */
+.dark .vindera-admin .bg-amber-50        { background-color: #1a0e00; }
+.dark .vindera-admin .bg-amber-100       { background-color: #2d1a00; }
+.dark .vindera-admin .text-amber-700     { color: #fbbf24; }
+.dark .vindera-admin .text-amber-800     { color: #fcd34d; }
+.dark .vindera-admin .text-amber-900     { color: #fde68a; }
+.dark .vindera-admin .border-amber-200   { border-color: #92400e; }
+.dark .vindera-admin .border-amber-300   { border-color: #b45309; }
+
+/* ---- Green ---- */
+.dark .vindera-admin .bg-green-50        { background-color: #052e16; }
+.dark .vindera-admin .bg-green-100       { background-color: #0a3d21; }
+.dark .vindera-admin .text-green-600     { color: #4ade80; }
+.dark .vindera-admin .text-green-700     { color: #86efac; }
+.dark .vindera-admin .border-green-200   { border-color: #166534; }
+
+/* ---- Emerald ---- */
+.dark .vindera-admin .bg-emerald-50      { background-color: #022c22; }
+.dark .vindera-admin .text-emerald-700   { color: #34d399; }
+.dark .vindera-admin .text-emerald-800   { color: #6ee7b7; }
+.dark .vindera-admin .border-emerald-100 { border-color: #065f46; }
+
+/* ---- Blue ---- */
+.dark .vindera-admin .bg-blue-50         { background-color: #071830; }
+.dark .vindera-admin .text-blue-700      { color: #93c5fd; }
+.dark .vindera-admin .border-blue-200    { border-color: #1e3a8a; }
+
+/* ---- Hover states ---- */
+.dark .vindera-admin .hover\:bg-gray-50:hover    { background-color: #0d1117; }
+.dark .vindera-admin .hover\:bg-gray-100:hover   { background-color: #21262d; }
+.dark .vindera-admin .hover\:bg-indigo-50:hover  { background-color: #1e1b4b; }
+.dark .vindera-admin .hover\:bg-indigo-100:hover { background-color: #312e81; }
+.dark .vindera-admin .hover\:bg-indigo-200:hover { background-color: #312e81; }
+.dark .vindera-admin .hover\:bg-amber-50:hover   { background-color: #2d1a00; }
+.dark .vindera-admin .hover\:bg-amber-100:hover  { background-color: #3d2200; }
+.dark .vindera-admin .hover\:bg-amber-200:hover  { background-color: #3d2200; }
+.dark .vindera-admin .hover\:bg-red-100:hover    { background-color: #2d0f0f; }
+.dark .vindera-admin .hover\:border-gray-200:hover   { border-color: #30363d; }
+.dark .vindera-admin .hover\:border-indigo-300:hover { border-color: #4f46e5; }
+.dark .vindera-admin .hover\:text-gray-900:hover     { color: #e6edf3; }
+.dark .vindera-admin .hover\:text-gray-700:hover     { color: #b1bac4; }
+.dark .vindera-admin .hover\:text-red-600:hover      { color: #f87171; }
+.dark .vindera-admin .hover\:text-red-900:hover      { color: #fecaca; }
+.dark .vindera-admin .hover\:text-indigo-600:hover   { color: #818cf8; }
+.dark .vindera-admin .hover\:text-indigo-800:hover   { color: #c7d2fe; }
+
+/* ---- Focus states ---- */
+.dark .vindera-admin .focus\:border-indigo-300:focus         { border-color: #6366f1; }
+.dark .vindera-admin .focus-within\:border-indigo-500:focus-within { border-color: #6366f1; }
+
+/* ---- Placeholder ---- */
+.dark .vindera-admin .placeholder\:text-gray-400::placeholder { color: #484f58; }
+.dark .vindera-admin .placeholder\:text-gray-500::placeholder { color: #3d444d; }
+.dark .vindera-admin .placeholder-gray-400::placeholder       { color: #484f58; }
+.dark .vindera-admin .placeholder-gray-500::placeholder       { color: #3d444d; }
+
+/* ---- Disabled ---- */
+.dark .vindera-admin .disabled\:bg-gray-300:disabled   { background-color: #30363d; }
+.dark .vindera-admin .disabled\:bg-indigo-300:disabled { background-color: #312e81; }

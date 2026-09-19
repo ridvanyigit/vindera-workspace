@@ -130,20 +130,20 @@ export default function CommandBar() {
         {/* Autocomplete menu, portalled to <body> so it is never clipped by overflow */}
         {mounted && showCommands && createPortal(
           <div
-            className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-2xl overflow-hidden z-[99999] animate-in fade-in"
+            className="fixed w-64 bg-white dark:bg-[#21262d] border border-gray-200 dark:border-[#30363d] rounded-lg shadow-2xl overflow-hidden z-[99999] animate-in fade-in"
             style={{ left: menuPosition.left, bottom: menuPosition.bottom }}
           >
-            <div className="bg-gray-50 px-3 py-2 border-b border-gray-100 type-label text-gray-500 flex items-center justify-between"><span>Slash Commands</span><button type="button" onClick={() => setShowCommands(false)} className="text-gray-400 hover:text-gray-700 transition-colors px-1 text-lg font-semibold" title="Close">−</button></div>
+            <div className="bg-gray-50 dark:bg-[#161b22] px-3 py-2 border-b border-gray-100 dark:border-[#30363d] type-label text-gray-500 dark:text-[#6e7681] flex items-center justify-between"><span>Slash Commands</span><button type="button" onClick={() => setShowCommands(false)} className="text-gray-400 dark:text-[#484f58] hover:text-gray-700 dark:hover:text-[#c9d1d9] transition-colors px-1 text-lg font-semibold" title="Close">−</button></div>
 
             {COMMAND_LIST.map((c) => (
               <button
                 key={c.cmd}
                 type="button"
                 onClick={() => selectCommand(c.cmd)}
-                className="w-full text-left px-4 py-2 hover:bg-indigo-50 flex flex-col transition-colors border-b border-gray-50 last:border-0"
+                className="w-full text-left px-4 py-2 hover:bg-indigo-50 dark:hover:bg-[#1e1b4b] flex flex-col transition-colors border-b border-gray-50 dark:border-[#21262d] last:border-0"
               >
-                <span className="font-mono font-semibold text-indigo-600 text-[13px]">{c.cmd}</span>
-                <span className="text-[11px] text-gray-500 mt-0.5">{c.desc}</span>
+                <span className="font-mono font-semibold text-indigo-600 dark:text-[#818cf8] text-[13px]">{c.cmd}</span>
+                <span className="text-[11px] text-gray-500 dark:text-[#6e7681] mt-0.5">{c.desc}</span>
               </button>
             ))}
           </div>,

@@ -16,10 +16,11 @@ import { supabase } from '@/lib/supabase';
 import { apiUrl } from '@/lib/api';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen, Pencil, ExternalLink, Link2 } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen, Pencil, ExternalLink, Link2, Sun, Moon } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import { Group, Panel, Separator } from 'react-resizable-panels';
+import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
 import { TARGET_CATEGORIES } from '@/lib/constants';
 
@@ -76,6 +77,8 @@ export default function Dashboard() {
   const [willhabenUrlDraft, setWillhabenUrlDraft] = useState('');
   const [savingWillhabenUrl, setSavingWillhabenUrl] = useState(false);
   useEffect(() => { setWillhabenUrlDraft(selectedDeal?.willhaben_url || ''); }, [selectedDeal?.id]);
+
+  const { dark, toggle: toggleDark } = useDarkMode();
 
   const [mainHorizontalKey, setMainHorizontalKey] = useState(0);
   const [leftVerticalKey, setLeftVerticalKey] = useState(0);
@@ -293,7 +296,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-white text-gray-900">
+    <div className="vindera-admin h-screen w-screen overflow-hidden flex flex-col bg-white text-gray-900">
       <style jsx global>{`
         .vindera-left-panel { container-type: inline-size; }
         .vindera-left-panel .tab-long { display:none; }
@@ -318,6 +321,9 @@ export default function Dashboard() {
           <div className="flex items-center gap-1">
             <a href="/" target="_blank" rel="noreferrer" title="View the public storefront" className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"><ExternalLink className="h-3.5 w-3.5" /> Storefront</a>
             <div className="h-4 w-px bg-gray-200 mx-1" />
+            <button onClick={toggleDark} title={dark ? 'Switch to light mode' : 'Switch to dark mode'} className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-gray-900">
+              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
             <button title="Sign out" onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }} className="p-2 text-gray-500 transition rounded-lg hover:bg-gray-100 hover:text-red-600"><LogOut className="h-4 w-4" /></button>
           </div>
         </div>
