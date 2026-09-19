@@ -2,9 +2,9 @@
 
 > **Cross-Border AI Arbitrage Engine** — A full-stack business intelligence platform that detects high-margin opportunities on Amazon (via Keepa API) using an AI agent pipeline, and generates localized, SEO-optimized listings for the Austrian second-hand marketplace Willhaben.
 
-**Document Version:** 3.1
-**Last Updated:** 2026-09-16
-**Baseline Release:** `v1.19.0`
+**Document Version:** 3.2
+**Last Updated:** 2026-09-20
+**Baseline Release:** `v2.4.1`
 **Source:** Regenerated via full codebase inspection of `/Users/ridvanyigit/Desktop/vindera-workspace`.
 
 ---
@@ -209,7 +209,8 @@ vindera-workspace/
 │   ├── src/lib/
 │   │   ├── api.ts                # Backend base URL helper (NEXT_PUBLIC_API_URL)
 │   │   ├── constants.ts          # Categories, statuses, conditions, score criteria
-│   │   └── supabase.ts
+│   │   ├── supabase.ts
+│   │   └── useDarkMode.ts        # Dark/light mode hook (localStorage + system preference)
 │   └── next.config.ts · tsconfig.json · eslint.config.mjs · postcss.config.mjs
 │
 ├── supabase/
@@ -459,23 +460,26 @@ Since `v1.20.0`, the app is split into a public storefront and an admin-only are
 |---|---|
 | `/` | Public storefront — grid of `in_inventory`/`listed` items from the `storefront_listings` view, "Buy on Willhaben" deep link. No account, no cart, no payment flow. |
 | `/impressum` / `/datenschutz` | Legal notice and privacy policy |
-| `/admin` | Three-pane resizable workspace (admin-only) |
+| `/admin` | Three-pane resizable workspace (admin-only). Carries a dark/light mode toggle in the top-right nav. |
 | `/admin/products` | Product Master: searchable table with pointer-driven column resizing and CSV export (admin-only) |
 | `/admin/manual-entry` | Manual deal entry form — create a full opportunity without Keepa or OpenAI (admin-only) |
 | `/admin/reports` | Tax & Financial Reports: KPI cards, VAT threshold bar, monthly bar chart, category pie chart (admin-only) |
-| `/admin/login` | Separate, unlinked admin sign-in |
+| `/admin/login` | Separate, unlinked admin sign-in. Carries a fixed top-right dark/light mode toggle that persists across page load. |
 
 ### 8.2 Workspace (`src/app/admin/page.tsx`)
 
-- **Left panel** — Tabs (`NEW`, `INVENTORY`, `SOLD`, `REJECTED`), category filter, deal list with inventory-age badges; lower sub-panel holds the Financial & Risk dashboard (revenue vs. €55,000 threshold, gross profit, average ROI, average days-to-sell, inventory value, stress-test liquidation net) and the Quarterly Category Audit modal.
+- **Left panel** — Tabs (`DEALS`, `INVENTORY`, `SOLD`, `REJECTED`), category filter, deal list with inventory-age badges; lower sub-panel holds the Financial & Risk dashboard (revenue vs. €55,000 threshold, gross profit, average ROI, average days-to-sell, inventory value, stress-test liquidation net) and the Quarterly Category Audit modal. The Financial & Risk panel has `defaultSize={30}` to align its top border with the AI Terminal and AI Smart Radar panels on initial load.
 - **Center panel** — Deal inspector: SKU / ASIN / warehouse location / condition strip, invoice upload to Supabase Storage, BuyBox trust badges, high-capital-exposure warning, AI scorecard with a 7-metric breakdown, Decision Journal, dead-stock alert after 60 days, and the action pipeline. Lower sub-panel embeds the AI terminal.
-- **Right panel** — 3-tier price strategy cards (max buy / target sell / emergency), the Amazon price history chart (real `price_history` rows when two or more exist, otherwise a deterministic sample curve marked with a `Sample` badge), generated Willhaben listing with copy-to-clipboard. Lower sub-panel is the AI Smart Radar ranked by `deal_score` with the next calendar event countdown.
+- **Right panel** — 3-tier price strategy cards (max buy / target sell / emergency), the Amazon price history chart (real `price_history` rows when two or more exist, otherwise a deterministic sample curve marked with a `Sample` badge), generated Willhaben listing with copy-to-clipboard. Lower sub-panel is the AI Smart Radar ranked by `deal_score` with the next calendar event countdown. The next-event badge (e.g. "Next: Halloween (T-40)") uses Tailwind's `animate-pulse` and an amber color scheme to draw attention — it is the most time-sensitive data point on the radar.
+- **Dark/light toggle:** Moon/Sun icon button in the top-right nav bar. Preference is persisted in `localStorage` under `'vindera-theme'`, with `prefers-color-scheme` as the fallback on first visit.
 - **Realtime:** a Supabase channel on `opportunities` re-fetches on any change.
 - **Layout reset:** double-clicking any splitter remounts the panel group at its default sizes.
 
 ### 8.3 Embedded Terminal (`src/components/CommandBar.tsx`)
 
 Typing `/` opens a React-Portal command palette anchored above the input (avoids overflow clipping). Messages are POSTed to the backend chat endpoint resolved by `src/lib/api.ts`.
+
+Because the palette is rendered via `createPortal` to `document.body` — outside the `.vindera-admin` CSS scope — dark mode is applied with direct `dark:` Tailwind variants on the portal's root element and its children rather than via the scoped CSS overrides in `globals.css`.
 
 ### 8.4 Manual Entry (`src/app/admin/manual-entry/page.tsx`)
 
@@ -524,6 +528,36 @@ Typography is centralized in `src/app/globals.css` and loaded in `src/app/layout
 | `.type-body` | Paragraph copy in detail panels |
 
 Weights are capped at `600` (semibold); `font-extrabold` is no longer used anywhere in the codebase.
+
+### Dark Mode
+
+Dark mode uses a **class-based** strategy: toggling `.dark` on `<html>` (Tailwind v4's `@custom-variant dark (&:where(.dark, .dark *))` in `globals.css`).
+
+**Scope isolation:** All CSS overrides are nested under `.dark .vindera-admin { ... }` so the public storefront is completely unaffected. The `vindera-admin` class is placed on the outermost `<div>` of `/admin/page.tsx`.
+
+**Color palette (GitHub Dark inspired):**
+
+| Light class | Dark value |
+|---|---|
+| `bg-white` | `#161b22` |
+| `bg-gray-50` | `#0d1117` |
+| `bg-gray-100` | `#21262d` |
+| `text-gray-900` | `#e6edf3` |
+| `text-gray-500` | `#6e7681` |
+| `border-gray-200` | `#30363d` |
+| `bg-indigo-50` | `#1e1b4b` |
+| `text-indigo-600` | `#818cf8` |
+
+**`/admin/login` approach:** Uses direct `dark:` Tailwind variants (light-default + `dark:` override) rather than the scoped `.vindera-admin` CSS block, because the login page is standalone.
+
+**Hook — `src/lib/useDarkMode.ts`:**
+```ts
+// useState lazy initializer reads localStorage key 'vindera-theme',
+// falling back to window.matchMedia('(prefers-color-scheme: dark)').
+// useEffect syncs the .dark class on document.documentElement.
+// toggle() is a setDark functional update that also writes localStorage.
+```
+The lazy initializer pattern avoids the `react-hooks/set-state-in-effect` ESLint error that would occur if the initial read were done inside a `useEffect`.
 
 ---
 
@@ -605,6 +639,20 @@ cd frontend && npm run dev
 - [ ] Add pytest / jest suites and a GitHub Actions pipeline.
 - [ ] Add the production frontend domain to `CORS_ALLOWED_ORIGINS` before deploying.
 - [ ] Move local Docker services to AWS with Terraform provisioning.
+
+---
+
+## 15. Release Changelog
+
+| Tag | Date | Summary |
+|---|---|---|
+| `v2.4.1` | 2026-09-20 | Remove "WORKSPACE" subtitle from nav logo; add amber `animate-pulse` badge to AI Smart Radar next-event countdown |
+| `v2.4.0` | 2026-09-20 | Dark/light mode toggle on `/admin` and `/admin/login`; `useDarkMode` hook; `globals.css` scoped overrides; `CommandBar` portal `dark:` variants |
+| `v2.3.1` | 2026-09-20 | Rename "New Deals" tab to "Deals"; fix Financial & Risk panel vertical alignment (`defaultSize` 20 → 30) |
+| `v2.3.0` | 2026-09-18 | Remove customer account system (wishlists, `/login`, `/wishlist`); no purchasable items on Vindera |
+| `v2.2.0` | 2026-09-18 | Remove Google/Apple OAuth; fix footer pinning on short pages |
+| `v2.1.0` | 2026-09-17 | Redesign homepage into scrollable product rails (new arrivals, open-box, recently-viewed) |
+| `v2.0.0` | 2026-09-16 | Split into public storefront and admin back office |
 
 ---
 *Documentation compiled and maintained for the Vindera workspace repository.*
