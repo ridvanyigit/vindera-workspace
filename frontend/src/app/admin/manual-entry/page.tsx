@@ -22,8 +22,9 @@ import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import {
   Package, LogOut, HelpCircle, Save, RefreshCw, RotateCcw, CheckCircle, XCircle,
-  Barcode, Euro, Activity, MapPin, FileText, ShoppingCart, Trash2,
+  Barcode, Euro, Activity, MapPin, FileText, ShoppingCart, Trash2, Sun, Moon,
 } from 'lucide-react';
+import { useDarkMode } from '@/lib/useDarkMode';
 import { PRODUCT_CATEGORIES, STATUS_OPTIONS, CONDITION_OPTIONS, SCORE_CRITERIA } from '@/lib/constants';
 
 interface ScoreBreakdown {
@@ -161,6 +162,7 @@ const Section = ({ icon, title, description, children }: {
 
 export default function ManualEntry() {
   const router = useRouter();
+  const { dark, toggle: toggleDark } = useDarkMode();
   const [ready, setReady] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -413,14 +415,14 @@ export default function ManualEntry() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="vindera-admin flex min-h-screen items-center justify-center bg-gray-50">
         <RefreshCw className="h-8 w-8 animate-spin text-indigo-600" />
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
+    <div className="vindera-admin flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
 
       {/* NAVBAR */}
       <nav className="sticky top-0 z-50 h-14 shrink-0 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl">
@@ -444,6 +446,13 @@ export default function ManualEntry() {
           </div>
           <div className="flex items-center gap-1">
             <div className="mx-1 h-4 w-px bg-gray-200" />
+            <button
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              onClick={toggleDark}
+              className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+            >
+              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
             <button
               title="Sign out"
               onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }}

@@ -242,3 +242,39 @@ table,
 /* ---- Disabled ---- */
 .dark .vindera-admin .disabled\:bg-gray-300:disabled   { background-color: #30363d; }
 .dark .vindera-admin .disabled\:bg-indigo-300:disabled { background-color: #312e81; }
+
+/* ==========================================================================
+   DARK MODE — page roots and pages beyond the Workspace
+   Every admin page (Workspace, Product Master, Manual Entry, Tax & Reports)
+   puts `.vindera-admin` on its root element and mounts the toggle via
+   `useDarkMode()`. The descendant rules above never match the root itself,
+   so its own background/text are handled here. `color-scheme: dark` makes
+   native controls (date pickers, select menus, scrollbars) follow the theme.
+   ========================================================================== */
+
+.dark .vindera-admin { color: #e6edf3; color-scheme: dark; }
+.dark .vindera-admin.bg-white,
+.dark .vindera-admin.bg-gray-50,
+.dark .vindera-admin.bg-\[\#f7f8fa\] { background-color: #0d1117; }
+
+/* ---- Extra palette used by Product Master / Manual Entry / Reports ---- */
+.dark .vindera-admin .bg-gray-50\/95       { background-color: rgb(13 17 23 / 0.95); }
+.dark .vindera-admin .border-gray-50       { border-color: #1c2128; }
+.dark .vindera-admin .divide-gray-100 > :not(:last-child) { border-color: #21262d; }
+
+.dark .vindera-admin .bg-purple-50         { background-color: #1e1033; }
+.dark .vindera-admin .text-purple-700      { color: #c4b5fd; }
+.dark .vindera-admin .border-purple-200    { border-color: #5b21b6; }
+
+.dark .vindera-admin .text-emerald-600     { color: #34d399; }
+.dark .vindera-admin .border-emerald-200   { border-color: #065f46; }
+.dark .vindera-admin .border-emerald-300   { border-color: #047857; }
+.dark .vindera-admin .text-amber-600       { color: #fbbf24; }
+.dark .vindera-admin .text-red-500         { color: #f87171; }
+
+.dark .vindera-admin .focus\:ring-indigo-50:focus { --tw-ring-color: #1e1b4b; }
+
+.dark .vindera-admin .hover\:bg-red-50:hover       { background-color: #2d0f0f; }
+.dark .vindera-admin .hover\:bg-gray-50\/80:hover  { background-color: rgb(13 17 23 / 0.8); }
+.dark .vindera-admin .hover\:border-gray-300:hover { border-color: #444c56; }
+.dark .vindera-admin .hover\:text-indigo-500:hover { color: #818cf8; }

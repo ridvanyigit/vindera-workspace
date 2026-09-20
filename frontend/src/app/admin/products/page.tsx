@@ -6,7 +6,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { Package, LogOut, RefreshCw, Search, ArrowUpDown, Download, Filter } from 'lucide-react';
+import { Package, LogOut, RefreshCw, Search, ArrowUpDown, Download, Filter, Sun, Moon } from 'lucide-react';
+import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
 
 interface Opportunity {
@@ -37,6 +38,7 @@ const columns: Column[] = ['sku', 'product', 'status', 'buy', 'sell', 'margin', 
 
 export default function ProductMaster() {
   const router = useRouter();
+  const { dark, toggle: toggleDark } = useDarkMode();
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -174,7 +176,7 @@ export default function ProductMaster() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
+    <div className="vindera-admin flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
 
       <nav className="sticky top-0 z-50 h-14 shrink-0 border-b border-gray-200/70 bg-white/80 backdrop-blur-xl">
         <div className="flex h-full items-center justify-between px-5">
@@ -207,6 +209,13 @@ export default function ProductMaster() {
 
           <div className="flex items-center gap-1">
             <div className="mx-1 h-4 w-px bg-gray-200" />
+            <button
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              onClick={toggleDark}
+              className="rounded-lg p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+            >
+              {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
             <button
               title="Sign out"
               onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }}
