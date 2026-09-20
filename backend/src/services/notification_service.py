@@ -41,4 +41,56 @@ class NotificationService:
         except Exception as e:
             print(f"Error sending notification: {str(e)}")
 
+    async def send_dead_stock_alert(self, items: list[dict], threshold_days: int) -> bool:
+        """Send one digest push for items that have tied up capital too long.
+
+        Each item needs `title`, `buy_price` and `age_days`. Returns True only
+        when Pushover accepted the message, so the caller can leave items
+        un-notified (and retry on the next run) if credentials are missing or
+        the request fails.
+        """
+        if not items:
+            return False
+
+        if not self.user_key or not self.api_token:
+            print("Pushover credentials missing. Skipping dead-stock notification.")
+            return False
+
+        header = f"{len(items)} item{'s' if len(items) != 1 else ''} tied up capital for more than {threshold_days} days:\n"
+        lines: list[str] = []
+        length = len(header)
+        for item in items:
+            line = f"• {item['title'][:60]} · €{item['buy_price']} · {item['age_days']}d"
+            # Pushover rejects messages over 1024 chars; keep room for the "+N more" line.
+            if length + len(line) + 1 > 950:
+                break
+            lines.append(line)
+            length += len(line) + 1
+
+        message = header + "\n".join(lines)
+        if len(lines) < len(items):
+            message += f"\n+{len(items) - len(lines)} more"
+
+        payload = {
+            "token": self.api_token,
+            "user": self.user_key,
+            "title": "Vindera Dead Stock",
+            "message": message,
+            "priority": 0,
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(self.url, data=payload)
+        except Exception as e:
+            print(f"Error sending dead-stock notification: {str(e)}")
+            return False
+
+        if response.status_code != 200:
+            print(f"❌ Failed to send dead-stock notification: {response.text}")
+            return False
+
+        print("✅ Dead-stock notification sent successfully!")
+        return True
+
 notification_service = NotificationService()

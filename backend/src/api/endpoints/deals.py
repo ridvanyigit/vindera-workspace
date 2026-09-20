@@ -7,7 +7,7 @@ persistence -> notification) and the opportunity lifecycle status updates.
 import asyncio
 import random
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -31,6 +31,12 @@ HOT_DEAL_SCORE_THRESHOLD = 80
 
 # Liquidation price used when inventory has to be cleared quickly.
 EMERGENCY_PRICE_RATIO = 0.85
+
+# Dead stock: an open item older than this many days has tied up capital too
+# long. Mirrors the "Dead Stock Alert" banner in frontend/src/app/admin/page.tsx
+# (age = full days since `created_at`, alert when > 60).
+DEAD_STOCK_DAYS = 60
+DEAD_STOCK_STATUSES = ("bought", "in_inventory", "listed")
 
 DEFAULT_WAREHOUSE_LOCATION = "A01"
 AMAZON_LOCALE = "DE"
@@ -255,6 +261,66 @@ async def run_deal_scan_pipeline(asin: str):
     print("🏁 Pipeline execution finished.")
 
 
+async def run_dead_stock_scan():
+    """Push one digest for items that newly crossed the dead-stock threshold.
+
+    `dead_stock_notified_at` is stamped only after Pushover accepts the message,
+    so an item is announced once, and retried on the next run if the push
+    could not be delivered.
+    """
+    print("🕸️ Starting dead-stock scan...")
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=DEAD_STOCK_DAYS)).isoformat()
+
+    try:
+        res = (
+            supabase.table("opportunities")
+            .select("id, buy_price, created_at, products(title)")
+            .in_("status", list(DEAD_STOCK_STATUSES))
+            .is_("dead_stock_notified_at", "null")
+            .lt("created_at", cutoff)
+            .execute()
+        )
+    except Exception as e:
+        print(f"❌ Dead-stock query failed: {str(e)}")
+        return
+
+    items = []
+    for row in res.data or []:
+        created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+        age_days = (now - created_at).days
+        # The query returns items at least 60 days old; the UI banner needs more than 60 full days.
+        if age_days <= DEAD_STOCK_DAYS:
+            continue
+        items.append({
+            "id": row["id"],
+            "title": (row.get("products") or {}).get("title") or "Untitled item",
+            "buy_price": row["buy_price"],
+            "age_days": age_days,
+        })
+
+    if not items:
+        print("🏁 Dead-stock scan finished (nothing new).")
+        return
+
+    items.sort(key=lambda item: item["age_days"], reverse=True)
+
+    delivered = await notification_service.send_dead_stock_alert(items, DEAD_STOCK_DAYS)
+    if not delivered:
+        print("⚠️ Dead-stock push not delivered; items stay un-notified and will be retried.")
+        return
+
+    try:
+        supabase.table("opportunities").update(
+            {"dead_stock_notified_at": now.isoformat()}
+        ).in_("id", [item["id"] for item in items]).execute()
+    except Exception as e:
+        print(f"❌ Could not stamp dead_stock_notified_at (items will be re-announced): {str(e)}")
+        return
+
+    print(f"🏁 Dead-stock scan finished ({len(items)} item(s) announced).")
+
+
 # --- Endpoints ------------------------------------------------------------
 
 @router.post("/scan", status_code=202)
@@ -271,6 +337,18 @@ async def scan_asin(request: ScanRequest, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(run_deal_scan_pipeline, asin)
     return {"status": "accepted", "asin": asin, "message": "Deal scan started in the background."}
+
+
+@router.post("/dead-stock/scan", status_code=202)
+async def scan_dead_stock(background_tasks: BackgroundTasks):
+    """Queue a dead-stock check.
+
+    Returns immediately; the scan runs in the background. Called daily by the
+    n8n workflow. Safe to call repeatedly: an item is only ever announced once
+    (`dead_stock_notified_at`).
+    """
+    background_tasks.add_task(run_dead_stock_scan)
+    return {"status": "accepted", "message": "Dead-stock scan started in the background."}
 
 
 @router.patch("/{opportunity_id}/status")
