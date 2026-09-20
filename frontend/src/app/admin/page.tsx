@@ -16,9 +16,10 @@ import { supabase } from '@/lib/supabase';
 import { apiUrl } from '@/lib/api';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
-import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, TrendingDown, BarChart2, BookOpen, Pencil, ExternalLink, Link2, Sun, Moon } from 'lucide-react';
+import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, CalendarDays, TrendingDown, BarChart2, BookOpen, Pencil, ExternalLink, Link2, Sun, Moon } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
+import AustriaCalendarModal from '@/components/AustriaCalendarModal';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
@@ -67,6 +68,7 @@ export default function Dashboard() {
   // Modals
   const [inventoryModalDeal, setInventoryModalDeal] = useState<Opportunity | null>(null);
   const [showAuditModal, setShowAuditModal] = useState(false);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [checks, setChecks] = useState({ model: false, packaging: false, accessories: false, power: false });
   const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
 
@@ -674,6 +676,8 @@ export default function Dashboard() {
                       </span>
                     )}
                   </div>
+                  {/* Opens the Austria market calendar */}
+                  <button onClick={() => setShowCalendarModal(true)} title="Austria Market Calendar" aria-label="Open Austria market calendar" className="text-gray-400 hover:text-indigo-600 transition"><CalendarDays className="h-4 w-4" /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3 bg-gray-50/30">
                   {opportunities.filter(o => o.status === 'pending').sort((a, b) => (b.deal_score || 0) - (a.deal_score || 0)).length === 0 ? <div className="text-center text-xs text-gray-400 mt-4">No active deals on radar.</div> :
@@ -782,6 +786,9 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* MODAL — Austria market calendar (holidays, school terms, shopping days, events) */}
+      {showCalendarModal && <AustriaCalendarModal onClose={() => setShowCalendarModal(false)} />}
 
       {/* MODAL — Quarterly category performance audit */}
       {showAuditModal && (

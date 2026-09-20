@@ -141,4 +141,5 @@ This project uses Tailwind v4 (`@import "tailwindcss"` in `globals.css`), not v3
 - **BuyBox seller data** is randomly selected from 3 hardcoded sellers (`_pick_mock_buybox` in `deals.py`). All deal scores involving seller risk are based on fake data until live Keepa credits are active.
 - **Price history chart** falls back to a deterministic sample curve when fewer than 2 real data points exist. The chart labels it "Sample".
 - **n8n ASIN list** is hardcoded in `n8n/Vindera_Daily_Scan.json` — edit and re-import to change the watched ASINs.
+- **Austria market calendar** (calendar icon in the AI Smart Radar header) is static frontend data in `frontend/src/lib/austriaCalendar.ts`, independent of the `events_calendar` table. Holidays, bridge days and shopping days (Black Friday, Mother's Day …) are computed for any year; school terms, sports, festivals and concerts in `STATIC_ITEMS` were researched in Sep 2026 and cover only Sep 2026 – Sep 2027. Refresh that list once a year.
 - **`FASTAPI_SECRET_KEY`** in the config is not currently used anywhere.
