@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from src.api.endpoints import chat, deals
+from src.api.endpoints import chat, deals, expenses
 from src.core.config import settings
 from src.core.database import supabase
 
@@ -58,3 +58,4 @@ async def root():
 
 app.include_router(deals.router, prefix="/api/v1")
 app.include_router(chat.router, prefix="/api/v1")
+app.include_router(expenses.router, prefix="/api/v1")

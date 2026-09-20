@@ -39,6 +39,18 @@ export const STATUS_OPTIONS: Option[] = [
   { value: 'rejected', label: 'Rejected — failed the No-Buy rules' },
 ];
 
+/**
+ * Categories offered when recording a business expense. Frontend-only: the
+ * backend stores whatever non-empty category it is sent.
+ */
+export const EXPENSE_CATEGORIES: Option[] = [
+  { value: 'Storage', label: 'Storage' },
+  { value: 'Packaging', label: 'Packaging' },
+  { value: 'Software & Subscriptions', label: 'Software & Subscriptions' },
+  { value: 'Shipping', label: 'Shipping' },
+  { value: 'Other', label: 'Other' },
+];
+
 /** Physical condition recorded during the receiving check. */
 export const CONDITION_OPTIONS: Option[] = [
   { value: 'NEW', label: 'New — sealed, untouched' },
