@@ -24,7 +24,7 @@ const COMMAND_LIST = [
   { cmd: '/delete ', desc: 'Delete a product (e.g. /delete B09...)' },
 ];
 
-export default function CommandBar() {
+export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -92,9 +92,9 @@ export default function CommandBar() {
       
       {/* Terminal header */}
       <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
-        <div className="flex items-center gap-2">
+        <button type="button" onClick={onTitleClick} title="Click to minimize panel" className="flex items-center gap-2 cursor-pointer hover:text-gray-700 transition-colors">
           <Terminal className="h-4 w-4 text-indigo-600" /> Vindera AI Terminal
-        </div>
+        </button>
         <button onClick={clearHistory} className="hover:text-red-600 transition-colors" title="Clear Terminal">
           <Trash2 className="h-4 w-4" />
         </button>

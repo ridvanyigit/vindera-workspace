@@ -20,7 +20,7 @@ import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineCh
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CommandBar from '@/components/CommandBar';
 import AustriaCalendarModal from '@/components/AustriaCalendarModal';
-import { Group, Panel, Separator } from 'react-resizable-panels';
+import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
 import { TARGET_CATEGORIES } from '@/lib/constants';
@@ -90,6 +90,14 @@ export default function Dashboard() {
   const resetLeftVertical = () => setLeftVerticalKey(k => k + 1);
   const resetCenterVertical = () => setCenterVerticalKey(k => k + 1);
   const resetRightVertical = () => setRightVerticalKey(k => k + 1);
+
+  // Clicking a bottom panel's title shrinks it to its minimum height (the
+  // header row stays visible). Keep in sync with the panels' `minSize` (px).
+  const BOTTOM_PANEL_MIN_PX = 35;
+  const financePanelRef = usePanelRef();
+  const terminalPanelRef = usePanelRef();
+  const radarPanelRef = usePanelRef();
+  const shrinkToMin = (ref: ReturnType<typeof usePanelRef>) => ref.current?.resize(BOTTOM_PANEL_MIN_PX);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -378,9 +386,9 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize={35} minSize={35} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
+              <Panel panelRef={financePanelRef} defaultSize={35} minSize={BOTTOM_PANEL_MIN_PX} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
-                  <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</div>
+                  <button type="button" onClick={() => shrinkToMin(financePanelRef)} title="Click to minimize panel" className="flex items-center gap-2 cursor-pointer hover:text-gray-700 transition-colors"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</button>
                   {/* Opens the quarterly category audit */}
                   <button onClick={() => setShowAuditModal(true)} title="Quarterly Category Audit" className="text-gray-400 hover:text-indigo-600 transition"><BarChart2 className="h-4 w-4" /></button>
                 </div>
@@ -605,7 +613,7 @@ export default function Dashboard() {
               </Panel>
 
               <HorizontalResizeHandle onDoubleClick={resetCenterVertical} />
-              <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200"><CommandBar /></Panel>
+              <Panel panelRef={terminalPanelRef} defaultSize={35} minSize={BOTTOM_PANEL_MIN_PX} className="bg-white flex flex-col border-t border-gray-200"><CommandBar onTitleClick={() => shrinkToMin(terminalPanelRef)} /></Panel>
             </Group>
           </Panel>
 
@@ -665,10 +673,10 @@ export default function Dashboard() {
               
               <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
               
-              <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200">
+              <Panel panelRef={radarPanelRef} defaultSize={35} minSize={BOTTOM_PANEL_MIN_PX} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</span>
+                    <button type="button" onClick={() => shrinkToMin(radarPanelRef)} title="Click to minimize panel" className="flex items-center gap-2 cursor-pointer hover:text-gray-700 transition-colors"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</button>
                     {upcomingEvents.length > 0 && (
                       <span className="flex items-center gap-1 text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-semibold border border-amber-200 animate-pulse">
                         <CalendarClock className="h-3 w-3" />
