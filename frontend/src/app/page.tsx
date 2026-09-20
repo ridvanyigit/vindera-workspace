@@ -26,7 +26,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { getRecentlyViewedIds } from '@/lib/recentlyViewed';
-import { Package, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Package, RefreshCw, ArrowLeft, Info } from 'lucide-react';
 import type { StorefrontListing } from '@/lib/types';
 import StoreNav from '@/components/StoreNav';
 import StoreFooter from '@/components/StoreFooter';
@@ -128,6 +128,16 @@ function StorefrontContent() {
       <StoreNav />
 
       <main className="mx-auto w-full max-w-7xl flex-1 px-6 py-8">
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
+          <div>
+            <p className="type-label text-gray-900">How it works</p>
+            <p className="type-body mt-0.5 text-gray-600">
+              Vindera doesn&apos;t process purchases itself. The buy button opens the item&apos;s live Willhaben listing, and the transaction happens there.
+            </p>
+          </div>
+        </div>
+
         {loading ? (
           <div className="flex h-64 items-center justify-center"><RefreshCw className="h-7 w-7 animate-spin text-indigo-600" /></div>
         ) : listings.length === 0 ? (
