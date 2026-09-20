@@ -337,7 +337,7 @@ export default function Dashboard() {
           {/* ---------------------------------------------------------------- */}
           <Panel defaultSize={25} minSize={15} maxSize={1100} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-r border-gray-200 vindera-left-panel transition-all">
             <Group key={leftVerticalKey} orientation="vertical">
-              <Panel defaultSize={70} minSize={0} collapsible={true} className="flex flex-col">
+              <Panel defaultSize={80} minSize={0} collapsible={true} className="flex flex-col">
                 <div className="p-3 bg-gray-100 border-b border-gray-200 flex flex-col gap-2 shrink-0">
                   <div className="flex bg-gray-200 p-1 rounded-lg">
                     <button onClick={() => setActiveTab('pending')} className={`flex-1 text-[10px] py-1.5 font-semibold uppercase tracking-[0.06em] rounded-md transition-colors ${activeTab === 'pending' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}><span className="tab-short">DEALS</span><span className="tab-long">DEALS</span></button>
@@ -376,7 +376,7 @@ export default function Dashboard() {
 
               <HorizontalResizeHandle onDoubleClick={resetLeftVertical} />
 
-              <Panel defaultSize={30} minSize={35} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
+              <Panel defaultSize={35} minSize={35} maxSize={1000} collapsible={false} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-2"><Activity className="h-4 w-4 text-emerald-500" /> Financial & Risk Dashboard</div>
                   {/* Opens the quarterly category audit */}
@@ -616,7 +616,7 @@ export default function Dashboard() {
           {/* ---------------------------------------------------------------- */}
           <Panel defaultSize={30} minSize={20} maxSize={1300} collapsible={true} collapsedSize={0} className="bg-gray-50 flex flex-col border-l border-gray-200 transition-all">
             <Group key={rightVerticalKey} orientation="vertical">
-              <Panel defaultSize={104} minSize={30} className="p-6 overflow-y-auto">
+              <Panel defaultSize={80} minSize={30} className="p-6 overflow-y-auto">
                 {!selectedDeal ? <div className="h-full flex flex-col items-center justify-center text-gray-400"><PieChart className="h-16 w-16 mb-4 text-gray-200" /><p>Analytics Output Window</p></div> :
                   <div className="flex flex-col gap-6">
                     <div>
@@ -663,7 +663,7 @@ export default function Dashboard() {
               
               <HorizontalResizeHandle onDoubleClick={resetRightVertical} />
               
-              <Panel defaultSize={45} minSize={35} className="bg-white flex flex-col border-t border-gray-200">
+              <Panel defaultSize={35} minSize={35} className="bg-white flex flex-col border-t border-gray-200">
                 <div className="bg-gray-100 px-4 py-2 border-b border-gray-200 flex justify-between items-center type-label text-gray-500 shrink-0">
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-2"><Radar className="h-4 w-4 text-indigo-600" /> AI Smart Radar</span>
