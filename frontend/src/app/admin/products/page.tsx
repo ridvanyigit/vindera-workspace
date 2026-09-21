@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { Package, LogOut, RefreshCw, Search, ArrowUpDown, Download, Filter, Sun, Moon } from 'lucide-react';
 import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
+import { STATUS_OPTIONS } from '@/lib/constants';
 
 interface Opportunity {
   id: string;
@@ -42,6 +43,7 @@ export default function ProductMaster() {
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [widths, setWidths] = useState(initialWidths);
   const [resizing, setResizing] = useState<Column | null>(null);
   const [startX, setStartX] = useState(0);
@@ -104,6 +106,7 @@ export default function ProductMaster() {
   }, [resizing, startX, startWidth]);
 
   const filteredOpportunities = opportunities.filter(item => {
+    if (statusFilter !== 'all' && item.status !== statusFilter) return false;
     const search = searchTerm.toLowerCase();
     return (
       item.products?.title?.toLowerCase().includes(search) ||
@@ -120,6 +123,8 @@ export default function ProductMaster() {
       case 'listed': return 'bg-purple-50 text-purple-700 border-purple-200';
       case 'sold': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
       case 'rejected': return 'bg-red-50 text-red-700 border-red-200';
+      case 'cancelled': return 'bg-slate-50 text-slate-600 border-slate-200';
+      case 'written_off': return 'bg-orange-50 text-orange-700 border-orange-200';
       default: return 'bg-gray-50 text-gray-600 border-gray-200';
     }
   };
@@ -244,6 +249,18 @@ export default function ProductMaster() {
                 className="h-9 w-72 rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-[13px] text-gray-700 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
               />
             </div>
+
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              aria-label="Filter by status"
+              className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
+            >
+              <option value="all">All statuses</option>
+              {STATUS_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label.split(' — ')[0]}</option>
+              ))}
+            </select>
 
             <button
               onClick={fetchOpportunities}

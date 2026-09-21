@@ -13,6 +13,7 @@ A future session can resume from this file alone: find the first unchecked task 
 ## Tasks
 
 ### Phase 0 - Recon and setup
+
 - [x] 0.1 Branch `launch-hardening` created from `main`
 - [x] 0.2 Code read, audit findings confirmed (see Decisions)
 - [x] 0.3 This file
@@ -20,6 +21,7 @@ A future session can resume from this file alone: find the first unchecked task 
 - [x] 0.5 `docs/MANUEL-ADIMLAR.md` skeleton
 
 ### Phase 1 - Backend authentication and hardening
+
 - [x] 1.1 `core/auth.py` (`require_admin`, `require_admin_or_automation`) applied to every router
 - [x] 1.2 Config: new settings, production fail-fast, remove `FASTAPI_SECRET_KEY`, `.env.example`
 - [x] 1.3 Public surface: docs off in production, `/metrics` bearer token, prometheus.yml
@@ -32,25 +34,27 @@ A future session can resume from this file alone: find the first unchecked task 
 - [x] 1.10 n8n workflow: automation key + base URL variable
 
 ### Phase 2 - Database migrations
-- [ ] 2.1 Status CHECK + frontend `STATUS_OPTIONS` / Product Master filters
-- [ ] 2.2 Purchase and lifecycle columns
-- [ ] 2.3 Numeric widths, net estimate columns
-- [ ] 2.4 Foreign keys RESTRICT
-- [ ] 2.5 SKU unique index
-- [ ] 2.6 One open scan row per product
-- [ ] 2.7 `sale_events`
-- [ ] 2.8 `business_settings`
-- [ ] 2.9 `scan_jobs`
-- [ ] 2.10 `watchlist_asins`
-- [ ] 2.11 `audit_log` + trigger
-- [ ] 2.12 `storefront_listings` tightened
-- [ ] 2.13 Private `invoices` bucket + policies
-- [ ] 2.14 Realtime publication
-- [ ] 2.15 Events calendar rows for hosted DB
-- [ ] 2.16 Atomic RPC functions
-- [ ] 2.17 Timestamps are `timestamptz`
+
+- [x] 2.1 Status CHECK + frontend `STATUS_OPTIONS` / Product Master filters
+- [x] 2.2 Purchase and lifecycle columns
+- [x] 2.3 Numeric widths, net estimate columns
+- [x] 2.4 Foreign keys RESTRICT
+- [x] 2.5 SKU unique index
+- [x] 2.6 One open scan row per product
+- [x] 2.7 `sale_events`
+- [x] 2.8 `business_settings`
+- [x] 2.9 `scan_jobs`
+- [x] 2.10 `watchlist_asins`
+- [x] 2.11 `audit_log` + trigger
+- [x] 2.12 `storefront_listings` tightened
+- [x] 2.13 Private `invoices` bucket + policies
+- [x] 2.14 Realtime publication
+- [x] 2.15 Events calendar rows for hosted DB
+- [x] 2.16 Atomic RPC functions
+- [x] 2.17 Timestamps are `timestamptz`
 
 ### Phase 3 - Profit engine and scan pipeline
+
 - [ ] 3.1 `profit_calculator.py` + golden vectors + `profit.ts`
 - [ ] 3.2 Scan pipeline rewrite
 - [ ] 3.3 Async correctness, retries, semaphore
@@ -60,6 +64,7 @@ A future session can resume from this file alone: find the first unchecked task 
 - [ ] 3.7 Listing generator legal footer / payment text
 
 ### Phase 4 - Lifecycle, accounting and reports
+
 - [ ] 4.1 State machine
 - [ ] 4.2 Status endpoint refactor
 - [ ] 4.3 `POST /deals/{id}/sale`
@@ -77,6 +82,7 @@ A future session can resume from this file alone: find the first unchecked task 
 - [ ] 4.15 Product Master
 
 ### Phase 5 - Storefront, invoices and SEO
+
 - [ ] 5.1 Private invoices
 - [ ] 5.2 Storefront pagination / images
 - [ ] 5.3 Product page SEO
@@ -84,6 +90,7 @@ A future session can resume from this file alone: find the first unchecked task 
 - [ ] 5.5 Legal pages config (technical only)
 
 ### Phase 6 - Reliability and observability
+
 - [ ] 6.1 Structured logging
 - [ ] 6.2 Health endpoints
 - [ ] 6.3 Sentry (optional)
@@ -93,12 +100,14 @@ A future session can resume from this file alone: find the first unchecked task 
 - [ ] 6.7 Error boundaries + lint errors
 
 ### Phase 7 - Tests and CI
+
 - [ ] 7.1 Backend tests
 - [ ] 7.2 Frontend checks / Vitest
 - [ ] 7.3 CI workflow
 - [ ] 7.4 CLAUDE.md update
 
 ### Phase 8 - Deployment artifacts
+
 - [ ] 8.1 Dockerfile
 - [ ] 8.2 Prod compose
 - [ ] 8.3 Caddyfile
@@ -108,6 +117,7 @@ A future session can resume from this file alone: find the first unchecked task 
 - [ ] 8.7 `docs/DEPLOY.md`
 
 ### Phase 9 - Documentation and manual steps
+
 - [ ] 9.1 Tech docs / README / CLAUDE.md
 - [ ] 9.2 `docs/MANUEL-ADIMLAR.md` complete
 - [ ] 9.3 `docs/MANUAL-TEST-SCRIPT.md`
@@ -137,6 +147,31 @@ A future session can resume from this file alone: find the first unchecked task 
 - Lint: still 42 errors, all pre-existing (Phase 6.7). Nothing new was introduced.
 - Not verified against a real Supabase: the admin-token path was tested with a fake Supabase client (401/403/200, cache, 503 handling by review). A real end-to-end check with the local Supabase from Phase 2 is attempted at the end of Phase 2.
 
+### Phase 2
+
+Files (all `supabase/migrations/20260921…`, all idempotent, all with a "why" header): `090000` lifecycle columns + status CHECK, `090100` dedupe + uniqueness, `090200` `sale_events`, `090300` RESTRICT + sold-record protection, `090400` `business_settings`, `090500` `scan_jobs` + `watchlist_asins`, `090600` `audit_log`, `090700` storefront view, `090800` private `invoices` bucket, `090900` least-privilege grants, `091000` realtime + events, `091100` RPC functions. Local smoke test: `supabase/tests/phase2_smoke.sql` (115 checks, rolled back).
+
+What was verified, all against the LOCAL Supabase only (`supabase start`, `--local`, never `--linked`):
+
+- Upgrade path: local DB reset to the 10 old migrations, legacy-style dirty data inserted (duplicate SKUs, duplicate pending rows, NULL / padded statuses, three kinds of sold rows, duplicate price points), then the 12 new migrations applied. Result checked row by row.
+- Fresh path: `supabase db reset --local` (22 migrations + seed) applies cleanly; `supabase db lint` reports no schema errors; every new migration re-applied a second time without error or data change.
+- Real stack, not fakes: real GoTrue tokens through the backend (admin 200, non-admin 403, tampered 401), RPCs called through supabase-py/PostgREST with the SQLSTATE codes intact, browser-role permissions through the REST API, storage bucket privacy/MIME limit/signed URLs.
+- NOT verified: anything on the hosted project. The hosted schema was pulled once (`20260916082200_remote_schema.sql`) but its real data was never inspected, so the data-cleaning steps are only tested on synthetic legacy data. That is why a backup comes first (`docs/MANUEL-ADIMLAR.md` M1).
+
+Decisions and deviations:
+
+- Statuses: unknown legacy values make the migration stop with a clear message rather than being guessed. `status` is now NOT NULL with default `pending`.
+- Duplicate open scan rows are soft-deleted (`deleted_at`), never hard-deleted. Until Phase 4.5 makes every read path exclude `deleted_at`, those hidden rows still show up in the UI, so the migrations must not be pushed before Phase 4.
+- Beyond the plan, small and in the spirit of rule 4 (write-path): `authenticated` lost every table privilege except SELECT plus column-level UPDATE on `opportunities.invoice_url` / `invoice_path` (`090900`); the initial schema had granted TRUNCATE and friends, which RLS does not stop. Also a DB-level guard: sold units and units with sale events cannot be hard-deleted or soft-deleted (`090300`), and `sale_events` is append-only (UPDATE / DELETE / TRUNCATE raise).
+- Also added early so a later migration is not needed: `opportunities.return_alert_notified_at` and `last_alerted_at` (4.6, 3.2.12), `scan_jobs.retry_after` (3.2.6), `business_settings.listing_payment_text` (3.7; default is the existing wording), `price_history` unique index `(product_id, recorded_at)` (3.2.11), `effective_purchase_price(o)` / `effective_total_cost(o)` SQL functions (also usable as PostgREST computed columns).
+- `business_settings` defaults are placeholder assumptions, marked as such in the migration and in `MANUEL-ADIMLAR.md` M5.
+- `record_return` resets `sold_at`, `listed_at`, `time_to_sell_days` and the legacy `actual_*` / customer columns after writing the refund event (the plan only named `sold_at`); the sale stays in `sale_events` and the old column values stay in `audit_log`. Reason: stale sale figures on an in-stock unit are what audit finding C6 complained about.
+- `update_manual_deal` refuses to move a sold deal back or to change its recorded sale amounts (ledger). The lifecycle cost columns are only changed when their key is present in the payload, so an edit form that does not know them cannot wipe what "Mark as Bought" stored.
+- `audit_log.changed_by` is only set inside the RPC functions (payload key `actor`) or for browser writes (`auth.uid()`); direct service-role table writes record NULL. Phase 4 should route status changes through RPCs (or pass the actor another way) if that matters.
+- PostgREST error codes for Phases 3-4: `22023` bad payload (422), `P0002` not found (404), `55000` wrong state (409), `23505` unique violation (409). supabase-py exposes them as `APIError.code`. The payload keys of each RPC are documented in the header of `20260921091100_atomic_write_functions.sql`.
+- Open item for Phase 3: old scans wrote 6 fabricated `price_history` rows each; the migrations leave them alone (deleting data was not asked for). See `MANUEL-ADIMLAR.md` M13.
+- Frontend (2.1): `STATUS_OPTIONS` has the two new statuses; Product Master got a status filter (the workspace tabs are unchanged, as planned).
+
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish). Items added so far are listed there under "Bulunan maddeler".
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M14. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
