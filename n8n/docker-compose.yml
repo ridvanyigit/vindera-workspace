@@ -1,5 +1,11 @@
 # Local n8n automation engine.
 # Imports n8n/Vindera_Daily_Scan.json, which triggers POST /api/v1/deals/scan.
+#
+# The backend requires the shared secret on those calls. In n8n create a
+# "Header Auth" credential named "Vindera Automation Key" with header name
+# X-Vindera-Key and the value of AUTOMATION_SHARED_SECRET from the backend .env,
+# then select it on both HTTP Request nodes. The secret is never stored in the
+# workflow JSON. VINDERA_API_BASE_URL (below) sets the backend address.
 
 services:
   n8n:
@@ -15,6 +21,10 @@ services:
       - NODE_ENV=production
       - WEBHOOK_URL=http://localhost:5678/
       - GENERIC_TIMEZONE=Europe/Vienna
+      # Base URL of the backend; the workflow appends /api/v1/... to it.
+      - VINDERA_API_BASE_URL=${VINDERA_API_BASE_URL:-http://host.docker.internal:8000}
+      # The workflow reads VINDERA_API_BASE_URL through $env.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n_data:/home/node/.n8n
 

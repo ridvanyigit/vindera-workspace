@@ -9,7 +9,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { apiUrl } from '@/lib/api';
+import { apiFetch, ApiError } from '@/lib/apiFetch';
 import { Send, Bot, User, RefreshCw, Terminal, Trash2 } from 'lucide-react';
 
 interface Message {
@@ -21,7 +21,6 @@ const COMMAND_LIST = [
   { cmd: '/help', desc: 'Show available system commands' },
   { cmd: '/list', desc: 'List opportunities from the database' },
   { cmd: '/scan ', desc: 'Scan an ASIN (e.g. /scan B09...)' },
-  { cmd: '/delete ', desc: 'Delete a product (e.g. /delete B09...)' },
 ];
 
 export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void }) {
@@ -72,17 +71,11 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
     setIsLoading(true);
 
     try {
-      const res = await fetch(apiUrl('/chat/'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: userMsg })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Connection error.' }]);
-      }
+      const data = await apiFetch<{ response: string }>('/chat/', { method: 'POST', json: { message: userMsg } });
+      setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Unable to reach the server.' }]);
+      const reason = error instanceof ApiError ? error.message : 'Unable to reach the server.';
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${reason}` }]);
     }
     setIsLoading(false);
   };

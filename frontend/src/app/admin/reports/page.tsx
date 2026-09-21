@@ -5,7 +5,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { checkIsAdmin } from '@/lib/auth';
-import { apiUrl } from '@/lib/api';
+import { apiFetch } from '@/lib/apiFetch';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { useRouter } from 'next/navigation';
 import { Package, LogOut, RefreshCw, BarChart2, PieChart as PieChartIcon, Target, TrendingUp, AlertTriangle, Receipt, Trash2, Repeat, Sun, Moon } from 'lucide-react';
@@ -83,19 +83,16 @@ export default function TaxAndReports() {
     setSavingExpense(true);
     setExpenseFormError(null);
     try {
-      const res = await fetch(apiUrl('/expenses/'), {
+      await apiFetch('/expenses/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        json: {
           description: expenseForm.description.trim(),
           amount: Number(expenseForm.amount),
           category: expenseForm.category,
           incurred_at: expenseForm.incurred_at || null,
           is_recurring: expenseForm.is_recurring,
-        }),
+        },
       });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(typeof payload?.detail === 'string' ? payload.detail : `Request failed with status ${res.status}.`);
       setExpenseForm(prev => ({ ...prev, description: '', amount: '', is_recurring: false }));
       await fetchExpenses();
     } catch (err) {
@@ -109,9 +106,7 @@ export default function TaxAndReports() {
     if (!window.confirm(`Delete "${expense.description}" (€${Number(expense.amount).toFixed(2)})?`)) return;
     setExpenseFormError(null);
     try {
-      const res = await fetch(apiUrl(`/expenses/${expense.id}`), { method: 'DELETE' });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(typeof payload?.detail === 'string' ? payload.detail : `Request failed with status ${res.status}.`);
+      await apiFetch(`/expenses/${expense.id}`, { method: 'DELETE' });
       await fetchExpenses();
     } catch (err) {
       setExpenseFormError(err instanceof Error ? err.message : 'Could not delete the expense.');

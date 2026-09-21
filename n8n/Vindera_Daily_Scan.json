@@ -46,7 +46,9 @@
       {
         "parameters": {
           "method": "POST",
-          "url": "http://host.docker.internal:8000/api/v1/deals/scan",
+          "url": "={{ ($env.VINDERA_API_BASE_URL || 'http://host.docker.internal:8000') + '/api/v1/deals/scan' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
           "sendBody": true,
           "bodyParameters": {
             "parameters": [
@@ -61,18 +63,32 @@
         "name": "Trigger FastAPI Deal Scan",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4,
-        "position": [850, 300]
+        "position": [850, 300],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "",
+            "name": "Vindera Automation Key"
+          }
+        }
       },
       {
         "parameters": {
           "method": "POST",
-          "url": "http://host.docker.internal:8000/api/v1/deals/dead-stock/scan",
+          "url": "={{ ($env.VINDERA_API_BASE_URL || 'http://host.docker.internal:8000') + '/api/v1/deals/dead-stock/scan' }}",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
           "options": {}
         },
         "name": "Trigger Dead Stock Check",
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4,
-        "position": [450, 500]
+        "position": [450, 500],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "",
+            "name": "Vindera Automation Key"
+          }
+        }
       }
     ],
     "connections": {

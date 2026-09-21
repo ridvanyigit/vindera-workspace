@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiFetch } from '@/lib/apiFetch';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import {
@@ -354,20 +354,10 @@ export default function ManualEntry() {
     };
 
     try {
-      const res = await fetch(
-        editingId ? apiUrl(`/deals/${editingId}/manual`) : apiUrl('/deals/manual'),
-        {
-          method: editingId ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
+      const payload = await apiFetch<{ sku: string; profit_margin: number }>(
+        editingId ? `/deals/${editingId}/manual` : '/deals/manual',
+        { method: editingId ? 'PUT' : 'POST', json: body },
       );
-
-      const payload = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(payload?.detail || `Request failed with status ${res.status}.`);
-      }
 
       if (editingId) {
         setSuccess(`Deal updated! SKU ${payload.sku} — margin recalculated to ${payload.profit_margin}%.`);
@@ -401,9 +391,7 @@ export default function ManualEntry() {
     setError(null);
 
     try {
-      const res = await fetch(apiUrl(`/deals/${editingId}`), { method: 'DELETE' });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.detail || `Request failed with status ${res.status}.`);
+      await apiFetch(`/deals/${editingId}`, { method: 'DELETE' });
       if (form.willhaben_url) window.open(form.willhaben_url, '_blank', 'noopener,noreferrer');
       router.push('/admin');
     } catch (err: any) {

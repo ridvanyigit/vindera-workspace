@@ -6,20 +6,22 @@ directly (admin-only RLS) and subtracts the total from gross profit; every
 write goes through here via the service role.
 """
 
+import uuid
 from datetime import date
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from src.core.auth import require_admin
 from src.core.database import supabase
 
-router = APIRouter(prefix="/expenses", tags=["Business Expenses"])
+router = APIRouter(prefix="/expenses", tags=["Business Expenses"], dependencies=[Depends(require_admin)])
 
 
 class ExpenseRequest(BaseModel):
-    description: str = Field(min_length=1)
-    amount: float = Field(gt=0)
-    category: str = Field(min_length=1)
+    description: str = Field(min_length=1, max_length=200)
+    amount: float = Field(gt=0, le=1_000_000)
+    category: str = Field(min_length=1, max_length=100)
     incurred_at: date | None = None
     is_recurring: bool = False
 
@@ -71,13 +73,13 @@ async def list_expenses():
 
 
 @router.put("/{expense_id}")
-async def update_expense(expense_id: str, request: ExpenseRequest):
+async def update_expense(expense_id: uuid.UUID, request: ExpenseRequest):
     """Replace every editable field of an expense."""
     payload = _payload(request)
     _validate(payload)
 
     try:
-        res = supabase.table("business_expenses").update(payload).eq("id", expense_id).execute()
+        res = supabase.table("business_expenses").update(payload).eq("id", str(expense_id)).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -88,14 +90,14 @@ async def update_expense(expense_id: str, request: ExpenseRequest):
 
 
 @router.delete("/{expense_id}")
-async def delete_expense(expense_id: str):
+async def delete_expense(expense_id: uuid.UUID):
     """Delete one expense."""
     try:
-        res = supabase.table("business_expenses").delete().eq("id", expense_id).execute()
+        res = supabase.table("business_expenses").delete().eq("id", str(expense_id)).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     if not res.data:
         raise HTTPException(status_code=404, detail=f"Expense {expense_id} not found.")
 
-    return {"status": "success", "deleted_id": expense_id}
+    return {"status": "success", "deleted_id": str(expense_id)}

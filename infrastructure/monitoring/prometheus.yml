@@ -3,5 +3,13 @@ global:
 
 scrape_configs:
   - job_name: 'vindera_fastapi'
+    # The backend protects /metrics with a bearer token (METRICS_TOKEN in .env).
+    # Put the same value, on a single line and nothing else, into
+    # infrastructure/monitoring/secrets/metrics_token (git-ignored). The compose
+    # file mounts that folder at /etc/prometheus/secrets. Local development
+    # accepts any value while METRICS_TOKEN is unset on the backend.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/metrics_token
     static_configs:
       - targets: ['host.docker.internal:8000']

@@ -9,17 +9,38 @@ import random
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from src.agents.deal_analyzer_agent import deal_analyzer
 from src.agents.listing_generator_agent import listing_generator
+from src.core.auth import require_admin, require_admin_or_automation
 from src.core.categories import FALLBACK_CATEGORY
+from src.core.config import settings
 from src.core.database import supabase
+from src.core.rate_limit import SCAN_LIMIT, limiter
+from src.core.validation import (
+    Asin,
+    DealScore,
+    HttpsUrl,
+    NonNegativeMoney,
+    OpportunityStatus,
+    PositiveMoney,
+    ProductCondition,
+    Score0to10,
+    WillhabenUrl,
+)
 from src.services.keepa_service import keepa_service
 from src.services.notification_service import notification_service
 
-router = APIRouter(prefix="/deals", tags=["Deals Orchestration"])
+# Every route on `router` requires a logged-in admin. The scan triggers that n8n
+# calls live on `automation_router`, which also accepts the shared secret.
+# Both are mounted in main.py, which refuses to start if any /api/v1 route ends
+# up without one of the two auth dependencies.
+router = APIRouter(prefix="/deals", tags=["Deals Orchestration"], dependencies=[Depends(require_admin)])
+automation_router = APIRouter(
+    prefix="/deals", tags=["Deals Automation"], dependencies=[Depends(require_admin_or_automation)]
+)
 
 # --- Business rules -------------------------------------------------------
 # "No-Buy" guardrails: a deal is rejected unless it clears BOTH thresholds.
@@ -50,27 +71,28 @@ MOCK_HISTORICAL_PRICE = 99.0
 # --- Request models -------------------------------------------------------
 
 class ScanRequest(BaseModel):
-    asin: str
+    asin: Asin
 
 
 class StatusUpdateRequest(BaseModel):
-    status: str
-    product_condition: str | None = None
+    status: OpportunityStatus
+    product_condition: ProductCondition | None = None
     is_quarantine: bool | None = None
-    target_sell_price: float | None = None
-    purchase_thesis: str | None = None
+    target_sell_price: PositiveMoney | None = None
+    purchase_thesis: str | None = Field(default=None, max_length=2000)
 
     # Sale outcome (ML training data) — sent when status moves to 'sold'.
-    actual_sell_price: float | None = None
-    actual_profit: float | None = None
-    shipping_and_prep_cost: float | None = None
-    platform_fees: float | None = None
-    customer_inquiries_count: int | None = None
-    customer_messages_summary: str | None = None
-    sold_during_event: str | None = None
+    actual_sell_price: NonNegativeMoney | None = None
+    actual_profit: float | None = Field(default=None, ge=-100_000, le=100_000)
+    shipping_and_prep_cost: NonNegativeMoney | None = None
+    platform_fees: NonNegativeMoney | None = None
+    customer_inquiries_count: int | None = Field(default=None, ge=0, le=10_000)
+    customer_messages_summary: str | None = Field(default=None, max_length=2000)
+    sold_during_event: str | None = Field(default=None, max_length=100)
 
     # Public storefront: the live Willhaben listing the "Buy" button opens.
-    willhaben_url: str | None = None
+    # Blank clears it (see `update_opportunity_status`).
+    willhaben_url: WillhabenUrl = None
 
 
 # --- Pipeline helpers -----------------------------------------------------
@@ -143,41 +165,55 @@ async def run_deal_scan_pipeline(asin: str):
         product_category = price_info["category"]
         current_price = price_info["current_price"]
         historical_price = price_info["average_historical_price"]
-    else:
-        print("⚠️ Using Mock Data (Keepa API key missing or failed).")
-        product_title = f"Test Product for ASIN: {asin}"
+        # Real BuyBox data from Keepa arrives in the Phase 3 rewrite. Until then
+        # the seller is unknown and treated as the riskier case; never random.
+        buybox_seller, buybox_is_fba = "Unknown", False
+    elif settings.ALLOW_MOCK_DATA:
+        print("⚠️ Using Mock Data (ALLOW_MOCK_DATA=true; Keepa key missing or call failed).")
+        product_title = f"[MOCK] Test Product for ASIN: {asin}"
         product_category = FALLBACK_CATEGORY
         current_price = MOCK_CURRENT_PRICE
         historical_price = MOCK_HISTORICAL_PRICE
+        buybox_seller, buybox_is_fba = _pick_mock_buybox()
+    else:
+        print(f"Scan aborted for {asin}: Keepa returned no data and mock data is disabled.")
+        return
+
+    if current_price <= 0 or historical_price <= 0:
+        print(f"Scan aborted for {asin}: Keepa returned no usable price.")
+        return
 
     await asyncio.sleep(1)
 
     amazon_url = f"https://amazon.de/dp/{asin}"
-    buybox_seller, buybox_is_fba = _pick_mock_buybox()
     events_context = _fetch_upcoming_events()
 
-    # 2. AI acquisition scorecard
-    analysis = deal_analyzer.analyze_deal(
-        product_title=product_title,
-        product_category=product_category,
-        current_price=current_price,
-        average_historical_price=historical_price,
-        buybox_seller=buybox_seller,
-        is_fba=buybox_is_fba,
-        upcoming_events=events_context,
-    )
+    # 2-3. AI scorecard and listing copy. Without ALLOW_MOCK_DATA the agents raise
+    # instead of returning made-up results, so a failed OpenAI call never becomes a deal.
+    try:
+        analysis = deal_analyzer.analyze_deal(
+            product_title=product_title,
+            product_category=product_category,
+            current_price=current_price,
+            average_historical_price=historical_price,
+            buybox_seller=buybox_seller,
+            is_fba=buybox_is_fba,
+            upcoming_events=events_context,
+        )
 
-    if not analysis.is_profitable:
-        print("🏁 Pipeline execution finished (deal not profitable).")
+        if not analysis.is_profitable:
+            print("🏁 Pipeline execution finished (deal not profitable).")
+            return
+
+        listing_data = listing_generator.generate_willhaben_listing(
+            product_title=product_title,
+            product_category=product_category,
+            bought_price=current_price,
+            historical_price=historical_price,
+        )
+    except Exception as e:
+        print(f"Scan aborted for {asin}: AI step failed and mock data is disabled ({e}).")
         return
-
-    # 3. Willhaben listing copy and suggested price
-    listing_data = listing_generator.generate_willhaben_listing(
-        product_title=product_title,
-        product_category=product_category,
-        bought_price=current_price,
-        historical_price=historical_price,
-    )
 
     # 4. "No-Buy" guardrails
     expected_profit_euro = listing_data.suggested_price - current_price
@@ -323,23 +359,19 @@ async def run_dead_stock_scan():
 
 # --- Endpoints ------------------------------------------------------------
 
-@router.post("/scan", status_code=202)
-async def scan_asin(request: ScanRequest, background_tasks: BackgroundTasks):
+@automation_router.post("/scan", status_code=202)
+@limiter.limit(SCAN_LIMIT)
+async def scan_asin(request: Request, payload: ScanRequest, background_tasks: BackgroundTasks):
     """Queue a deal scan for a single ASIN.
 
     Returns immediately; the pipeline runs in the background. Used by the n8n
-    daily batch workflow and by any external trigger.
+    daily batch workflow (automation key) and by the admin UI (admin token).
     """
-    asin = request.asin.strip().upper()
-
-    if not asin:
-        raise HTTPException(status_code=422, detail="ASIN must not be empty.")
-
-    background_tasks.add_task(run_deal_scan_pipeline, asin)
-    return {"status": "accepted", "asin": asin, "message": "Deal scan started in the background."}
+    background_tasks.add_task(run_deal_scan_pipeline, payload.asin)
+    return {"status": "accepted", "asin": payload.asin, "message": "Deal scan started in the background."}
 
 
-@router.post("/dead-stock/scan", status_code=202)
+@automation_router.post("/dead-stock/scan", status_code=202)
 async def scan_dead_stock(background_tasks: BackgroundTasks):
     """Queue a dead-stock check.
 
@@ -352,7 +384,7 @@ async def scan_dead_stock(background_tasks: BackgroundTasks):
 
 
 @router.patch("/{opportunity_id}/status")
-async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRequest):
+async def update_opportunity_status(opportunity_id: uuid.UUID, request: StatusUpdateRequest):
     """Advance an opportunity through its lifecycle and patch optional fields.
 
     When the status moves to 'sold', also stamps `time_to_sell_days` (measured
@@ -360,6 +392,7 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
     future ML training, alongside whatever actual_* fields the sale-confirm
     modal sent.
     """
+    opportunity_id = str(opportunity_id)
     payload: dict = {"status": request.status}
 
     if request.status == "sold":
@@ -386,9 +419,13 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
         "customer_inquiries_count": request.customer_inquiries_count,
         "customer_messages_summary": request.customer_messages_summary,
         "sold_during_event": request.sold_during_event,
-        "willhaben_url": request.willhaben_url,
     }
     payload.update({key: value for key, value in optional_fields.items() if value is not None})
+
+    # The Willhaben link is the one field the UI needs to clear again, so it is
+    # written whenever it was sent, including as null.
+    if "willhaben_url" in request.model_fields_set:
+        payload["willhaben_url"] = request.willhaben_url
 
     try:
         res = supabase.table("opportunities").update(payload).eq("id", opportunity_id).execute()
@@ -408,70 +445,70 @@ async def update_opportunity_status(opportunity_id: str, request: StatusUpdateRe
 # `run_deal_scan_pipeline` writes — minus Keepa and OpenAI.
 
 class ManualScoreBreakdown(BaseModel):
-    discount: int = 5
-    demand: int = 5
-    competition: int = 5
-    capital_efficiency: int = 5
-    storage_size: int = 5
-    risk_level: int = 5
-    seasonality: int = 5
+    discount: Score0to10 = 5
+    demand: Score0to10 = 5
+    competition: Score0to10 = 5
+    capital_efficiency: Score0to10 = 5
+    storage_size: Score0to10 = 5
+    risk_level: Score0to10 = 5
+    seasonality: Score0to10 = 5
 
 
 class ManualDealRequest(BaseModel):
     # Product
-    asin: str
-    title: str
-    category: str = FALLBACK_CATEGORY
-    image_url: str | None = None
+    asin: Asin
+    title: str = Field(min_length=1, max_length=300)
+    category: str = Field(default=FALLBACK_CATEGORY, min_length=1, max_length=100)
+    image_url: HttpsUrl = None
     # Extra photos for the storefront's product detail gallery, beyond the cover image.
-    gallery_image_urls: list[str] = []
+    gallery_image_urls: list[HttpsUrl] = Field(default_factory=list, max_length=20)
 
     # Pricing
-    buy_price: float
-    target_sell_price: float
-    emergency_sell_price: float | None = None
-    willhaben_realistic_price: float | None = None
+    buy_price: PositiveMoney
+    target_sell_price: PositiveMoney
+    emergency_sell_price: PositiveMoney | None = None
+    willhaben_realistic_price: PositiveMoney | None = None
     # Public storefront: the live Willhaben listing the "Buy" button opens.
-    willhaben_url: str | None = None
+    willhaben_url: WillhabenUrl = None
 
     # Optional Amazon reference points. When both are supplied they are written
     # to price_history so the workspace chart shows a real slope instead of the
     # deterministic sample curve.
-    amazon_price_today: float | None = None
-    amazon_price_90d_avg: float | None = None
+    amazon_price_today: PositiveMoney | None = None
+    amazon_price_90d_avg: PositiveMoney | None = None
 
     # Lifecycle
-    status: str = "pending"
-    product_condition: str = "NEW"
-    warehouse_location: str = DEFAULT_WAREHOUSE_LOCATION
+    status: OpportunityStatus = "pending"
+    product_condition: ProductCondition = "NEW"
+    warehouse_location: str = Field(default=DEFAULT_WAREHOUSE_LOCATION, min_length=1, max_length=20)
     is_quarantine: bool = False
-    sku: str | None = None
+    sku: str | None = Field(default=None, max_length=50)
 
     # Market context
-    buybox_seller: str = "Manual"
+    buybox_seller: str = Field(default="Manual", min_length=1, max_length=100)
     buybox_is_fba: bool = False
 
     # Analysis (normally produced by DealAnalyzerAgent)
-    deal_score: int = 85
-    holding_period_months: int = 2
-    ai_decision: str | None = None
-    purchase_thesis: str | None = None
-    seasonality_analysis: str | None = None
+    deal_score: DealScore = 85
+    holding_period_months: int = Field(default=2, ge=0, le=60)
+    ai_decision: str | None = Field(default=None, max_length=5000)
+    purchase_thesis: str | None = Field(default=None, max_length=2000)
+    seasonality_analysis: str | None = Field(default=None, max_length=2000)
     score_breakdown: ManualScoreBreakdown = ManualScoreBreakdown()
 
     # Willhaben listing
-    listing_title: str
-    listing_description: str
+    listing_title: str = Field(min_length=1, max_length=200)
+    listing_description: str = Field(min_length=1, max_length=8000)
 
     # Sale outcome (ML training data) — only meaningful when status == 'sold'.
-    actual_sell_price: float | None = None
-    actual_profit: float | None = None
-    shipping_and_prep_cost: float | None = None
-    platform_fees: float | None = None
-    customer_inquiries_count: int | None = None
-    customer_messages_summary: str | None = None
-    sold_during_event: str | None = None
-    time_to_sell_days: int | None = None
+    actual_sell_price: NonNegativeMoney | None = None
+    actual_profit: float | None = Field(default=None, ge=-100_000, le=100_000)
+    shipping_and_prep_cost: NonNegativeMoney | None = None
+    platform_fees: NonNegativeMoney | None = None
+    customer_inquiries_count: int | None = Field(default=None, ge=0, le=10_000)
+    customer_messages_summary: str | None = Field(default=None, max_length=2000)
+    sold_during_event: str | None = Field(default=None, max_length=100)
+    time_to_sell_days: int | None = Field(default=None, ge=0, le=3650)
 
 
 def _sale_outcome_fields(request: "ManualDealRequest") -> dict:
@@ -497,12 +534,7 @@ async def create_manual_deal(request: ManualDealRequest):
     the workspace, product master and reports all render the deal exactly as if
     the scan pipeline had produced it. No Keepa or OpenAI calls are made.
     """
-    asin = request.asin.strip().upper()
-
-    if not asin:
-        raise HTTPException(status_code=422, detail="ASIN must not be empty.")
-    if request.buy_price <= 0 or request.target_sell_price <= 0:
-        raise HTTPException(status_code=422, detail="Prices must be greater than zero.")
+    asin = request.asin
 
     # Recomputed server-side so the stored margin always matches the prices.
     profit_margin = round(((request.target_sell_price - request.buy_price) / request.buy_price) * 100, 2)
@@ -517,8 +549,8 @@ async def create_manual_deal(request: ManualDealRequest):
             "category": request.category,
         }
         if request.image_url:
-            product_payload["image_url"] = request.image_url.strip()
-        product_payload["gallery_image_urls"] = [u.strip() for u in request.gallery_image_urls if u.strip()]
+            product_payload["image_url"] = request.image_url
+        product_payload["gallery_image_urls"] = [u for u in request.gallery_image_urls if u]
 
         product_res = supabase.table("products").upsert(
             product_payload, on_conflict="asin,amazon_locale"
@@ -598,7 +630,7 @@ async def create_manual_deal(request: ManualDealRequest):
 
 
 @router.put("/{opportunity_id}/manual")
-async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
+async def update_manual_deal(opportunity_id: uuid.UUID, request: ManualDealRequest):
     """Replace every editable field of an existing opportunity.
 
     Updates the linked `products` row, the `opportunities` row and its
@@ -609,12 +641,7 @@ async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
     supplied: in that case the product's existing history is replaced by the
     two new data points. Leave them empty to keep the stored history intact.
     """
-    asin = request.asin.strip().upper()
-
-    if not asin:
-        raise HTTPException(status_code=422, detail="ASIN must not be empty.")
-    if request.buy_price <= 0 or request.target_sell_price <= 0:
-        raise HTTPException(status_code=422, detail="Prices must be greater than zero.")
+    asin = request.asin
 
     existing_res = supabase.table("opportunities").select(
         "id, product_id, sold_at"
@@ -636,8 +663,8 @@ async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
             "amazon_locale": AMAZON_LOCALE,
             "title": request.title.strip(),
             "category": request.category,
-            "image_url": request.image_url.strip() if request.image_url else None,
-            "gallery_image_urls": [u.strip() for u in request.gallery_image_urls if u.strip()],
+            "image_url": request.image_url,
+            "gallery_image_urls": [u for u in request.gallery_image_urls if u],
         }
         supabase.table("products").update(product_payload).eq("id", product_id).execute()
 
@@ -724,7 +751,7 @@ async def update_manual_deal(opportunity_id: str, request: ManualDealRequest):
 
 
 @router.delete("/{opportunity_id}")
-async def delete_opportunity(opportunity_id: str):
+async def delete_opportunity(opportunity_id: uuid.UUID):
     """Delete one opportunity and its generated listing (cascade).
 
     The `products` row is intentionally kept: it carries the price history and

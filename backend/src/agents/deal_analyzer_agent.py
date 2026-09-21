@@ -82,9 +82,15 @@ class DealAnalyzerAgent:
                 ],
                 response_format=DealAnalysisResult,
             )
-            return completion.choices[0].message.parsed
+            parsed = completion.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError("OpenAI returned no structured result (refusal or empty response).")
+            return parsed
         except Exception as e:
-            print(f"⚠️ OpenAI Error: {str(e)}. Using MOCK AI Data.")
+            # Fabricated analysis is a development aid only; production must fail loudly.
+            if not settings.ALLOW_MOCK_DATA:
+                raise
+            print(f"⚠️ OpenAI Error: {str(e)}. Using MOCK AI Data (ALLOW_MOCK_DATA=true).")
             return self._mock_result(
                 product_title=product_title,
                 current_price=current_price,

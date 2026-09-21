@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { apiUrl } from '@/lib/api';
+import { apiFetch } from '@/lib/apiFetch';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, CalendarDays, TrendingDown, BarChart2, BookOpen, Pencil, ExternalLink, Link2, Sun, Moon } from 'lucide-react';
@@ -144,11 +144,9 @@ export default function Dashboard() {
       if (targetSellPrice !== undefined) payload.target_sell_price = targetSellPrice;
       if (thesisUpdate !== undefined) payload.purchase_thesis = thesisUpdate;
 
-      const res = await fetch(apiUrl(`/deals/${id}/status`), {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
-      if (res.ok) fetchOpportunities(); 
-    } catch (error) { console.error(error); }
+      await apiFetch(`/deals/${id}/status`, { method: 'PATCH', json: payload });
+      fetchOpportunities();
+    } catch (error) { alert(error instanceof Error ? error.message : 'Could not update the deal.'); }
   };
 
   const handleInventorySubmit = (action: 'approve' | 'quarantine') => {
@@ -170,10 +168,9 @@ export default function Dashboard() {
 
     setConfirmingSale(true);
     try {
-      const res = await fetch(apiUrl(`/deals/${saleModalDeal.id}/status`), {
+      await apiFetch(`/deals/${saleModalDeal.id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        json: {
           status: 'sold',
           actual_sell_price: actualSellPrice,
           actual_profit: Number(actualProfit.toFixed(2)),
@@ -182,14 +179,12 @@ export default function Dashboard() {
           customer_inquiries_count: inquiries,
           customer_messages_summary: saleForm.customer_messages_summary.trim() || undefined,
           sold_during_event: saleForm.sold_during_event || undefined,
-        }),
+        },
       });
-      if (res.ok) {
-        fetchOpportunities();
-        setSaleModalDeal(null);
-        setSaleForm(EMPTY_SALE_FORM);
-      }
-    } catch (error) { console.error(error); } finally { setConfirmingSale(false); }
+      fetchOpportunities();
+      setSaleModalDeal(null);
+      setSaleForm(EMPTY_SALE_FORM);
+    } catch (error) { alert(error instanceof Error ? error.message : 'Could not record the sale.'); } finally { setConfirmingSale(false); }
   };
 
   /** Saves the live Willhaben listing link the public storefront's "Buy" button redirects to. */
@@ -197,13 +192,12 @@ export default function Dashboard() {
     if (!selectedDeal) return;
     setSavingWillhabenUrl(true);
     try {
-      const res = await fetch(apiUrl(`/deals/${selectedDeal.id}/status`), {
+      await apiFetch(`/deals/${selectedDeal.id}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: selectedDeal.status, willhaben_url: willhabenUrlDraft.trim() }),
+        json: { status: selectedDeal.status, willhaben_url: willhabenUrlDraft.trim() },
       });
-      if (res.ok) fetchOpportunities();
-    } catch (error) { console.error(error); } finally { setSavingWillhabenUrl(false); }
+      fetchOpportunities();
+    } catch (error) { alert(error instanceof Error ? error.message : 'Could not save the Willhaben link.'); } finally { setSavingWillhabenUrl(false); }
   };
 
   const handleInvoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>, dealId: string) => {

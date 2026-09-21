@@ -41,10 +41,15 @@ class ListingGeneratorAgent:
                 ],
                 response_format=GeneratedListing,
             )
-            return completion.choices[0].message.parsed
+            parsed = completion.choices[0].message.parsed
+            if parsed is None:
+                raise ValueError("OpenAI returned no structured result (refusal or empty response).")
+            return parsed
         except Exception as e:
-            # FALLBACK MOCK (If OpenAI API fails or credits are empty)
-            print(f"⚠️ OpenAI Error: {str(e)}. Using MOCK Listing Data with Auto-Pricing.")
+            # Fallback copy is a development aid only; production must fail loudly.
+            if not settings.ALLOW_MOCK_DATA:
+                raise
+            print(f"⚠️ OpenAI Error: {str(e)}. Using MOCK Listing Data with Auto-Pricing (ALLOW_MOCK_DATA=true).")
             
             optimal_price = bought_price + ((historical_price - bought_price) / 2)
             
