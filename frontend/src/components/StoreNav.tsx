@@ -23,8 +23,8 @@ import type { StorefrontCardListing } from '@/lib/types';
 
 export default function StoreNav() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<StorefrontCardListing[]>([]);
-  const [searching, setSearching] = useState(false);
+  // Results are stored with the query they answer, so a stale answer is never shown for a newer query.
+  const [found, setFound] = useState<{ query: string; items: StorefrontCardListing[] }>({ query: '', items: [] });
   const [showResults, setShowResults] = useState(false);
   const [hidden, setHidden] = useState(false);
   const lastScrollY = useRef(0);
@@ -40,21 +40,22 @@ export default function StoreNav() {
   }, []);
 
   // Debounced live search against the public storefront_listings view.
+  const trimmed = query.trim();
+  const searchable = trimmed.length >= 2;
   useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) { setResults([]); setSearching(false); return; }
-    setSearching(true);
+    if (!searchable) return;
     const timeout = setTimeout(async () => {
       const { data, error } = await supabase
         .from('storefront_listings')
         .select(CARD_COLUMNS)
-        .ilike('title', `%${q}%`)
+        .ilike('title', `%${trimmed}%`)
         .limit(8);
-      if (!error) setResults((data as unknown as StorefrontCardListing[]) || []);
-      setSearching(false);
+      setFound({ query: trimmed, items: error ? [] : (data as unknown as StorefrontCardListing[]) || [] });
     }, 250);
     return () => clearTimeout(timeout);
-  }, [query]);
+  }, [trimmed, searchable]);
+  const searching = searchable && found.query !== trimmed;
+  const results = searchable && found.query === trimmed ? found.items : [];
 
   const categories = TARGET_CATEGORIES.filter(c => c.value !== 'All');
 

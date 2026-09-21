@@ -50,6 +50,48 @@ const minWidths: Record<Column, number> = {
 
 const columns: Column[] = ['sku', 'product', 'status', 'buy', 'sell', 'margin', 'score', 'age'];
 
+function ResizeHandle({ column, resizing, onResizeStart }: {
+  column: Column;
+  resizing: Column | null;
+  onResizeStart: (column: Column, e: React.PointerEvent) => void;
+}) {
+  return (
+    <span
+      onPointerDown={e => onResizeStart(column, e)}
+      className="absolute right-0 top-0 z-30 flex h-full w-4 translate-x-1/2 cursor-col-resize items-center justify-center touch-none select-none"
+    >
+      <span className={`h-7 w-px rounded-full transition-all duration-150 ${
+        resizing === column
+          ? 'w-[2px] bg-indigo-600'
+          : 'bg-gray-300 opacity-70 group-hover:bg-indigo-400 group-hover:opacity-100'
+      }`} />
+    </span>
+  );
+}
+
+interface HeaderProps {
+  column: Column;
+  widths: Record<Column, number>;
+  resizing: Column | null;
+  onResizeStart: (column: Column, e: React.PointerEvent) => void;
+  children: React.ReactNode;
+  last?: boolean;
+}
+
+function Header({ column, widths, resizing, onResizeStart, children, last = false }: HeaderProps) {
+  return (
+    <th
+      className="group relative h-12 border-b border-r border-gray-200 bg-gray-50/95 px-4 text-center align-middle"
+      style={{ width: widths[column], minWidth: widths[column], maxWidth: widths[column] }}
+    >
+      <div className="flex h-full items-center justify-center gap-1.5 whitespace-nowrap type-label text-gray-500">
+        {children}
+      </div>
+      {!last && <ResizeHandle column={column} resizing={resizing} onResizeStart={onResizeStart} />}
+    </th>
+  );
+}
+
 export default function ProductMaster() {
   const router = useRouter();
   const { dark, toggle: toggleDark } = useDarkMode();
@@ -63,15 +105,6 @@ export default function ProductMaster() {
   const [resizing, setResizing] = useState<Column | null>(null);
   const [startX, setStartX] = useState(0);
   const [startWidth, setStartWidth] = useState(0);
-
-  useEffect(() => {
-    // Protected route: admin-only, enforced again by RLS on every read.
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { router.push('/admin/login'); return; }
-      if (!(await checkIsAdmin())) { router.push('/'); return; }
-      fetchOpportunities();
-    });
-  }, [router]);
 
   /** Every live (not soft-deleted) deal, read in pages so nothing is cut off at 1000 rows. */
   const fetchOpportunities = async () => {
@@ -95,6 +128,15 @@ export default function ProductMaster() {
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    // Protected route: admin-only, enforced again by RLS on every read.
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { router.push('/admin/login'); return; }
+      if (!(await checkIsAdmin())) { router.push('/'); return; }
+      fetchOpportunities();
+    });
+  }, [router]);
 
   const startResize = (column: Column, e: React.PointerEvent) => {
     e.preventDefault();
@@ -186,34 +228,7 @@ export default function ProductMaster() {
     URL.revokeObjectURL(url);
   };
 
-  const ResizeHandle = ({ column }: { column: Column }) => (
-    <span
-      onPointerDown={e => startResize(column, e)}
-      className="absolute right-0 top-0 z-30 flex h-full w-4 translate-x-1/2 cursor-col-resize items-center justify-center touch-none select-none"
-    >
-      <span className={`h-7 w-px rounded-full transition-all duration-150 ${
-        resizing === column
-          ? 'w-[2px] bg-indigo-600'
-          : 'bg-gray-300 opacity-70 group-hover:bg-indigo-400 group-hover:opacity-100'
-      }`} />
-    </span>
-  );
-
-  const Header = ({ column, children, last = false }: {
-    column: Column;
-    children: React.ReactNode;
-    last?: boolean;
-  }) => (
-    <th
-      className="group relative h-12 border-b border-r border-gray-200 bg-gray-50/95 px-4 text-center align-middle"
-      style={{ width: widths[column], minWidth: widths[column], maxWidth: widths[column] }}
-    >
-      <div className="flex h-full items-center justify-center gap-1.5 whitespace-nowrap type-label text-gray-500">
-        {children}
-      </div>
-      {!last && <ResizeHandle column={column} />}
-    </th>
-  );
+  const headerProps = { widths, resizing, onResizeStart: startResize };
 
   return (
     <div className="vindera-admin flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">
@@ -335,14 +350,14 @@ export default function ProductMaster() {
 
             <thead>
               <tr>
-                <Header column="sku">SKU <ArrowUpDown className="h-3 w-3 text-gray-400" /></Header>
-                <Header column="product">Product Details</Header>
-                <Header column="status">Status <Filter className="h-3 w-3 text-gray-400" /></Header>
-                <Header column="buy">Cost</Header>
-                <Header column="sell">Target Sell</Header>
-                <Header column="margin">Net Profit / Margin</Header>
-                <Header column="score">AI Score</Header>
-                <Header column="age" last>Age (Days)</Header>
+                <Header {...headerProps} column="sku">SKU <ArrowUpDown className="h-3 w-3 text-gray-400" /></Header>
+                <Header {...headerProps} column="product">Product Details</Header>
+                <Header {...headerProps} column="status">Status <Filter className="h-3 w-3 text-gray-400" /></Header>
+                <Header {...headerProps} column="buy">Cost</Header>
+                <Header {...headerProps} column="sell">Target Sell</Header>
+                <Header {...headerProps} column="margin">Net Profit / Margin</Header>
+                <Header {...headerProps} column="score">AI Score</Header>
+                <Header {...headerProps} column="age" last>Age (Days)</Header>
               </tr>
             </thead>
 

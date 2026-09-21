@@ -12,18 +12,14 @@
  * Update the Gewerbe line the moment the real one is issued.
  */
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import StoreNav from '@/components/StoreNav';
 import StoreFooter from '@/components/StoreFooter';
 import { LEGAL } from '@/lib/legal';
+import { useOrigin } from '@/lib/useClientOnly';
 
 export default function Impressum() {
-  const [origin, setOrigin] = useState('');
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
+  const origin = useOrigin();
 
   return (
     <div className="flex min-h-screen flex-col bg-[#f7f8fa] text-gray-900">

@@ -17,6 +17,8 @@
 #   automation key on admin routes .. 401 (only scan endpoints accept it)
 #   admin token ..................... GET /expenses/ -> 200, POST /chat/ "/help" -> 200
 #   /metrics ........................ 401 without the token, 200 with it
+#   /healthz, /readyz ............... public: 200 with a reachable database (readyz 503 otherwise)
+#   / ............................... 404 (the old public status message is gone)
 #   /docs, /openapi.json ............ 404 in production (run with EXPECT_PRODUCTION=1)
 
 set -u
@@ -56,6 +58,11 @@ check "PUT   expenses/{id}"       401 PUT    "$API/expenses/$ID"         "${JSON
 check "DELETE expenses/{id}"      401 DELETE "$API/expenses/$ID"
 check "garbage bearer token"      401 GET    "$API/expenses/" -H 'Authorization: Bearer not-a-jwt'
 check "metrics without token"     401 GET    "$BASE_URL/metrics"
+
+echo "== Public probes"
+check "healthz"                   200 GET    "$BASE_URL/healthz"
+check "readyz"                    200 GET    "$BASE_URL/readyz"
+check "root has no public message" 404 GET   "$BASE_URL/"
 
 echo "== Wrong automation key"
 check "scan, wrong key"           401 POST   "$API/deals/scan" "${JSON[@]}" -H 'X-Vindera-Key: wrong' -d '{"asin":"B09Y2MYL5C"}'

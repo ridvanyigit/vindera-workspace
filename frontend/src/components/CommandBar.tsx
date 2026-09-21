@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { apiFetch, ApiError } from '@/lib/apiFetch';
+import { useIsClient } from '@/lib/useClientOnly';
 import { Send, Bot, User, RefreshCw, Terminal, Trash2, ListChecks } from 'lucide-react';
 import ScanStatusList from '@/components/ScanStatusList';
 
@@ -30,18 +31,14 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
   const [isLoading, setIsLoading] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ left: 0, bottom: 0 });
-  const [mounted, setMounted] = useState(false);
   const [showScans, setShowScans] = useState(false);
+  const mounted = useIsClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -110,7 +107,7 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
         {showScans && <ScanStatusList />}
         {!showScans && messages.length === 0 && (
           <div className="h-full flex items-center justify-center text-gray-400 text-[13px] italic">
-            Command history is empty. Type '/' to see available commands.
+            Command history is empty. Type &apos;/&apos; to see available commands.
           </div>
         )}
         {!showScans && messages.map((msg, idx) => (

@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { apiFetch, errorMessage } from '@/lib/apiFetch';
 import { checkIsAdmin } from '@/lib/auth';
@@ -56,9 +57,21 @@ interface Opportunity {
   generated_listings: GeneratedListing[];
 }
 
+const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
+  <Separator onDoubleClick={onDoubleClick} title="Double click to reset layout" className="relative flex w-2 items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-col-resize transition-colors group select-none">
+    <div className="h-8 w-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" /><span className="absolute text-[18px] leading-none text-white font-bold">⋮</span>
+  </Separator>
+);
+
+const HorizontalResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
+  <Separator onDoubleClick={onDoubleClick} title="Double click to reset layout" className="relative flex h-2 w-full items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-row-resize transition-colors group select-none">
+    <div className="w-8 h-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" /><span className="absolute text-[18px] leading-none text-white font-bold">⋯</span>
+  </Separator>
+);
+
 export default function Dashboard() {
   const router = useRouter();
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [activeTab, setActiveTab] = useState<'pending' | 'inventory' | 'sold' | 'rejected'>('pending');
@@ -84,7 +97,12 @@ export default function Dashboard() {
 
   const [willhabenUrlDraft, setWillhabenUrlDraft] = useState('');
   const [savingWillhabenUrl, setSavingWillhabenUrl] = useState(false);
-  useEffect(() => { setWillhabenUrlDraft(selectedDeal?.willhaben_url || ''); }, [selectedDeal?.id]);
+  // Start a fresh draft whenever another deal is selected (state adjusted during render, not in an effect).
+  const [draftDealId, setDraftDealId] = useState<string | null>(null);
+  if ((selectedDeal?.id ?? null) !== draftDealId) {
+    setDraftDealId(selectedDeal?.id ?? null);
+    setWillhabenUrlDraft(selectedDeal?.willhaben_url || '');
+  }
 
   const { dark, toggle: toggleDark } = useDarkMode();
 
@@ -105,21 +123,6 @@ export default function Dashboard() {
   const radarPanelRef = usePanelRef();
   const shrinkToMin = (ref: ReturnType<typeof usePanelRef>) => ref.current?.resize(BOTTOM_PANEL_MIN_PX);
 
-  useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) { router.push('/admin/login'); return; }
-      if (!(await checkIsAdmin())) { router.push('/'); return; }
-      setSession(session); fetchOpportunities(); fetchEvents(); fetchReport();
-    });
-    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.push('/admin/login');
-      else setSession(session);
-    });
-    const channel = supabase.channel('opportunities_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, () => {
-      fetchOpportunities(); fetchReport();
-    }).subscribe();
-    return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
-  }, [router]);
 
   /** Every live (not soft-deleted) opportunity, read in pages so nothing is cut off at 1000 rows. */
   const fetchOpportunities = async () => {
@@ -181,6 +184,24 @@ export default function Dashboard() {
     await updateDeal(selectedDeal.id, { willhaben_url: willhabenUrlDraft.trim() || null }, 'Willhaben link saved.');
     setSavingWillhabenUrl(false);
   };
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { router.push('/admin/login'); return; }
+      if (!(await checkIsAdmin())) { router.push('/'); return; }
+      setSession(session); fetchOpportunities(); fetchEvents(); fetchReport();
+    });
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) router.push('/admin/login');
+      else setSession(session);
+    });
+    const channel = supabase.channel('opportunities_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, () => {
+      fetchOpportunities(); fetchReport();
+    }).subscribe();
+    return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
+    // Runs once per page visit. The fetchers only use state setters and are recreated on every render, so they are not dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router]);
 
   const handleInvoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>, dealId: string) => {
     const input = event.target;
@@ -276,18 +297,6 @@ export default function Dashboard() {
   }).sort((a, b) => b.profit - a.profit);
 
   const selectedDealAge = selectedDeal ? holdingDays(selectedDeal) : 0;
-
-  const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
-    <Separator onDoubleClick={onDoubleClick} title="Double click to reset layout" className="relative flex w-2 items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-col-resize transition-colors group select-none">
-      <div className="h-8 w-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" /><span className="absolute text-[18px] leading-none text-white font-bold">⋮</span>
-    </Separator>
-  );
-
-  const HorizontalResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
-    <Separator onDoubleClick={onDoubleClick} title="Double click to reset layout" className="relative flex h-2 w-full items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-row-resize transition-colors group select-none">
-      <div className="w-8 h-1 rounded-full bg-gray-300 group-hover:bg-indigo-400" /><span className="absolute text-[18px] leading-none text-white font-bold">⋯</span>
-    </Separator>
-  );
 
   return (
     <div className="vindera-admin h-screen w-screen overflow-hidden flex flex-col bg-white text-gray-900">
@@ -538,7 +547,7 @@ export default function Dashboard() {
                     {(selectedDeal.purchase_thesis || selectedDeal.willhaben_realistic_price) && (
                       <div className="bg-amber-50 border border-amber-200 p-5 rounded-xl mb-6">
                         <h3 className="type-label text-amber-800 mb-3 flex items-center gap-2">📝 Decision Journal</h3>
-                        <p className="type-body text-amber-900 italic">"{selectedDeal.purchase_thesis || 'No thesis recorded.'}"</p>
+                        <p className="type-body text-amber-900 italic">&ldquo;{selectedDeal.purchase_thesis || 'No thesis recorded.'}&rdquo;</p>
                         <div className="mt-3 pt-3 border-t border-amber-200/50 flex items-center justify-between text-[12px] font-semibold text-amber-700">
                           <span>Willhaben Realistic Market Price:</span><span className="text-[13px] tabular-nums">€{selectedDeal.willhaben_realistic_price || 'N/A'}</span>
                         </div>
@@ -663,7 +672,7 @@ export default function Dashboard() {
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} />
                                 <YAxis tick={{ fontSize: 10, fill: '#6B7280' }} tickLine={false} axisLine={false} tickFormatter={val => `€${val}`} width={34} />
-                                <Tooltip formatter={(value: any) => `€${Number(value).toFixed(2)}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                <Tooltip formatter={(value) => `€${Number(value).toFixed(2)}`} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                                 <Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorPrice)" />
                               </AreaChart>
                             </ResponsiveContainer>
@@ -793,7 +802,7 @@ export default function Dashboard() {
               </table>
             </div>
             <div className="bg-gray-50 px-5 py-4 border-t border-gray-100">
-              <p className="type-body text-gray-500 italic">Expert Note: Review categories every 3 months. If a category yields {'<'}20% ROI or takes {'>'}60 days to sell on average, consider marking it as a "No-Buy" zone.</p>
+              <p className="type-body text-gray-500 italic">Expert Note: Review categories every 3 months. If a category yields {'<'}20% ROI or takes {'>'}60 days to sell on average, consider marking it as a &quot;No-Buy&quot; zone.</p>
             </div>
           </div>
         </div>

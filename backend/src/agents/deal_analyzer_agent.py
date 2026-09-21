@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 from src.core.config import settings
+from src.core.metrics import OPENAI_ERRORS
 from src.services.keepa_service import KeepaFacts
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,8 @@ class DealAnalyzerAgent:
         )
 
         try:
+            if not settings.openai_configured:
+                raise RuntimeError("OpenAI API key is not configured.")
             completion = await client.beta.chat.completions.parse(
                 model=settings.OPENAI_MODEL,
                 messages=[
@@ -203,6 +206,7 @@ class DealAnalyzerAgent:
                 raise ValueError("OpenAI returned no structured result (refusal or empty response).")
             return build_analysis(facts, parsed)
         except Exception as e:
+            OPENAI_ERRORS.inc()
             # Fabricated analysis is a development aid only; production must fail loudly.
             if not settings.ALLOW_MOCK_DATA:
                 raise

@@ -18,6 +18,7 @@ from openai import AsyncOpenAI
 
 from src.core.config import settings
 from src.core.database import supabase
+from src.core.metrics import OPENAI_ERRORS
 from src.core.validation import ASIN_PATTERN
 from src.services.scan_pipeline import run_tracked_scan
 
@@ -156,6 +157,8 @@ class ChatbotAgent:
         ]
 
         try:
+            if not settings.openai_configured:
+                raise RuntimeError("OpenAI API key is not configured.")
             response = await client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
@@ -180,6 +183,7 @@ class ChatbotAgent:
             follow_up = await client.chat.completions.create(model=MODEL, messages=messages)
             return follow_up.choices[0].message.content
         except Exception as e:
+            OPENAI_ERRORS.inc()
             logger.error("OpenAI error in ChatbotAgent: %s", e)
             return AI_UNAVAILABLE_TEXT
 

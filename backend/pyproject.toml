@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
+    "sentry-sdk[fastapi]>=2.69.2",
     "slowapi>=0.1.10",
     "supabase>=2.31.0",
     "tzdata>=2026.4",

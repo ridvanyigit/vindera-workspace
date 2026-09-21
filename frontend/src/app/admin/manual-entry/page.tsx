@@ -82,6 +82,22 @@ interface FormState {
 /** Mirrors the events_calendar seed data — see supabase/seed.sql. */
 const SALE_EVENT_OPTIONS = ['Black Friday', 'Christmas', 'Halloween', 'Winter Sales (WSV)', "Valentine's Day", 'Easter', 'Cyber Monday', 'Other'];
 
+/** The opportunity row the edit form loads (see the select in the load effect). */
+interface SavedDeal {
+  status: string | null; buy_price: number | null; target_sell_price: number | null;
+  emergency_sell_price: number | null; willhaben_realistic_price: number | null; willhaben_url: string | null;
+  product_condition: string | null; warehouse_location: string | null; is_quarantine: boolean | null; sku: string | null;
+  purchase_price_actual: number | null; purchased_at: string | null; order_ref: string | null;
+  inbound_shipping_cost: number | null; packaging_cost: number | null;
+  buybox_seller: string | null; buybox_is_fba: boolean | null; deal_score: number | null;
+  holding_period_months: number | null; ai_decision: string | null; purchase_thesis: string | null;
+  seasonality_analysis: string | null; score_breakdown: Partial<ScoreBreakdown> | null;
+  actual_sell_price: number | null; shipping_and_prep_cost: number | null; platform_fees: number | null;
+  customer_inquiries_count: number | null; customer_messages_summary: string | null; sold_during_event: string | null;
+  products: { asin: string | null; title: string | null; category: string | null; image_url: string | null; gallery_image_urls: string[] | null } | null;
+  generated_listings: { generated_title: string | null; generated_description: string | null }[] | null;
+}
+
 const EMPTY_SCORES: ScoreBreakdown = {
   discount: 5, demand: 5, competition: 5, capital_efficiency: 5,
   storage_size: 5, risk_level: 5, seasonality: 5,
@@ -238,18 +254,18 @@ export default function ManualEntry() {
         return;
       }
 
-      const deal = data as any;
-      const product = deal.products || {};
-      const listing = deal.generated_listings?.[0] || {};
+      const deal = data as unknown as SavedDeal;
+      const product = deal.products;
+      const listing = deal.generated_listings?.[0];
 
       setEditingId(id);
       setLoadedStatus(deal.status || 'pending');
       setForm({
-        asin: product.asin || '',
-        title: product.title || '',
-        category: product.category || PRODUCT_CATEGORIES[0].value,
-        image_url: product.image_url || '',
-        gallery_image_urls: Array.isArray(product.gallery_image_urls) ? product.gallery_image_urls.join('\n') : '',
+        asin: product?.asin || '',
+        title: product?.title || '',
+        category: product?.category || PRODUCT_CATEGORIES[0].value,
+        image_url: product?.image_url || '',
+        gallery_image_urls: Array.isArray(product?.gallery_image_urls) ? product.gallery_image_urls.join('\n') : '',
         buy_price: String(deal.buy_price ?? ''),
         target_sell_price: String(deal.target_sell_price ?? ''),
         emergency_sell_price: String(deal.emergency_sell_price ?? ''),
@@ -276,8 +292,8 @@ export default function ManualEntry() {
         ai_decision: deal.ai_decision === DEFAULT_AI_DECISION ? '' : (deal.ai_decision || ''),
         purchase_thesis: deal.purchase_thesis || '',
         seasonality_analysis: deal.seasonality_analysis || '',
-        listing_title: listing.generated_title || '',
-        listing_description: listing.generated_description || '',
+        listing_title: listing?.generated_title || '',
+        listing_description: listing?.generated_description || '',
         actual_sell_price: deal.actual_sell_price != null ? String(deal.actual_sell_price) : '',
         shipping_and_prep_cost: deal.shipping_and_prep_cost != null ? String(deal.shipping_and_prep_cost) : '',
         platform_fees: deal.platform_fees != null ? String(deal.platform_fees) : '',

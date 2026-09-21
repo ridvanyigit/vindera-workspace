@@ -1,7 +1,7 @@
 # VINDERA — Senin Yapman Gereken Adımlar
 
 > Bu dosya, yazılımın kendi başına yapamayacağı işleri toplar (paneller, hesaplar, para, yasal/vergi konuları).
-> Şu an **Faz 0–4 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
+> Şu an **Faz 0–6 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
 > Her madde: **Öncelik** · **Ne yapılacak** · **Nasıl doğrularsın**.
 
 Öncelik etiketleri:
@@ -141,6 +141,13 @@ Faz 5'ten sonra yeni faturalar **özel** klasöre yüklenir ve "View Invoice" il
 `robots.txt`, `sitemap.xml`, arama motoru ve paylaşım önizlemeleri sitenin tam adresine ihtiyaç duyar. Frontend'in ortam değişkenlerine (Vercel → Project → Settings → Environment Variables) şunu ekle: `NEXT_PUBLIC_SITE_URL=https://senin-alan-adin.at` (sonunda `/` olmadan). Eklemezsen bu dosyalarda `http://localhost:3000` görünür.
 **Doğrulama:** `https://senin-alan-adin.at/robots.txt` içinde "Sitemap:" satırı gerçek alan adını göstermeli; `/sitemap.xml` satırları da. İstersen sitemap'i Google Search Console'a gönder.
 Not: Ürün sayfaları en fazla 1 dakika önbellekte tutulur; satılan ürün birkaç saniye içinde 404 sayfasına döner.
+
+### M19. Sağlık kontrolü, hata takibi ve uyarılar (Faz 6)
+Backend artık iki herkese açık kontrol adresi sunar (veri vermez): `/healthz` (uygulama ayakta mı) ve `/readyz` (veritabanına ulaşabiliyor mu; ulaşamazsa 503). Loglar JSON satırları olarak yazılır; her isteğin bir `X-Request-Id` numarası vardır ve bir hata olunca aynı numarayı log'da bulabilirsin. Gizli anahtarlar loglara yazılmaz.
+1. **UptimeRobot (ya da benzeri):** Hesap aç → "Add New Monitor" → tür HTTP(s) → adres `https://<backend-alan-adın>/healthz` → 5 dakikada bir. Kapanınca e-posta gelsin.
+2. **Sentry (isteğe bağlı, önerilir):** sentry.io'da proje oluştur (platform Python/FastAPI), verdiği DSN'i `.env` içine `SENTRY_DSN="..."` olarak yaz, backend'i yeniden başlat. İstek içerikleri, Authorization başlığı ve kullanıcı bilgisi gönderilmeden silinir. **Doğrulama:** log'da "Sentry error tracking is active" satırı. Frontend için Sentry kurulmadı (Later): tarayıcı hataları şimdilik hiçbir yere raporlanmıyor.
+3. **Prometheus uyarı kuralları:** `infrastructure/monitoring/alerts.yml` yeni. Çalışan Prometheus'a yüklemek için: `cd infrastructure/monitoring && docker compose up -d` (kapsayıcı yeniden oluşturulur). **Doğrulama:** http://localhost:9090/alerts sayfasında 5 kural görünür (BackendDown, HighServerErrorRate, ScanJobsFailing, KeepaTokensLow, OpenAIErrors). Bu kurallar yalnızca Prometheus içinde "firing" olur; e-posta/Pushover göndermek için ayrıca **Alertmanager** kurmak gerekir (Later).
+4. **Takılı kalan taramalar:** Backend yeniden başlarken 15 dakikadan uzun süredir "queued/running" görünen tarama işleri otomatik "failed — interrupted by restart" olur (log'da "Closed N scan job(s)").
 
 ### M9. Admin hesabına MFA (2 adımlı doğrulama) ekle
 Dashboard → Authentication → Multi-Factor'ı aç, sonra kendi hesabın için bir doğrulama uygulaması (TOTP) tanımla.

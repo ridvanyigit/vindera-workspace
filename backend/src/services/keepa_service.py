@@ -33,6 +33,7 @@ import httpx
 
 from src.core.categories import map_to_canonical_category
 from src.core.config import settings
+from src.core.metrics import KEEPA_TOKENS_LEFT
 
 logger = logging.getLogger(__name__)
 
@@ -302,6 +303,7 @@ class KeepaService:
     def _remember_tokens(self, body: dict[str, Any]) -> None:
         if isinstance(body.get("tokensLeft"), int):
             self.tokens_left = body["tokensLeft"]
+            KEEPA_TOKENS_LEFT.set(self.tokens_left)
         if isinstance(body.get("refillIn"), int):
             self.refill_in_ms = body["refillIn"]
 

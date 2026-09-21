@@ -92,13 +92,13 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 6 - Reliability and observability
 
-- [ ] 6.1 Structured logging
-- [ ] 6.2 Health endpoints
-- [ ] 6.3 Sentry (optional)
-- [ ] 6.4 Stuck `scan_jobs` on startup
-- [ ] 6.5 Global exception handler
-- [ ] 6.6 Prometheus business metrics + alerts
-- [ ] 6.7 Error boundaries + lint errors
+- [x] 6.1 Structured logging
+- [x] 6.2 Health endpoints
+- [x] 6.3 Sentry (optional)
+- [x] 6.4 Stuck `scan_jobs` on startup
+- [x] 6.5 Global exception handler
+- [x] 6.6 Prometheus business metrics + alerts
+- [x] 6.7 Error boundaries + lint errors
 
 ### Phase 7 - Tests and CI
 
@@ -252,6 +252,24 @@ Decisions and deviations:
 - Legal: `legal.ts` only holds the facts; no legal wording was written or changed (the lawyer questions are in M17).
 - `CLAUDE.md` still says every page is client-rendered and mentions `invoice_url`; it is rewritten in Phase 7.4 / 9.1.
 
+### Phase 6
+
+Files: backend `core/{logging_config,middleware,sentry,metrics}.py`, `api/endpoints/health.py`, `main.py`, `services/scan_pipeline.py` (`fail_interrupted_scan_jobs`, metrics), `services/keepa_service.py`, the three OpenAI agents (error counter, no-key guard); `pyproject.toml` / `uv.lock` (`sentry-sdk[fastapi]`); `infrastructure/monitoring/{alerts.yml,prometheus.yml,docker-compose.yml}`; `scripts/smoke_auth.sh`; `.env.example` (`LOG_LEVEL`). Frontend: `app/{error,global-error,not-found}.tsx`, `app/admin/error.tsx`, `lib/useClientOnly.ts`, and the lint fixes. Turkish docs: `MANUEL-ADIMLAR.md` M19.
+
+Verified (local Supabase, isolated backend :8100 and frontend copy :3100): `/healthz` 200, `/readyz` 200 and 503 with PostgREST stopped (then 200 again), `/` 404; JSON log lines with request id, one access line per request (path only, no query string), `X-Request-Id` echoed when harmless and replaced otherwise, scan logs carry the id of the request that started them; stuck jobs (running 20 min, queued 20 min) closed at startup while fresh ones stay; `/metrics` shows `vindera_scan_jobs_total`, `vindera_keepa_tokens_left` (NaN until Keepa answers), `vindera_openai_errors_total`; unhandled exception -> JSON 500 with request id, CORS header present, no stack trace, traceback only in the log (checked with a test app, 14 checks in one script); log and Sentry scrubbing (Bearer, `key=`, configured secret values, request headers/body); Sentry starts only with a DSN and captures without crashing (pointed at a dead local port); `promtool check config` on the Prometheus files: valid, 5 rules. Frontend: `tsc` clean, `eslint src` 0 errors 0 warnings (was 34 + 3), `next build` passes; in Chrome: login redirect, deal selection and Willhaben draft, command menu, panel separators, Product Master column resize, storefront search, Impressum origin, 404 page, no console or hydration errors.
+NOT verified: the error boundary pages themselves (they only render on a real crash; compiled and built, never displayed); Sentry against a real project; Prometheus loading the rules in the running container; anything on the hosted project or with real keys.
+
+Decisions and deviations:
+- Found while testing: with `OPENAI_API_KEY` empty the agents still called api.openai.com with a dummy key (two real requests, answered 401, no real key or data involved). All three OpenAI callers now check `settings.openai_configured` first and fail (or use the dev mock) without touching the network.
+- Logging is configured in `main.py` before the app exists. `httpx`/`httpx2`/`httpcore` are set to WARNING because they log full URLs at INFO and Keepa's key travels in the query string; the formatter additionally masks configured secret values and credential-looking fragments. Uvicorn's own access log is off; the request middleware writes one line per request. `/healthz`, `/readyz`, `/metrics` are logged at DEBUG only.
+- The catch-all for unexpected errors is a middleware inside CORS, not `@app.exception_handler(Exception)` (that one runs outside CORS, so the browser would see a network error instead of the 500). It also reports to Sentry, which cannot see an exception a middleware swallows.
+- Beyond the plan (6.4): jobs stuck in `queued` for more than 15 minutes are closed too; they have the same cause (a restart loses the in-process task).
+- Metrics are per process: run ONE uvicorn worker in production (Phase 8 must not use two, or a scrape sees only one worker's numbers). `KEEPA_TOKENS_LEFT` starts as NaN so the "tokens low" alert does not fire before the first Keepa call.
+- Docker `HEALTHCHECK` on `/healthz` belongs to the Dockerfile in Phase 8.1. The old public `/` status message is gone.
+- Frontend Sentry is not trivial (wizard, config files, CSP); documented in M19 instead. Frontend errors are not logged to the console on purpose.
+- Lint: the inner components (`ResizeHandle`, `Header`) moved to module level; effects that called functions declared later were moved below them; `any` types replaced by real ones (`SavedDeal` for the edit form, `Session`); `useIsClient` / `useOrigin` (`useSyncExternalStore`) replace mount effects; the Willhaben draft resets by adjusting state during render. One justified `eslint-disable` remains on the dashboard's mount effect (its fetchers are recreated every render and only use state setters).
+- `CLAUDE.md` is still the old text; it is rewritten in Phase 7.4 / 9.1.
+
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M16. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M19. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.

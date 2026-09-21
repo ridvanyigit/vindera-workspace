@@ -35,8 +35,11 @@ class Settings(BaseSettings):
     # Bearer token Prometheus presents when scraping `/metrics`.
     METRICS_TOKEN: SecretStr | None = None
 
-    # Error tracking; unset disables Sentry entirely.
+    # Error tracking; unset (or empty) disables Sentry entirely.
     SENTRY_DSN: SecretStr | None = None
+
+    # Verbosity of the application log (JSON lines on stdout).
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     # Mock Keepa / OpenAI data is a development aid only. It can never be
     # enabled in production (enforced below).
@@ -65,6 +68,11 @@ class Settings(BaseSettings):
     @property
     def cors_allowed_origins(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def openai_configured(self) -> bool:
+        """False for an unset or blank key, so callers can skip the network call entirely."""
+        return bool(self.OPENAI_API_KEY and self.OPENAI_API_KEY.get_secret_value().strip())
 
     @property
     def is_production(self) -> bool:

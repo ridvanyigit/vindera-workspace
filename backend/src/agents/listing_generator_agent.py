@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
 from src.core.config import settings
+from src.core.metrics import OPENAI_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,8 @@ class ListingGeneratorAgent:
         )
 
         try:
+            if not settings.openai_configured:
+                raise RuntimeError("OpenAI API key is not configured.")
             completion = await client.beta.chat.completions.parse(
                 model=settings.OPENAI_MODEL,
                 messages=[
@@ -66,6 +69,7 @@ class ListingGeneratorAgent:
             if parsed is None:
                 raise ValueError("OpenAI returned no structured result (refusal or empty response).")
         except Exception as e:
+            OPENAI_ERRORS.inc()
             # Fallback copy is a development aid only; production must fail loudly.
             if not settings.ALLOW_MOCK_DATA:
                 raise

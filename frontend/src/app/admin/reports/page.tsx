@@ -348,8 +348,7 @@ export default function TaxAndReports() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
                     <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#6b7280' }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: '#6b7280' }} axisLine={false} tickLine={false} tickFormatter={v => `€${v}`} />
-                    {/* recharts ships loose formatter types; `any` avoids a false positive under strict mode. */}
-                    <Tooltip cursor={{ fill: dark ? '#21262d' : '#f9fafb' }} formatter={(value: any) => `€${Number(value).toFixed(2)}`} contentStyle={tooltipStyle} />
+                    <Tooltip cursor={{ fill: dark ? '#21262d' : '#f9fafb' }} formatter={(value) => `€${Number(value).toFixed(2)}`} contentStyle={tooltipStyle} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '10px' }} />
                     <Bar dataKey="revenue" name="Revenue" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="profit" name="Profit after expenses" fill="#22c55e" radius={[4, 4, 0, 0]} />
@@ -366,13 +365,12 @@ export default function TaxAndReports() {
               {categoryChartData.length === 0 ? <div className="h-full flex items-center justify-center text-[13px] text-gray-400">No category data for {year}.</div> :
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    {/* recharts ships loose label-render types; `any` avoids a false positive under strict mode. */}
-                    <Pie data={categoryChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" label={(props: any) => `${props.name} ${(props.percent * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: '10px', fontWeight: 'bold' }}>
+                    <Pie data={categoryChartData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value" label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`} labelLine={false} style={{ fontSize: '10px', fontWeight: 'bold' }}>
                       {categoryChartData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: any) => `€${Number(value).toFixed(2)}`} contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} />
+                    <Tooltip formatter={(value) => `€${Number(value).toFixed(2)}`} contentStyle={tooltipStyle} itemStyle={{ color: tooltipStyle.color }} />
                   </PieChart>
                 </ResponsiveContainer>
               }

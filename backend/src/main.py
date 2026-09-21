@@ -4,6 +4,8 @@ Run with:
     cd backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -13,27 +15,43 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from src.api.endpoints import chat, deals, expenses, reports
+from src.api.endpoints import chat, deals, expenses, health, reports
 from src.core.auth import assert_routes_protected, require_metrics_token
 from src.core.config import settings
 from src.core.database import supabase
+from src.core.logging_config import configure_logging
+from src.core.middleware import RequestContextMiddleware, UnhandledErrorMiddleware
 from src.core.rate_limit import limiter
+from src.core.sentry import init_sentry
+from src.services.scan_pipeline import fail_interrupted_scan_jobs
 
 API_PREFIX = "/api/v1"
+
+# Logging and Sentry start before the app object exists so that import-time
+# problems are already reported in the right format.
+configure_logging()
+init_sentry()
+logger = logging.getLogger("vindera.app")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Vindera Backend is starting up...")
+    logger.info("Vindera backend starting (environment: %s)", settings.ENVIRONMENT)
     try:
-        supabase.table("products").select("*").limit(1).execute()
-        print("✅ SUCCESS: Connected to Supabase Database successfully!")
+        await asyncio.to_thread(lambda: supabase.table("business_settings").select("id").limit(1).execute())
+        logger.info("Connected to the database")
     except Exception as e:
-        print(f"❌ ERROR: Failed to connect to Supabase: {str(e)}")
+        # Not fatal: /readyz reports the state and requests fail with a clear error until it recovers.
+        logger.error("Could not reach the database at startup: %s", type(e).__name__)
+    else:
+        try:
+            await fail_interrupted_scan_jobs()
+        except Exception:
+            logger.exception("Could not close interrupted scan jobs")
     if settings.METRICS_TOKEN is None:
-        print("WARNING: METRICS_TOKEN is not set; /metrics is open (development only).")
+        logger.warning("METRICS_TOKEN is not set; /metrics is open (development only)")
     yield
-    print("Vindera Backend is shutting down...")
+    logger.info("Vindera backend shutting down")
 
 
 # The interactive API docs describe every endpoint; they are development-only.
@@ -54,6 +72,10 @@ Instrumentator().instrument(app).expose(
     app, include_in_schema=False, dependencies=[Depends(require_metrics_token)]
 )
 
+# Innermost (added first): turns an unexpected exception into a JSON 500 that still
+# passes through CORS. Details go to the log only, never to the caller.
+app.add_middleware(UnhandledErrorMiddleware)
+
 # Rate limiting: default and application budgets apply through the middleware;
 # the stricter per-route limits are declared on the handlers.
 app.state.limiter = limiter
@@ -70,15 +92,10 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# Added last, so it is outermost: every request gets an id and one log line.
+app.add_middleware(RequestContextMiddleware)
 
-@app.get("/")
-async def root():
-    return {
-        "status": "online",
-        "message": "Welcome to Vindera API - Cross-Border Arbitrage Engine is running.",
-    }
-
-
+app.include_router(health.router)
 app.include_router(deals.router, prefix=API_PREFIX)
 app.include_router(deals.automation_router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)

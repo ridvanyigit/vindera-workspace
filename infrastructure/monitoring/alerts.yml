@@ -1,0 +1,61 @@
+# Prometheus alert rules for the Vindera backend.
+#
+# Metrics come from prometheus-fastapi-instrumentator (http_requests_total,
+# http_request_duration_seconds) and from backend/src/core/metrics.py
+# (vindera_*). Thresholds are starting points for a single-owner shop: tune them
+# after a week of real traffic.
+#
+# These rules only mark alerts as firing inside Prometheus. Sending them
+# anywhere needs an Alertmanager (see docs/MANUEL-ADIMLAR.md).
+
+groups:
+  - name: vindera-backend
+    rules:
+      - alert: BackendDown
+        expr: up{job="vindera_fastapi"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The Vindera backend cannot be scraped"
+          description: "Prometheus has not reached the backend for 2 minutes. Check the process, /healthz and the metrics token."
+
+      - alert: HighServerErrorRate
+        # 5xx answers as a share of all answers over 10 minutes, ignoring quiet periods.
+        expr: |
+          sum(rate(http_requests_total{status="5xx"}[10m]))
+            / sum(rate(http_requests_total[10m])) > 0.05
+          and sum(rate(http_requests_total[10m])) > 0.02
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "More than 5% of API requests fail with a server error"
+          description: "Look at the backend log (JSON lines, filter on level ERROR) and at Sentry."
+
+  - name: vindera-scans
+    rules:
+      - alert: ScanJobsFailing
+        expr: increase(vindera_scan_jobs_total{status="failed"}[1h]) >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Three or more scan jobs failed within an hour"
+          description: "See the Scans list in the admin dashboard or the scan_jobs table for the error text (Keepa, OpenAI, database)."
+
+      - alert: KeepaTokensLow
+        expr: vindera_keepa_tokens_left < 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fewer than 20 Keepa tokens left"
+          description: "Scans will start failing with 'tokens exhausted' until the budget refills or the plan is upgraded."
+
+      - alert: OpenAIErrors
+        expr: increase(vindera_openai_errors_total[1h]) >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenAI calls are failing"
+          description: "Check the OpenAI status page, the API key and the monthly spending cap."

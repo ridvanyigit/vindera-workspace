@@ -22,6 +22,7 @@ from src.agents.deal_analyzer_agent import DealAnalysis, deal_analyzer
 from src.agents.listing_generator_agent import listing_generator
 from src.core.config import settings
 from src.core.database import supabase
+from src.core.metrics import SCAN_JOBS
 from src.services.business_settings import load_business_settings
 from src.services.keepa_service import (
     KeepaFacts,
@@ -89,12 +90,42 @@ async def _update_job(job_id: str | None, changes: dict) -> None:
 
 async def _fail_job(job_id: str | None, error: str, retry_after: datetime | None = None) -> None:
     logger.warning("Scan job %s failed: %s", job_id, error)
+    SCAN_JOBS.labels("failed").inc()
     await _update_job(job_id, {
         "status": "failed",
         "error": error[:500],
         "retry_after": retry_after.isoformat() if retry_after else None,
         "finished_at": datetime.now(timezone.utc).isoformat(),
     })
+
+
+# A job that has not finished this long after it started (or, if it never started,
+# after it was queued) belongs to a process that no longer exists.
+STALE_JOB_MINUTES = 15
+
+
+async def fail_interrupted_scan_jobs() -> int:
+    """Close jobs left `queued` or `running` by a restart. Returns how many were closed.
+
+    Scans run inside the API process, so a restart drops them without a trace;
+    without this the job list would show them as running forever.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=STALE_JOB_MINUTES)).isoformat()
+    finished = {
+        "status": "failed",
+        "error": "interrupted by restart",
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+    }
+    closed = 0
+    for status, column in (("running", "started_at"), ("queued", "created_at")):
+        res = await asyncio.to_thread(
+            lambda: supabase.table("scan_jobs").update(finished).eq("status", status).lt(column, cutoff).execute()
+        )
+        closed += len(res.data or [])
+    if closed:
+        SCAN_JOBS.labels("failed").inc(closed)
+        logger.warning("Closed %d scan job(s) interrupted by a restart", closed)
+    return closed
 
 
 # --- helpers ----------------------------------------------------------------
@@ -264,6 +295,7 @@ async def _scan(asin: str, job_id: str | None) -> None:
     }
     persisted = await asyncio.to_thread(lambda: supabase.rpc("persist_scan_result", {"payload": payload}).execute())
     opportunity_id = persisted.data["opportunity_id"]
+    SCAN_JOBS.labels("succeeded" if status == "pending" else "rejected").inc()
     logger.info("Scan of %s saved (status %s, deal score %d)", asin, status, analysis.deal_score)
 
     # 5. Notification: only for accepted, exceptional deals.
