@@ -11,7 +11,11 @@
 
 ## Launch-blocker
 
-### M1. Önce yedek al, sonra veritabanı değişikliklerini (migration) uygula
+### M1. Önce yedek al, sonra veritabanı değişikliklerini (migration) uygula — TAMAMLANDI (21 Eylül 2026)
+
+> **Durum: TAMAMLANDI.** 21 Eylül 2026'da 13 migration canlı Supabase'e uygulandı. Yedek alındı, önce `--dry-run` yapıldı, hata çıkmadı. Kontrol sonuçları: canlı veride 1 `sale_events` kaydı, 1 `business_settings` satırı, `invoices` klasörü private, 3 eski çift tarama gizlendi (silinmedi), 7 `events_calendar` kaydı.
+> **Dikkat:** Canlı veritabanı artık yeni şemada. Eski (main) uygulama kodu bu şemayla düzgün çalışmaz (aşağıdaki "Ne zaman" listesine bak). Yeni backend ve yeni frontend'i canlıya almadan eski sürümü kullanma.
+> Aşağıdaki adımlar bundan sonraki her yeni migration için de aynı sırayla geçerlidir (yedek → `--dry-run` → `db push` → kontrol); tarihçe olarak duruyor.
 
 **Neden:** Faz 2 ve Faz 4'te 13 yeni migration yazıldı (`supabase/migrations/20260921…`; sonuncusu Faz 4'teki `report_summary` raporlama fonksiyonu). Bunlar canlı veritabanını değiştirir (kısıtlar, yeni tablolar, eski çift kayıtların temizlenmesi). Ben (Claude) bunları senin onayın olmadan uzak veritabanına **uygulamadım ve uygulamayacağım**.
 

@@ -102,10 +102,10 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 7 - Tests and CI
 
-- [ ] 7.1 Backend tests
-- [ ] 7.2 Frontend checks / Vitest
-- [ ] 7.3 CI workflow
-- [ ] 7.4 CLAUDE.md update
+- [x] 7.1 Backend tests
+- [x] 7.2 Frontend checks / Vitest
+- [x] 7.3 CI workflow
+- [x] 7.4 CLAUDE.md update
 
 ### Phase 8 - Deployment artifacts
 
@@ -270,6 +270,25 @@ Decisions and deviations:
 - Lint: the inner components (`ResizeHandle`, `Header`) moved to module level; effects that called functions declared later were moved below them; `any` types replaced by real ones (`SavedDeal` for the edit form, `Session`); `useIsClient` / `useOrigin` (`useSyncExternalStore`) replace mount effects; the Willhaben draft resets by adjusting state during render. One justified `eslint-disable` remains on the dashboard's mount effect (its fetchers are recreated every render and only use state setters).
 - `CLAUDE.md` is still the old text; it is rewritten in Phase 7.4 / 9.1.
 
+### Phase 7
+
+Files: backend `tests/{conftest,fakes,helpers}.py` and 10 test modules (279 tests, a few seconds), `pyproject.toml` `[tool.pytest.ini_options]` + dev group (`pytest`, `pytest-asyncio`, `respx`); frontend `vitest.config.mts`, `src/lib/__tests__/{profit,lifecycle}.test.ts` (26 tests), `npm test`; `supabase/tests/report_summary_smoke.sql` (21 checks, hand-calculated report scenario); `.github/workflows/ci.yml`; `CLAUDE.md` rewritten (statements about "no tests", client-only rendering, mock fallbacks, `FASTAPI_SECRET_KEY`, hardcoded n8n list, `invoice_url` were no longer true).
+
+Verified: `uv run pytest -q` 279 passed; `npx tsc`, `npm run lint`, `npm test`, `npm run build` all clean in a fresh copy of `frontend/` after `npm ci` (this is what CI does); both SQL smoke tests pass after `supabase db reset --local` on a Supabase started with the reduced service list the CI job uses; `actionlint` reports nothing for the workflow. Mutation check: six deliberate bugs (mock data allowed, an illegal transition, any automation key accepted, banker's rounding, deleting a sold deal, OpenAI called without a key) were each caught by at least one test.
+NOT verified: the workflow has never run on GitHub (action versions `checkout@v4`, `setup-node@v4`, `setup-uv@v6`, `supabase/setup-cli@v1` are from memory, not resolved; the repository has no remote yet); the Python 3.14 download by uv on the runner.
+
+Decisions and deviations:
+- The tests cannot touch the owner's `.env` or any service: `conftest.py` sets its own environment, imports the app from a scratch directory (`env_file="../.env"` is relative to the working directory), asserts the values it got, replaces every Supabase client by an in-memory fake and refuses outgoing sockets. The "thin interface" of the plan is the fake `FakeSupabase` (tables as lists, the query methods the code uses, RPC handlers registered per test).
+- Dedupe (same ASIN twice -> one open row) is enforced by a unique index and `persist_scan_result` in SQL, so it is covered by `supabase/tests/phase2_smoke.sql` (already there since Phase 2) and not by a Python test; the pipeline test only checks that a repeated scan calls the RPC again. Report aggregation is SQL and has its own smoke script.
+- Not covered by automated tests: the chatbot's OpenAI tool loop, the frontend components (only the pure helpers are tested), `expenses.py` beyond the auth sweep.
+- `@types/node` went from `^20` to `^24` because Vitest 5 needs Node types >= 22; the machine and CI use Node 24.
+- CI has a third job that starts a local Supabase inside the runner (no secrets) so that "migrations reproducible from scratch" is checked on every push.
+- `CLAUDE.md` mentions only what exists now; the deploy files and `docs/DEPLOY.md` are added to it in Phase 8.
+
+## Manual steps done
+
+- **M1 (21 Sep 2026, by the owner):** the 13 migrations `20260921090000` ... `20260921091200` were applied to the hosted Supabase project after a backup and a dry run, without errors. Checked afterwards: 1 `sale_events` row, 1 `business_settings` row, `invoices` bucket private, 3 old duplicate scans hidden (`deleted_at`, not deleted), 7 `events_calendar` rows. The hosted schema is now ahead of the old `main` code: deploy the new backend and frontend together (see M1 in `MANUEL-ADIMLAR.md`).
+
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M19. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M19. Launch-blockers still open: M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
