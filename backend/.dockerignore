@@ -1,0 +1,16 @@
+# Keep secrets and local clutter out of the build context (and therefore out of the image).
+.env
+.env.*
+**/.env
+**/.env.*
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.git
+.gitignore
+Dockerfile
+.dockerignore
+tests
+scripts
+*.md

@@ -94,3 +94,41 @@ jobs:
 
       - name: Accounting report against a hand calculation
         run: docker exec -i supabase_db_vindera-workspace psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/report_summary_smoke.sql
+
+  deploy-config:
+    name: Deployment files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fill every empty value of the example with a placeholder: the check is that the
+      # compose files are well formed and that no required secret is missing from the example.
+      - name: Validate the production compose file
+        run: |
+          sed 's/=$/=ci-placeholder/' infrastructure/prod/.env.prod.example > "$RUNNER_TEMP/prod.env"
+          docker compose --env-file "$RUNNER_TEMP/prod.env" -f infrastructure/prod/docker-compose.yml config -q
+
+      - name: Validate the local monitoring compose file
+        run: |
+          echo 'GRAFANA_ADMIN_PASSWORD=ci-placeholder' > "$RUNNER_TEMP/monitoring.env"
+          docker compose --env-file "$RUNNER_TEMP/monitoring.env" -f infrastructure/monitoring/docker-compose.yml config -q
+
+      - name: Validate the Caddyfile
+        run: |
+          docker run --rm -e API_DOMAIN=api.example.com -e N8N_DOMAIN=n8n.example.com -e ACME_EMAIL=owner@example.com \
+            -v "$PWD/infrastructure/prod/Caddyfile":/etc/caddy/Caddyfile:ro caddy:2.10 \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Check the Prometheus configuration and alert rules
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -v "$PWD/infrastructure/prod/prometheus.yml":/etc/prometheus/prometheus.yml:ro \
+            -v "$PWD/infrastructure/monitoring/alerts.yml":/etc/prometheus/alerts.yml:ro \
+            prom/prometheus:v3.5.0 -c 'echo token > /tmp/metrics_token && promtool check config /etc/prometheus/prometheus.yml'
+
+      - name: Shell scripts
+        run: shellcheck infrastructure/backup/backup.sh backend/scripts/smoke_auth.sh
+
+      # Build only; nothing is pushed anywhere.
+      - name: Build the backend image
+        run: docker build -t vindera-backend:ci backend

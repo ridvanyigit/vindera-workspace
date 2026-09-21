@@ -109,13 +109,13 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 8 - Deployment artifacts
 
-- [ ] 8.1 Dockerfile
-- [ ] 8.2 Prod compose
-- [ ] 8.3 Caddyfile
-- [ ] 8.4 Monitoring compose
-- [ ] 8.5 Backup script
-- [ ] 8.6 Frontend env docs
-- [ ] 8.7 `docs/DEPLOY.md`
+- [x] 8.1 Dockerfile
+- [x] 8.2 Prod compose
+- [x] 8.3 Caddyfile
+- [x] 8.4 Monitoring compose
+- [x] 8.5 Backup script
+- [x] 8.6 Frontend env docs
+- [x] 8.7 `docs/DEPLOY.md`
 
 ### Phase 9 - Documentation and manual steps
 
@@ -285,10 +285,28 @@ Decisions and deviations:
 - CI has a third job that starts a local Supabase inside the runner (no secrets) so that "migrations reproducible from scratch" is checked on every push.
 - `CLAUDE.md` mentions only what exists now; the deploy files and `docs/DEPLOY.md` are added to it in Phase 8.
 
+### Phase 8
+
+Files: `backend/{Dockerfile,.dockerignore}`, `infrastructure/prod/{docker-compose.yml,Caddyfile,prometheus.yml,.env.prod.example,grafana/datasources.yml}`, `infrastructure/backup/{backup.sh,backup.env.example}`, `infrastructure/monitoring/{docker-compose.yml,.env.example}` (8.4), `frontend/.env.example` (+ `!.env.example` in `frontend/.gitignore`, which used to ignore it), `docs/DEPLOY.md`, `backend/scripts/smoke_auth.sh` (`BEHIND_PROXY=1`), README deployment section, CI job `deploy-config`, `CLAUDE.md`. Turkish docs: `MANUEL-ADIMLAR.md` M20 (server, domain, accounts), M21 (backups and restore drill), M22 (local Grafana password).
+
+Verified locally, never against a server and only against the LOCAL Supabase: `docker build` of the backend image (nothing pushed); the image runs as uid 10001 with a single uvicorn process, `.env` absent, reports `healthy`, `/healthz` 200, `/readyz` 200 with the local Supabase (503 without), `/docs` and `/openapi.json` 404, API 401, `/metrics` 401; `smoke_auth.sh` passes directly and through a temporary Caddy in front of it (`/metrics` 404 even with the token); `docker compose config` accepts the prod file with a complete env file, refuses the example with empty secrets, publishes only Caddy's 80/443 (+443/udp) and Grafana on 127.0.0.1, and n8n's environment holds none of the backend's secrets; `caddy validate` and `caddy fmt` clean; `promtool check config` on the prod Prometheus config (token file written from the environment) plus the 5 alert rules; `backup.sh` against the local database: dump verified (39 tables with data), encrypted with real `age` and decrypted again, a wrong password and a missing URL exit non-zero without leaving a partial file, retention removed a 30-day-old dummy file and left an unrelated file; restore of that dump into a scratch database with matching row counts and zero `pg_restore` errors; `shellcheck` clean on `backup.sh` and `smoke_auth.sh`; `actionlint` clean on the workflow, and the five commands of the `deploy-config` job were run locally.
+NOT verified: anything on a real server or with real accounts (Let's Encrypt issuance, DNS, ufw / Hetzner firewall, Docker Engine on Ubuntu, memory sizing), Vercel, n8n's first-run screens and importing the workflow into the production n8n image, the Grafana data source provisioning, the Prometheus container actually starting with the compose entrypoint (only the config and the token-file write were run, not the compose service), the Session-pooler connection string with `backup.sh`, cron, and a full rebuild of a lost project from a dump. No server, domain or account was created; nothing was pushed or published.
+
+Decisions and deviations:
+- **ONE uvicorn worker** (owner's correction, replaces the plan's "2 workers max"): the metrics are per process. The Dockerfile passes `--workers 1` explicitly and says why; the container also gets `--proxy-headers --forwarded-allow-ips '*'` so the rate limiter sees the real client behind Caddy. That is safe only because the backend has no published port; the compose file publishes nothing except Caddy.
+- Grafana: the plan asked to choose between Caddy basic auth and an SSH tunnel. Chosen: SSH tunnel with Grafana bound to `127.0.0.1:3002` (no extra credential to manage, never on the internet). Prometheus publishes nothing. n8n stays reachable through Caddy at `n8n.<domain>` protected by its own owner login; the owner has to create that account right after the first start (documented as urgent in M20).
+- Every service gets an explicit `environment:` list instead of `env_file`, so n8n and Grafana never see the backend's secrets. Required secrets use `${VAR:?message}`. Prometheus gets the metrics token from `METRICS_TOKEN` through a tiny `sh -c` entrypoint that writes `/tmp/metrics_token`, so there is one source of truth (no secrets file to forget).
+- Images: `caddy:2.10`, `prom/prometheus:v3.5.0`, `grafana/grafana:12.2.0` (tags checked to exist), n8n through `N8N_IMAGE_TAG` (default `latest`; the owner pins it after the first run because the exported workflow comes from their local n8n). No `latest` for anything else.
+- The local monitoring compose now requires `GRAFANA_ADMIN_PASSWORD`, binds both UIs to loopback and drops the `admin` default (8.4). The owner's running containers were not touched; `docker compose config` was only run with dummy env files, so the real `infrastructure/monitoring/.env` was never read.
+- `backup.sh` dumps schemas `public` and `auth` in custom format with `pg_dump` from a `postgres:17-alpine` container (same major as the Supabase database; a newer client can dump older servers), so the server needs Docker only. Storage files are not included (documented). `PG_DUMP_LOCAL=1` is offered but passes the URL as an argument (noted in the script).
+- Restore procedure as tested: scratch database from `template0`, `drop schema public`, `pg_restore --no-owner --no-privileges`. With `--clean --if-exists` a fresh database produced 18 harmless "does not exist" errors, so the runbook does not use it.
+- `frontend/.gitignore` ignored `.env*` including the new example; `!.env.example` was added.
+- `CLAUDE.md` and the README now mention the production files; the rest of the README is still the old text (Phase 9.1).
+
 ## Manual steps done
 
 - **M1 (21 Sep 2026, by the owner):** the 13 migrations `20260921090000` ... `20260921091200` were applied to the hosted Supabase project after a backup and a dry run, without errors. Checked afterwards: 1 `sale_events` row, 1 `business_settings` row, `invoices` bucket private, 3 old duplicate scans hidden (`deleted_at`, not deleted), 7 `events_calendar` rows. The hosted schema is now ahead of the old `main` code: deploy the new backend and frontend together (see M1 in `MANUEL-ADIMLAR.md`).
 
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M19. Launch-blockers still open: M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M22. Launch-blockers still open: M20 server / domain / accounts (`docs/DEPLOY.md`), M21 backups and restore drill, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.

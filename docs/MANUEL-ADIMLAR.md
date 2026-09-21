@@ -1,7 +1,7 @@
 # VINDERA — Senin Yapman Gereken Adımlar
 
 > Bu dosya, yazılımın kendi başına yapamayacağı işleri toplar (paneller, hesaplar, para, yasal/vergi konuları).
-> Şu an **Faz 0–6 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
+> Şu an **Faz 0–8 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
 > Her madde: **Öncelik** · **Ne yapılacak** · **Nasıl doğrularsın**.
 
 Öncelik etiketleri:
@@ -134,6 +134,29 @@ Sayfaların **metinlerini** canlıya çıkmadan önce bir avukatla ya da Steuerb
 
 ---
 
+### M20. Sunucu, alan adı ve hesaplar (Faz 8)
+**Öncelik: Launch-blocker.** Yazılım hazır; sunucuyu, alan adını ve hesapları senin açman gerekiyor. Ben hiçbirini açmadım, hiçbir sunucuya bağlanmadım. **Tüm adımlar `docs/DEPLOY.md` içinde, sırayla ve komutlarıyla yazılı** (İngilizce; komutlar kopyala-yapıştır). Özet:
+1. **Hesaplar:** alan adı (herhangi bir kayıt şirketi), Hetzner Cloud (AB'de VPS: Ubuntu 24.04, 2 vCPU / 4 GB yeterli), Vercel. İsteğe bağlı: Sentry, UptimeRobot, healthchecks.io. OpenAI'da **aylık harcama limiti** koy.
+2. **DNS:** `api.<alan>` ve `n8n.<alan>` için sunucu IP'sine A kaydı. Doğrulama: `dig +short api.<alan>` sunucu IP'sini yazar.
+3. **Sunucu hazırlığı** (DEPLOY.md bölüm 4): normal kullanıcı, yalnızca SSH anahtarı, güvenlik duvarı, Docker. Hetzner **Cloud Firewall**'da yalnızca 22, 80, 443 açık olsun.
+4. **`.env.prod`** (bölüm 6): `openssl rand -hex 32` ile 4 rastgele değer üret (`AUTOMATION_SHARED_SECRET`, `METRICS_TOKEN`, `N8N_ENCRYPTION_KEY`, `GRAFANA_ADMIN_PASSWORD`), Supabase'in **yenilenmiş** service-role anahtarını yaz (M3). `N8N_ENCRYPTION_KEY`'in bir kopyasını şifre yöneticinde sakla; kaybedersen n8n'deki kayıtlı kimlik bilgileri okunamaz. Bu dosyayı kimseye gösterme, sohbete yapıştırma.
+5. **İlk başlatma ve duman testi** (bölüm 7-8). **Doğrulama:** kendi bilgisayarında `BEHIND_PROXY=1 EXPECT_PRODUCTION=1 BASE_URL=https://api.<alan> backend/scripts/smoke_auth.sh` çalıştır; sonunda "All checks passed" yazmalı.
+6. **Vercel** (bölüm 9): proje kökü `frontend`; 4 herkese açık değişken (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`). Sonra backend'in `CORS_ALLOWED_ORIGINS` değerini frontend adresinle aynı yap (M18 ile aynı adres).
+7. **n8n** (bölüm 12): `https://n8n.<alan>` adresi açılır açılmaz **hemen** sahip hesabını oluştur (o ana kadar adres herkese açık). Workflow'u içe aktar, "Vindera Automation Key" kimlik bilgisini oluştur (M4), bir kez elle çalıştır, `scan_jobs` tablosunda satırları gör, sonra Active yap.
+8. **İlk admin kullanıcısı** (bölüm 11): Supabase'de kullanıcı ekle + `admin_users` SQL'i. Kayıtları kapat (M2) ve MFA ekle (M9).
+**Bilmen gereken:** DEPLOY.md'de "Doğrulananlar / Doğrulanmayanlar" bölümü var: gerçek bir sunucuda henüz hiçbir şey denenmedi (sertifika alma, güvenlik duvarı, Vercel, n8n ilk kurulum ekranları). İlk kurulumda takıldığın adımın çıktısını bana yapıştır.
+
+### M21. Yedekleme ve geri yükleme provası (Faz 8)
+**Öncelik: Launch-blocker** (canlıda gerçek veri birikmeden önce). `infrastructure/backup/backup.sh` veritabanının (tablolar + giriş hesapları) ikinci, bağımsız bir kopyasını alır. **Fatura dosyaları (Storage) dahil değildir.**
+1. **Supabase'in kendi yedeği önce gelir:** Pro plana geç (günlük yedek; isteğe bağlı PITR eklentisi). Dashboard → Database → Backups'ta yedek göründüğünü kontrol et.
+2. **Script'i kur** (DEPLOY.md bölüm 14): `backup.env` dosyasını oluştur (`SUPABASE_DB_URL` = Dashboard → Connect → **Session pooler** bağlantı metni, veritabanı şifrenle), günlük cron satırını ekle.
+3. **Şifreleme (önerilir):** kendi bilgisayarında `brew install age`, `age-keygen -o vindera-backup.key`; `age1...` ile başlayan **açık** anahtarı `BACKUP_AGE_RECIPIENT`'e yaz. `.key` dosyasını şifre yöneticinde sakla, **sunucuya koyma**. Bu dosyayı kaybedersen şifreli yedekler açılamaz.
+4. **healthchecks.io** (ücretsiz) adresini `BACKUP_PING_URL`'e yaz: günlük yedek gelmezse sana haber verir.
+5. **Sunucu dışına kopya:** yedek klasörünü (`/var/backups/vindera`) düzenli olarak başka bir yere kopyala (Hetzner Storage Box, başka bir bulut hesabı). Aynı sunucudaki yedek, sunucu giderse birlikte gider.
+6. **Geri yükleme provası (bir kez şimdi, sonra 3 ayda bir):** DEPLOY.md bölüm 14'teki komutlarla bir yedeği kendi bilgisayarındaki geçici bir veritabanına yükle ve satır sayılarını kontrol et. **Doğrulama:** `pg_restore` hatasız biter, sayılar canlıdakilerle uyuşur.
+7. Fatura dosyaları için: Dashboard → Storage → `invoices` içindeki dosyaları ara sıra indir (ya da asıllarını sakla).
+**Doğrulanmayan:** yeni bir Supabase projesine tam yeniden kurulum denenmedi; felaket durumunda önce Supabase'in kendi geri yüklemesini kullan.
+
 ## Soon
 
 ### M8. Eski faturalar
@@ -152,6 +175,11 @@ Backend artık iki herkese açık kontrol adresi sunar (veri vermez): `/healthz`
 2. **Sentry (isteğe bağlı, önerilir):** sentry.io'da proje oluştur (platform Python/FastAPI), verdiği DSN'i `.env` içine `SENTRY_DSN="..."` olarak yaz, backend'i yeniden başlat. İstek içerikleri, Authorization başlığı ve kullanıcı bilgisi gönderilmeden silinir. **Doğrulama:** log'da "Sentry error tracking is active" satırı. Frontend için Sentry kurulmadı (Later): tarayıcı hataları şimdilik hiçbir yere raporlanmıyor.
 3. **Prometheus uyarı kuralları:** `infrastructure/monitoring/alerts.yml` yeni. Çalışan Prometheus'a yüklemek için: `cd infrastructure/monitoring && docker compose up -d` (kapsayıcı yeniden oluşturulur). **Doğrulama:** http://localhost:9090/alerts sayfasında 5 kural görünür (BackendDown, HighServerErrorRate, ScanJobsFailing, KeepaTokensLow, OpenAIErrors). Bu kurallar yalnızca Prometheus içinde "firing" olur; e-posta/Pushover göndermek için ayrıca **Alertmanager** kurmak gerekir (Later).
 4. **Takılı kalan taramalar:** Backend yeniden başlarken 15 dakikadan uzun süredir "queued/running" görünen tarama işleri otomatik "failed — interrupted by restart" olur (log'da "Closed N scan job(s)").
+
+### M22. Yerel Grafana şifresi artık zorunlu (Faz 8)
+`infrastructure/monitoring/docker-compose.yml` değişti: Grafana ve Prometheus yalnızca bu bilgisayardan açılır (`127.0.0.1`), `admin` varsayılan şifresi kaldırıldı ve `GRAFANA_ADMIN_PASSWORD` **zorunlu**. Çalışan kapsayıcılarına dokunmadım; değişiklik, sen `cd infrastructure/monitoring && docker compose up -d` çalıştırınca devreye girer (M19'daki uyarı kurallarını yüklemek için zaten çalıştıracaksın).
+- `infrastructure/monitoring/.env` dosyan zaten varsa ve içinde `GRAFANA_ADMIN_PASSWORD=...` satırı varsa hiçbir şey yapma. Yoksa `.env.example`'ı `.env` olarak kopyalayıp şifre yaz; yoksa komut "GRAFANA_ADMIN_PASSWORD is missing" hatasıyla durur (bilerek).
+- Grafana şifreyi ilk açılışta kendi diskine yazar; değişkeni sonradan değiştirmek mevcut giriş şifresini değiştirmez. Şifreyi değiştirmek için: `docker exec vindera_grafana grafana cli admin reset-admin-password <yeni-şifre>`. Eski varsayılan `admin` şifresiyle giriyorsan bunu yap.
 
 ### M9. Admin hesabına MFA (2 adımlı doğrulama) ekle
 Dashboard → Authentication → Multi-Factor'ı aç, sonra kendi hesabın için bir doğrulama uygulaması (TOTP) tanımla.

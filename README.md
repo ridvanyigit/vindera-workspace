@@ -36,7 +36,7 @@ There is no customer account system — nothing is purchasable on Vindera itself
 ## ⚙️ Setup
 
 1. Copy `.env.example` to `.env` at the workspace root and fill in your keys.
-2. Create `frontend/.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_API_URL`.
+2. Copy `frontend/.env.example` to `frontend/.env.local` and fill in the public values (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`).
 3. Apply the database migrations: `supabase db push`.
 
 ## 🚀 Run Locally (Apple Silicon)
@@ -47,6 +47,12 @@ cd n8n && docker compose up -d                       # n8n      → :5678
 cd infrastructure/monitoring && docker compose up -d  # Grafana  → :3002
 cd frontend && npm run dev                           # Frontend → :3000
 ```
+
+## 🚢 Deployment
+
+Production runs the backend, n8n and monitoring on one EU VPS with Docker Compose and Caddy (`infrastructure/prod/`), the frontend on Vercel and the database on hosted Supabase. Step by step: [`docs/DEPLOY.md`](./docs/DEPLOY.md).
+
+Vercel: set the Root Directory to `frontend` and add the four public variables from `frontend/.env.example` (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL` = `https://api.<domain>`, `NEXT_PUBLIC_SITE_URL` = `https://www.<domain>`). They are read at build time, so redeploy after changing one. Never put the service-role key or any other secret in a `NEXT_PUBLIC_*` variable.
 
 ## 🔮 Roadmap
 

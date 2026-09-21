@@ -20,8 +20,10 @@ supabase start
 cd n8n && docker compose up -d
 
 # Prometheus + Grafana monitoring (Grafana port 3002)
-cd infrastructure/monitoring && docker compose up -d
+cd infrastructure/monitoring && docker compose up -d   # needs GRAFANA_ADMIN_PASSWORD in infrastructure/monitoring/.env
 ```
+
+Production runs from `infrastructure/prod/` (Caddy, backend, n8n, Prometheus, Grafana on one VPS; the frontend on Vercel): see `docs/DEPLOY.md`. The backend image is `backend/Dockerfile` and uses ONE uvicorn worker (metrics are per process). Backups: `infrastructure/backup/backup.sh`.
 
 ## Build, lint and test
 
@@ -52,7 +54,7 @@ Copy `.env.example` and fill in keys. `OPENAI_API_KEY`, `KEEPA_API_KEY` and `PUS
 
 `ENVIRONMENT=production` makes the backend refuse to start unless `SUPABASE_URL`, the service key, `AUTOMATION_SHARED_SECRET` and `METRICS_TOKEN` (32+ characters each) are set, `CORS_ALLOWED_ORIGINS` has no localhost entry and `ALLOW_MOCK_DATA` is false. It also switches off `/docs`, `/redoc` and `/openapi.json`.
 
-`SUPABASE_ANON_KEY` in `.env.example` is **not** read by the backend `Settings` class; it only belongs in `frontend/.env.local`.
+`SUPABASE_ANON_KEY` in `.env.example` is **not** read by the backend `Settings` class; it only belongs in `frontend/.env.local` (template: `frontend/.env.example`).
 
 ## Database migrations
 

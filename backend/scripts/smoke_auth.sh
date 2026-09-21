@@ -20,10 +20,22 @@
 #   /healthz, /readyz ............... public: 200 with a reachable database (readyz 503 otherwise)
 #   / ............................... 404 (the old public status message is gone)
 #   /docs, /openapi.json ............ 404 in production (run with EXPECT_PRODUCTION=1)
+#
+# BEHIND_PROXY=1 is for the public production URL: the Caddy proxy hides /metrics on
+# purpose, so it must answer 404 with and without the token (Prometheus scrapes it over
+# the internal network instead).
 
 set -u
 
 BASE_URL="${BASE_URL:-http://localhost:8000}"
+# What /metrics answers without / with the token.
+if [ "${BEHIND_PROXY:-}" = "1" ]; then
+  METRICS_ANON_CODE=404
+  METRICS_TOKEN_CODE=404
+else
+  METRICS_ANON_CODE=401
+  METRICS_TOKEN_CODE=200
+fi
 API="$BASE_URL/api/v1"
 ID="11111111-1111-1111-1111-111111111111"
 failures=0
@@ -57,7 +69,7 @@ check "POST  expenses/"           401 POST   "$API/expenses/"            "${JSON
 check "PUT   expenses/{id}"       401 PUT    "$API/expenses/$ID"         "${JSON[@]}" -d '{}'
 check "DELETE expenses/{id}"      401 DELETE "$API/expenses/$ID"
 check "garbage bearer token"      401 GET    "$API/expenses/" -H 'Authorization: Bearer not-a-jwt'
-check "metrics without token"     401 GET    "$BASE_URL/metrics"
+check "metrics without token"     "$METRICS_ANON_CODE" GET    "$BASE_URL/metrics"
 
 echo "== Public probes"
 check "healthz"                   200 GET    "$BASE_URL/healthz"
@@ -88,7 +100,7 @@ fi
 
 if [ -n "${METRICS_TOKEN:-}" ]; then
   echo "== Metrics token"
-  check "metrics with token"        200 GET "$BASE_URL/metrics" -H "Authorization: Bearer $METRICS_TOKEN"
+  check "metrics with token"        "$METRICS_TOKEN_CODE" GET "$BASE_URL/metrics" -H "Authorization: Bearer $METRICS_TOKEN"
 fi
 
 if [ "${EXPECT_PRODUCTION:-}" = "1" ]; then

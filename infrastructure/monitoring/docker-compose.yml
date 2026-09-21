@@ -1,15 +1,20 @@
-# Monitoring stack: Prometheus scrapes the FastAPI backend, Grafana visualizes it.
+# LOCAL monitoring stack: Prometheus scrapes the FastAPI backend, Grafana visualizes it.
+# (The production stack is infrastructure/prod/docker-compose.yml.)
 #
-# Grafana is published on 3002 because the Next.js dev server owns 3000.
-# Set GRAFANA_ADMIN_PASSWORD in a local `.env` next to this file (or export it)
-# to avoid the insecure default.
+# Both UIs are bound to 127.0.0.1, so only this computer can open them.
+# Grafana is on 3002 because the Next.js dev server owns 3000.
+# GRAFANA_ADMIN_PASSWORD is REQUIRED: put it in a `.env` file next to this file
+# (see .env.example; the file is git-ignored) or export it. There is no default.
+# Grafana stores the admin password in its volume on the first start: changing the
+# variable later does not change an existing login (Grafana -> Profile, or
+# `docker exec vindera_grafana grafana cli admin reset-admin-password <new>`).
 
 services:
   prometheus:
     image: prom/prometheus:latest
     container_name: vindera_prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - ./alerts.yml:/etc/prometheus/alerts.yml:ro
@@ -21,9 +26,12 @@ services:
     image: grafana/grafana:latest
     container_name: vindera_grafana
     ports:
-      - "3002:3000"
+      - "127.0.0.1:3002:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in infrastructure/monitoring/.env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
     volumes:
       - grafana_data:/var/lib/grafana
     depends_on:
