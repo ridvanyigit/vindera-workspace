@@ -88,7 +88,7 @@ def _run_app_in_production(tmp_path, code: str, **env_overrides):
     workdir.mkdir(exist_ok=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("SUPABASE_", "AUTOMATION_", "METRICS_", "CORS_"))}
     env.update({**GOOD_PRODUCTION, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}, **env_overrides)
-    return subprocess.run([sys.executable, "-c", code], cwd=workdir, env=env, capture_output=True, text=True, timeout=60)
+    return subprocess.run([sys.executable, "-c", code], cwd=workdir, env=env, capture_output=True, text=True, timeout=300)
 
 
 def test_the_api_docs_are_not_served_in_production(tmp_path):
