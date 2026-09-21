@@ -242,7 +242,6 @@ export default function ProductMaster() {
               </div>
               <div className="leading-tight">
                 <div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div>
-                <div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div>
               </div>
             </div>
 

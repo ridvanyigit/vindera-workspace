@@ -494,7 +494,6 @@ export default function ManualEntry() {
               </div>
               <div className="leading-tight">
                 <div className="text-[15px] font-semibold tracking-[-0.01em] text-gray-900">VINDERA</div>
-                <div className="text-[9px] font-medium tracking-[0.18em] text-gray-400">WORKSPACE</div>
               </div>
             </div>
             <div className="hidden items-center gap-1 md:flex">

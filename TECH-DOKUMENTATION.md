@@ -484,7 +484,7 @@ Post-launch backlog (not started): Keepa Deals/Tracking webhooks for discovery b
 
 | Tag | Date | Summary |
 |---|---|---|
-| launch-hardening | 2026-09-21 | Authenticated API, atomic SQL writers, sale ledger, one profit engine, lifecycle state machine, reports and CSV, private invoices, storefront SEO, observability, tests and CI, production deployment files. 13 migrations applied to the hosted project by the owner on 2026-09-21 |
+| `v2.7.1` | 2026-09-21 | Launch hardening. The small "WORKSPACE" caption under the logo is removed from Product Master, Manual Entry and Tax & Reports. Authenticated API, atomic SQL writers, sale ledger, one profit engine, lifecycle state machine, reports and CSV, private invoices, storefront SEO, observability, tests and CI, production deployment files. 13 migrations applied to the hosted project by the owner on 2026-09-21 |
 | `v2.7.0` | 2026-09-20 | Click-to-minimize on dashboard panels; documentation update |
 | `v2.6.0` | 2026-09-20 | Austria market calendar in the AI Smart Radar header |
 | `v2.5.0` | 2026-09-20 | Dead-stock Pushover notification; business expenses; dark/light toggle on Product Master and Manual Entry |
