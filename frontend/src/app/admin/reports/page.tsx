@@ -322,11 +322,11 @@ export default function TaxAndReports() {
             <div className="flex justify-between items-end mb-3">
               <div>
                 <h3 className="type-section-title text-gray-800 flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500"/> Small Business VAT Exemption Limit ({year})</h3>
-                <p className="text-[13px] text-gray-500 mt-1">If revenue in a calendar year exceeds €{Number(vat.threshold).toLocaleString('de-AT')} you must start charging VAT. Confirm the exact rules (including tolerance) with your Steuerberater.</p>
+                <p className="text-[13px] text-gray-500 mt-1">If revenue in a calendar year exceeds €{Number(vat.threshold).toLocaleString('en-US')} you must start charging VAT. Confirm the exact rules (including tolerance) with your Steuerberater.</p>
               </div>
               <div className="text-right">
-                <span className="text-[17px] font-semibold tabular-nums tracking-[-0.015em] text-gray-900">€{Number(vat.revenue).toFixed(2)}</span>
-                <span className="text-[13px] text-gray-500 font-medium tabular-nums"> / €{Number(vat.threshold).toLocaleString('de-AT', { minimumFractionDigits: 2 })}</span>
+                <span className="text-[17px] font-semibold tabular-nums tracking-[-0.015em] text-gray-900">€{Number(vat.revenue).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span className="text-[13px] text-gray-500 font-medium tabular-nums"> / €{Number(vat.threshold).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                 <p className="text-[12px] text-gray-500 tabular-nums">{vatPct.toFixed(1)}% used</p>
               </div>
             </div>

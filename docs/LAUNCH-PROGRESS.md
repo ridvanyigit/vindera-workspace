@@ -80,6 +80,7 @@ A future session can resume from this file alone: find the first unchecked task 
 - [x] 4.13 No silent failures
 - [x] 4.14 Manual entry
 - [x] 4.15 Product Master
+- [x] 4b UI smoke test in a real browser (see Phase 4b below)
 
 ### Phase 5 - Storefront, invoices and SEO
 
@@ -216,6 +217,25 @@ Decisions and deviations:
 - The workspace invoice upload still writes a public URL (`getPublicUrl`) into a bucket that is private since Phase 2, so opening invoices fails until Phase 5.1 switches to `invoice_path` + signed URLs; only its error handling was fixed here.
 - Manual entry: `actual_profit` is no longer accepted from the client; `quantity` (1-50) creates identical units with suffixed SKUs. The old `Delete` button is now `Remove` and hidden for sold deals.
 - `/dead-stock/scan` (n8n) now runs both alerts; no workflow change needed.
+
+### Phase 4b: UI smoke test
+
+Run against local Supabase only (db reset, auth NOT overridden: a local admin logged in through the real login page, so the new endpoints were called with real Supabase access tokens). Headless Chrome driven by Playwright from the scratchpad; the built-in browser tools were not available in the session. Backend on :8100 and a copy of `frontend/` (without `.env.local`) on :3100, every setting inline, Keepa/OpenAI/Pushover empty. The developer's own servers on :8000 and :3001 were already running and were not touched. Text-based reading, no screenshots.
+
+Tested (all against `docs/MANUAL-TEST-SCRIPT.md`): login; manual deal (profit box +29.80 / 138.6 %, duplicate pending row -> readable 409); Mark as Bought modal (total 23.00, 28.30 / 123.0 %, return-by +30 days, stored correctly); receive and approve; Listed; Willhaben URL validation (bad host rejected, good saved); Manual Entry shows the purchase record; Item Sold modal (30.10 / 130.9 %, DB matches); no Sold/Remove actions on a sold card; Return (quarantine, target price kept, refund event); Resolve and re-list; re-sale 70/5/1.50 -> actual profit 40.50; Reports (management: revenue 70.00, cost 23.00, shipping 16.40, fees 1.50, gross 29.10, ROI 126.5 %, before-tax 19.10 after a 10.00 expense; cash view: 70.00 / 23.00 / 27.90 / 19.10); year selector to another year (revenue 0, VAT 0 %); VAT bar colour (indigo, amber at 87.5 %, red at 97.2 %); CSV export (BOM, `;`, decimal comma, the expected nine lines); Product Master (paging text, deleted rows excluded, CSV columns); Remove of a pending and of a listed deal (hidden from workspace, Product Master and storefront; product page shows "not available"); storefront as anonymous visitor (pending, quarantined, sold and deleted units hidden; in-inventory and listed units visible); dark mode toggle plus a scan for light surfaces on Workspace, deal detail, Sale modal, Return modal, Reports, Product Master, Manual Entry (none); error feedback with the backend stopped (toast on Save, error inside the open Sale modal, Reports error banner with Retry).
+
+Found and fixed:
+- Hydration error on every admin page when the stored theme was dark: `useDarkMode` read `localStorage` in a `useState` initialiser, so the first client render differed from the server HTML. Now `useSyncExternalStore` (server snapshot = light), with an in-memory fallback when storage is blocked.
+- Reports: the VAT limit and the year revenue were formatted with different locales ("EUR 70.00 / EUR 55 000,00"); both now use the same grouping.
+- 422 messages showed Pydantic's "Value error, " prefix ("willhaben_url: Value error, URL must point to willhaben.at"); the prefix is stripped in `describeError`.
+- `docs/MANUAL-TEST-SCRIPT.md`: break-even in 1.2 is 29.28 (30.82 is the cost after purchase), the VAT text shows "0.1% used", the year selector lists only years that have data (how to test it added), VAT colour steps added.
+
+Observations, left as they are (not bugs against the plan):
+- "Item Sold!" is offered only on `listed` cards; a sale from `in_inventory` works through the API only.
+- Product Master shows the net profit ESTIMATE also for sold rows, not the actual profit.
+- Approving the quality check shows no success toast (the card just moves).
+
+NOT tested: the Bought modal and the Manual Entry `Units` field / back-fill statuses were not exercised in the dark scan or with quantity > 1 (same components / API-tested in Phase 4); invoice upload and viewing (broken until Phase 5.1); the `/dead-stock/scan` alert flow through the UI; the 401 sign-out redirect; Realtime refresh after a scan; any real Keepa/OpenAI/Pushover call; CSV opened in Excel itself (only the file bytes); phone-width layout; browsers other than Chrome; the hosted project. Machine note: on this Mac the first read of a file costs about one second (a scan of some kind), so a cold backend start after a long idle can take minutes; warm the cache with `find backend/.venv -type f | xargs -P 48 cat > /dev/null`.
 
 ## Manual steps pending
 

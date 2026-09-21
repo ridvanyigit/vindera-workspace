@@ -42,7 +42,8 @@ function describeError(body: unknown, status: number): string {
       .map(item => {
         const entry = item as { loc?: unknown[]; msg?: string };
         const field = Array.isArray(entry.loc) ? entry.loc.filter(part => part !== 'body').join('.') : '';
-        const message = entry.msg ?? 'Invalid value';
+        // Pydantic prefixes validator failures with "Value error, "; that is noise for the reader.
+        const message = (entry.msg ?? 'Invalid value').replace(/^Value error, /, '');
         return field ? `${field}: ${message}` : message;
       })
       .join('; ');
