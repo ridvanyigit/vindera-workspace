@@ -19,10 +19,11 @@ from openai import AsyncOpenAI
 from src.core.config import settings
 from src.core.database import supabase
 from src.core.validation import ASIN_PATTERN
+from src.services.scan_pipeline import run_tracked_scan
 
 logger = logging.getLogger("vindera.chatbot")
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.OPENAI_API_KEY else "dummy_key")
+client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.OPENAI_API_KEY else "dummy_key", timeout=60.0, max_retries=2)
 
 MODEL = "gpt-4o-mini"
 
@@ -82,18 +83,19 @@ class ChatbotAgent:
         msg = user_message.strip()
 
         if msg.startswith("/"):
-            return self._handle_slash_command(msg)
+            return await self._handle_slash_command(msg)
 
         return await self._handle_natural_language(msg)
 
     # --- Slash commands ---------------------------------------------------
 
-    def _handle_slash_command(self, msg: str) -> str:
+    async def _handle_slash_command(self, msg: str) -> str:
         if msg.startswith("/help"):
             return HELP_TEXT
 
         if msg.startswith("/list"):
-            return self._list_inventory()
+            # supabase-py is synchronous: keep it off the event loop.
+            return await asyncio.to_thread(self._list_inventory)
 
         if msg.startswith("/scan"):
             asin = self._parse_asin(msg)
@@ -135,13 +137,11 @@ class ChatbotAgent:
 
     @staticmethod
     def _scan_asin(asin: str) -> str:
-        from src.api.endpoints.deals import run_deal_scan_pipeline
-
         asin = asin.strip().upper()
         if not re.fullmatch(ASIN_PATTERN, asin):
             return "⚠️ That is not a valid ASIN (10 letters/digits). Example: /scan B09Y2MYL5C"
 
-        task = asyncio.create_task(run_deal_scan_pipeline(asin))
+        task = asyncio.create_task(run_tracked_scan(asin))
         _scan_tasks.add(task)
         task.add_done_callback(_log_scan_result)
         return f"🚀 Scan started for product with ASIN {asin}. The workspace updates automatically when it finishes."
@@ -173,7 +173,7 @@ class ChatbotAgent:
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": tool_call.function.name,
-                    "content": self._run_tool(tool_call.function.name, json.loads(tool_call.function.arguments)),
+                    "content": await self._run_tool(tool_call.function.name, json.loads(tool_call.function.arguments)),
                 })
 
             follow_up = await client.chat.completions.create(model=MODEL, messages=messages)
@@ -182,9 +182,9 @@ class ChatbotAgent:
             logger.error("OpenAI error in ChatbotAgent: %s", e)
             return AI_UNAVAILABLE_TEXT
 
-    def _run_tool(self, name: str, args: dict) -> str:
+    async def _run_tool(self, name: str, args: dict) -> str:
         if name == "get_inventory_status":
-            rows = self._recent_inventory()
+            rows = await asyncio.to_thread(self._recent_inventory)
             return json.dumps(rows) if rows else "Database is empty."
 
         if name == "scan_new_asin":

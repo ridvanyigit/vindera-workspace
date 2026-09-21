@@ -1,0 +1,65 @@
+{
+  "_comment": "Hand-verified cases for services/profit_calculator.py and frontend/src/lib/profit.ts. Amounts in EUR. break_even_price is the mathematical break-even rounded UP to the cent (then nudged up while the rounded net profit is still negative); null = variable fees are >= 100% of the price. emergency_price = max(85% of sell_price rounded half up, break_even_price).",
+  "vectors": [
+    {
+      "name": "zero fees, no shipping",
+      "input": {"sell_price": 100.00, "purchase_price": 50.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 0, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 50.00, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.00, "net_profit": 50.00, "net_margin_pct": 100.00, "break_even_price": 50.00, "emergency_price": 85.00, "passes_guardrails": true}
+    },
+    {
+      "name": "placeholder defaults (packaging 1.50, outbound 6.90, reserve 3%)",
+      "input": {"sell_price": 60.00, "purchase_price": 40.00, "inbound_shipping": 0, "packaging": 1.50, "outbound_shipping": 6.90},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 3, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 41.50, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 1.80, "net_profit": 9.80, "net_margin_pct": 23.61, "break_even_price": 49.90, "emergency_price": 51.00, "passes_guardrails": false}
+    },
+    {
+      "name": "high fees: percentage plus fixed platform fee, payment fee, inbound shipping",
+      "input": {"sell_price": 120.00, "purchase_price": 70.00, "inbound_shipping": 4.90, "packaging": 2.00, "outbound_shipping": 6.90},
+      "settings": {"platform_fee_pct": 5, "platform_fee_fixed_eur": 0.35, "payment_fee_pct": 2.9, "return_reserve_pct": 3, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 76.90, "platform_fees": 6.35, "payment_fees": 3.48, "return_reserve": 3.60, "net_profit": 22.77, "net_margin_pct": 29.61, "break_even_price": 94.45, "emergency_price": 102.00, "passes_guardrails": true}
+    },
+    {
+      "name": "guardrail boundary: exactly 25% and EUR 15 passes",
+      "input": {"sell_price": 75.00, "purchase_price": 60.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 0, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 60.00, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.00, "net_profit": 15.00, "net_margin_pct": 25.00, "break_even_price": 60.00, "emergency_price": 63.75, "passes_guardrails": true}
+    },
+    {
+      "name": "guardrail boundary: one cent below fails",
+      "input": {"sell_price": 74.99, "purchase_price": 60.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 0, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 60.00, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.00, "net_profit": 14.99, "net_margin_pct": 24.98, "break_even_price": 60.00, "emergency_price": 63.74, "passes_guardrails": false}
+    },
+    {
+      "name": "loss: emergency price is lifted to break-even",
+      "input": {"sell_price": 30.00, "purchase_price": 40.00, "inbound_shipping": 0, "packaging": 1.50, "outbound_shipping": 6.90},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 3, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 41.50, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.90, "net_profit": -19.30, "net_margin_pct": -46.51, "break_even_price": 49.90, "emergency_price": 49.90, "passes_guardrails": false}
+    },
+    {
+      "name": "rounding: half cent fee rounds up (10.10 * 5% = 0.505 -> 0.51)",
+      "input": {"sell_price": 10.10, "purchase_price": 5.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 5, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 5.00, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.51, "net_profit": 4.59, "net_margin_pct": 91.80, "break_even_price": 5.27, "emergency_price": 8.59, "passes_guardrails": false}
+    },
+    {
+      "name": "rounding: margin tie 0.125% rounds to 0.13",
+      "input": {"sell_price": 8.01, "purchase_price": 8.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 0, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 8.00, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.00, "net_profit": 0.01, "net_margin_pct": 0.13, "break_even_price": 8.00, "emergency_price": 8.00, "passes_guardrails": false}
+    },
+    {
+      "name": "rounding: negative margin tie -0.125% rounds away from zero to -0.13",
+      "input": {"sell_price": 7.99, "purchase_price": 8.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 0, "platform_fee_fixed_eur": 0, "payment_fee_pct": 0, "return_reserve_pct": 0, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 8.00, "platform_fees": 0.00, "payment_fees": 0.00, "return_reserve": 0.00, "net_profit": -0.01, "net_margin_pct": -0.13, "break_even_price": 8.00, "emergency_price": 8.00, "passes_guardrails": false}
+    },
+    {
+      "name": "variable fees at 100%: no break-even price exists",
+      "input": {"sell_price": 100.00, "purchase_price": 10.00, "inbound_shipping": 0, "packaging": 0, "outbound_shipping": 0},
+      "settings": {"platform_fee_pct": 60, "platform_fee_fixed_eur": 0, "payment_fee_pct": 30, "return_reserve_pct": 10, "min_net_margin_pct": 25, "min_net_profit_eur": 15},
+      "expected": {"total_cost": 10.00, "platform_fees": 60.00, "payment_fees": 30.00, "return_reserve": 10.00, "net_profit": -10.00, "net_margin_pct": -100.00, "break_even_price": null, "emergency_price": 85.00, "passes_guardrails": false}
+    }
+  ]
+}

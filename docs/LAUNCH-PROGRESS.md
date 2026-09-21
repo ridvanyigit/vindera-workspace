@@ -55,13 +55,13 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 3 - Profit engine and scan pipeline
 
-- [ ] 3.1 `profit_calculator.py` + golden vectors + `profit.ts`
-- [ ] 3.2 Scan pipeline rewrite
-- [ ] 3.3 Async correctness, retries, semaphore
-- [ ] 3.4 UTC timestamps, time-to-sell basis
-- [ ] 3.5 `GET /deals/scans` + dashboard scan status list
-- [ ] 3.6 Watchlist endpoint + n8n
-- [ ] 3.7 Listing generator legal footer / payment text
+- [x] 3.1 `profit_calculator.py` + golden vectors + `profit.ts`
+- [x] 3.2 Scan pipeline rewrite
+- [x] 3.3 Async correctness, retries, semaphore
+- [x] 3.4 UTC timestamps, time-to-sell basis
+- [x] 3.5 `GET /deals/scans` + dashboard scan status list
+- [x] 3.6 Watchlist endpoint + n8n
+- [x] 3.7 Listing generator legal footer / payment text
 
 ### Phase 4 - Lifecycle, accounting and reports
 
@@ -172,6 +172,32 @@ Decisions and deviations:
 - Open item for Phase 3: old scans wrote 6 fabricated `price_history` rows each; the migrations leave them alone (deleting data was not asked for). See `MANUEL-ADIMLAR.md` M13.
 - Frontend (2.1): `STATUS_OPTIONS` has the two new statuses; Product Master got a status filter (the workspace tabs are unchanged, as planned).
 
+### Phase 3
+
+Files: `services/profit_calculator.py` (money math, Decimal, half-up cents), `services/business_settings.py` (60 s cache), `services/keepa_service.py`, `services/scan_pipeline.py` (pipeline moved out of `deals.py`), `agents/deal_analyzer_agent.py`, `agents/listing_generator_agent.py`, `services/notification_service.py`; frontend `lib/profit.ts`, `components/ScanStatusList.tsx` (opened from the "Scans" button in the AI terminal header); n8n workflow reads the watchlist. Golden vectors: `backend/tests/data/profit_golden_vectors.json` (10 cases, hand-computed; Python and TS both match, checked with one-off scripts, no test runner yet: pytest/Vitest come in Phase 7).
+
+Verified (local Supabase, Keepa/OpenAI/Pushover simulated, 41 checks + 10 Keepa-HTTP checks): failure with mock off writes nothing and closes the job as `failed`; token exhaustion (429/503) -> failed + `retry_after` + one push per day; good deal -> pending with net 19.80 / margin 62.86 on cost 31.50, computed `deal_score`, BuyBox from Keepa, 4 real price days + today; same ASIN twice -> one open row, one listing, no duplicate price points; rejected deal is stored without a listing or an OpenAI listing call; hot-deal push once per 7 days; max 2 scans at once; event loop keeps running during a scan; endpoints (`/scan` -> 202 + `job_id`, `/watchlist`, `/scans`, manual deal, sold via status). `npx tsc` and `npm run build` pass; lint: no new errors (3 in `CommandBar.tsx` are older).
+NOT verified: any call to the real Keepa, OpenAI or Pushover (no keys used), so the response shape of a live Keepa answer is unchecked; the hosted database.
+
+Keepa sources (rule in 3.2.4): official Java client `keepacom/api_backend` (`Product.java`, `Stats.java`, `KeepaTime.java`, `Request.java`, `Response.java`, read through WebFetch, i.e. summarised) cross-checked against the `keepa` Python package 1.5.0 (`utils.py`, `constants.py`), which confirmed csv indices, that `*_SHIPPING` series (18 = BUY_BOX_SHIPPING) are `[time, price, shipping]` triples, the 2011-01-01 epoch and `429 = NOT_ENOUGH_TOKEN`. Request: `stats=90, history=1, buybox=1, days=90, domain=3`. Rate limit: HTTP 429 and 503 both count as "tokens exhausted".
+
+Decisions and deviations:
+
+- Prices: buy price = `stats.buyBoxPrice`, else Amazon, else 3rd-party New (flagged `marketplace_new` in `ai_decision`). Reference = `stats.avg90[18]` (90-day BuyBox), else `avg90[0]`, else `avg90[1]`. The reading of `avg90[18]` as a plain cents value is an assumption from the `Stats.java` comment; if a live answer differs the parser falls back to the Amazon average.
+- Keepa gives only a seller ID, so `buybox_seller` is `Amazon` (`buyBoxIsAmazon`), `Marketplace (<id>)`, or `Unknown`; no seller names are invented.
+- Sell price = midpoint (`SELL_PRICE_POSITION`, default 0.5); `OPENAI_MODEL` is configurable. The model no longer returns `is_profitable`, `estimated_profit_margin` or `deal_score`.
+- Beyond the plan, small: `discount` score is computed from the prices; `demand` is capped at 5 without Keepa demand data and `risk_level` at 3 for a seller that is neither Amazon nor FBA (the plan asked for "higher risk"). The LLM schema uses plain integers and the code clamps to 0-10 (instead of `Field(ge, le)` on the schema sent to OpenAI, which could not be tried against the live API); the stored `ScoreBreakdown` does carry the bounds.
+- The listing agent no longer sees the buy or reference price (it could quote them); the payment line and the legal footer are appended verbatim from `business_settings`, and the model is told not to write payment or legal wording. Rejected deals get no listing (saves an OpenAI call).
+- Mock: only with `ALLOW_MOCK_DATA`, title `[MOCK]`, seller `MOCK`, no price history. A depleted Keepa budget never falls back to mock.
+- Price history: last value per UTC day for Amazon and BuyBox (BuyBox includes shipping), at most 90 days, plus one "today" point; a product with neither Amazon nor BuyBox price gets no point (`price_history` has no column for a marketplace price).
+- `profit_margin` now holds the NET margin on cost for scans and manual deals (it used to be the LLM's guess or gross markup). Older rows keep their old values.
+- Manual entry (`POST/PUT /deals/manual`) now takes net profit, margin and the default emergency price from the calculator (interim until Phase 4.14 moves it to the RPCs). Found while testing: creating a manual deal for an ASIN that already has an open scan row answers 500 with the raw unique-violation text; Phase 4 should map `23505` to 409.
+- 3.3: pipeline DB calls use `asyncio.to_thread`, endpoints that only call supabase-py are plain `def` (thread pool), chatbot DB calls and OpenAI clients got timeouts/retries; Keepa (3 attempts, 1 s / 2 s backoff), Pushover (3 attempts) and OpenAI (SDK `max_retries=2`) are bounded.
+- 3.4: all `datetime.now()` in `deals.py` are UTC; `time_to_sell_days` counts from `listed_at`, else `purchased_at`, else `created_at` (only in the interim status endpoint; `record_sale` does the same in SQL).
+- The "Keepa tokens exhausted" push dedupe is in memory (one per day per process); a restart can repeat it once.
+- `CLAUDE.md` still describes the old mock BuyBox and the hardcoded n8n list; it is rewritten in Phase 7.4 / 9.1.
+- n8n: JSON re-serialised (indentation changed, so the diff is noisy); it now fetches the watchlist. Owner must re-import it (`MANUEL-ADIMLAR.md` M11).
+
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M14. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M15. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.

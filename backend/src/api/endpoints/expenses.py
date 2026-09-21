@@ -42,7 +42,7 @@ def _validate(payload: dict) -> None:
 
 
 @router.post("/", status_code=201)
-async def create_expense(request: ExpenseRequest):
+def create_expense(request: ExpenseRequest):
     """Record one expense."""
     payload = _payload(request)
     _validate(payload)
@@ -56,7 +56,7 @@ async def create_expense(request: ExpenseRequest):
 
 
 @router.get("/")
-async def list_expenses():
+def list_expenses():
     """List every expense, newest first."""
     try:
         res = (
@@ -73,7 +73,7 @@ async def list_expenses():
 
 
 @router.put("/{expense_id}")
-async def update_expense(expense_id: uuid.UUID, request: ExpenseRequest):
+def update_expense(expense_id: uuid.UUID, request: ExpenseRequest):
     """Replace every editable field of an expense."""
     payload = _payload(request)
     _validate(payload)
@@ -90,7 +90,7 @@ async def update_expense(expense_id: uuid.UUID, request: ExpenseRequest):
 
 
 @router.delete("/{expense_id}")
-async def delete_expense(expense_id: uuid.UUID):
+def delete_expense(expense_id: uuid.UUID):
     """Delete one expense."""
     try:
         res = supabase.table("business_expenses").delete().eq("id", str(expense_id)).execute()

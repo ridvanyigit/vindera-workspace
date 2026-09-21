@@ -1,7 +1,7 @@
 # VINDERA — Senin Yapman Gereken Adımlar
 
 > Bu dosya, yazılımın kendi başına yapamayacağı işleri toplar (paneller, hesaplar, para, yasal/vergi konuları).
-> Şu an **Faz 0–2 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
+> Şu an **Faz 0–3 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
 > Her madde: **Öncelik** · **Ne yapılacak** · **Nasıl doğrularsın**.
 
 Öncelik etiketleri:
@@ -129,7 +129,16 @@ Dashboard → Authentication → Multi-Factor'ı aç, sonra kendi hesabın için
 Keepa/OpenAI anahtarı yokken ya da hata verince tarama artık sahte fırsat üretmiyor, iptal oluyor. Yerelde eskisi gibi örnek veriyle denemek istersen `.env`'ye `ALLOW_MOCK_DATA=true` ekle. Production'da bu ayar reddedilir.
 
 ### M11. İzlenen ürün listesini (watchlist) düzenle
-Günlük taranan ASIN'ler artık n8n içinde değil, veritabanında (`watchlist_asins`). Dashboard → Table Editor → `watchlist_asins`. Bir ürünü durdurmak için `active` alanını kapat; yeni ürün için satır ekle (ASIN 10 karakter, BÜYÜK harf/rakam). n8n'in bu listeyi kullanması Faz 3'te bağlanacak; o zamana kadar n8n'deki eski liste geçerli.
+Günlük taranan ASIN'ler artık n8n içinde değil, veritabanında (`watchlist_asins`). n8n her sabah `GET /deals/watchlist` ile aktif olanları alır.
+Dashboard → Table Editor → `watchlist_asins`. Bir ürünü durdurmak için `active` alanını kapat; yeni ürün için satır ekle (ASIN 10 karakter, BÜYÜK harf/rakam).
+**Önemli:** `n8n/Vindera_Daily_Scan.json` Faz 3'te değişti (sabit liste yerine "Fetch Watchlist" + "Split Watchlist" düğümleri). n8n'de eski workflow'u silip yeniden içe aktar (M4'teki gibi) ve iki HTTP düğümünde "Vindera Automation Key" credential'ını seç.
+**Doğrulama:** Execute workflow → "Fetch Watchlist" çıktısında `asins` listesi görünmeli; sonra admin panelinde AI Terminal → **Scans** düğmesinde her ASIN için bir satır çıkar.
+
+### M15. Keepa ve OpenAI anahtarları, tarama başarısızlıkları
+Faz 3'ten beri sahte veri yok: anahtar yoksa ya da Keepa/OpenAI hata verirse tarama **başarısız (failed)** olur ve nedeni admin panelinde AI Terminal → **Scans** listesinde görünür. Gerçek BuyBox/talep verisi için ücretli bir Keepa planı gerekir; her tarama Keepa token'ı harcar (BuyBox verisi ek token maliyetlidir, Keepa panelinden tüketimi izle). Token biterse aynı gün içinde **tek** bir Pushover bildirimi gelir.
+- Anahtarlar `.env` içinde: `KEEPA_API_KEY`, `OPENAI_API_KEY` (asla sohbete yapıştırma).
+- OpenAI'da aylık harcama limiti koy (platform.openai.com → Billing → Limits).
+- Kâr hesabı `business_settings` sayılarına bağlı (M5). Sayılar yer tutucuyken "kâr" rakamları gerçek değildir.
 
 ---
 
@@ -142,7 +151,10 @@ BASE_URL=http://localhost:8000 AUTOMATION_KEY=<AUTOMATION_SHARED_SECRET> METRICS
 Yeşil "All checks passed" görmelisin. Admin olarak da denemek için `ADMIN_TOKEN=<giriş yapmış admin'in access token'ı>` ekle.
 
 ### M13. Eski (sahte) fiyat geçmişi
-Eski taramalar her seferinde 6 tane **uydurma** fiyat noktası yazmıştı; grafik bunları gerçek gibi gösterir. Faz 3'ten sonra yeni taramalar gerçek Keepa geçmişini yazacak. Eski uydurma noktaların silinip silinmeyeceğine sen karar ver; gerekirse tespit sorgusunu birlikte hazırlarız (Faz 3'te ele alınacak).
+Eski taramalar her seferinde 6 tane **uydurma** fiyat noktası yazmıştı (5 gün önce = ortalama fiyat, bugün = güncel fiyat). Yeni backend bunu yapmıyor; her taramada Keepa'dan gelen **gerçek** 90 günlük geçmişi yazıyor. Ama eski uydurma noktalar veritabanında duruyor ve grafik onları gerçek gibi gösterir. Hangisinin uydurma olduğunu kesin ayırt edemem (elle girilen ürünlerin 2 dürüst noktası da aynı tabloda), o yüzden **karar senin**:
+- **Seçenek A (önerilen, temiz):** Yeni backend canlıya alındıktan sonra SQL Editor'de `delete from public.price_history;` çalıştır, sonra watchlist'i bir kez tara (gerçek noktalar geri gelir). Elle girdiğin ürünlerin iki referans fiyatı silinir; düzenleme formundan yeniden girebilirsin.
+- **Seçenek B:** Hiçbir şey yapma; eski ürünlerde grafik bir süre uydurma noktalar içerir, yeni taramalar gerçek noktaları ekler.
+Not: Bu adım **geri alınamaz**; A'yı seçersen önce M1'deki yedeği al.
 
 ### M14. `events_calendar` kontrolü
 Migration, mevsimsel etkinlik satırlarını (Halloween, Black Friday …) canlı veritabanına da ekler. Table Editor → `events_calendar` içinde 7 satır görmelisin.

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Hosts that must never appear in the production CORS allow-list.
@@ -44,6 +44,13 @@ class Settings(BaseSettings):
 
     # Amazon.de return window used to compute `return_by` after a purchase.
     RETURN_WINDOW_DAYS: int = 30
+
+    # Model used for the deal analysis and the listing copy.
+    OPENAI_MODEL: str = "gpt-4o-mini"
+
+    # Where the suggested Willhaben price sits between today's Amazon price (0.0)
+    # and its 90-day reference price (1.0). 0.5 = exactly halfway.
+    SELL_PRICE_POSITION: float = Field(default=0.5, gt=0, le=1)
 
     # Comma-separated list of origins allowed to call the API.
     # Covers the Next.js dev server on both its default port and the fallback

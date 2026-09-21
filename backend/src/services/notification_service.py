@@ -1,45 +1,92 @@
+import asyncio
+import logging
+from datetime import date, datetime, timezone
+
 import httpx
+
 from src.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
+REQUEST_TIMEOUT_SECONDS = 10.0
+MAX_ATTEMPTS = 3  # network errors and 5xx answers only; a 4xx means the message itself is wrong
+
 
 class NotificationService:
     def __init__(self):
-        self.url = "https://api.pushover.net/1/messages.json"
+        self.url = PUSHOVER_URL
         self.user_key = settings.PUSHOVER_USER_KEY.get_secret_value() if settings.PUSHOVER_USER_KEY else None
         self.api_token = settings.PUSHOVER_API_TOKEN.get_secret_value() if settings.PUSHOVER_API_TOKEN else None
+        # Day (UTC) on which the "Keepa tokens exhausted" push was last sent.
+        # In memory: a restart may repeat it once, which is acceptable.
+        self._tokens_alert_day: date | None = None
 
-    async def send_deal_alert(self, product_title: str, buy_price: float, profit_margin: float, amazon_url: str):
-        """Sends a push notification when a profitable deal is found."""
-        if not self.user_key or not self.api_token:
-            print("Pushover credentials missing. Skipping notification.")
-            return
+    @property
+    def configured(self) -> bool:
+        return bool(self.user_key and self.api_token)
+
+    async def _send(self, payload: dict) -> bool:
+        """POST to Pushover with a timeout and bounded retries. True only when accepted."""
+        body = {"token": self.api_token, "user": self.user_key, **payload}
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+                    response = await client.post(self.url, data=body)
+            except httpx.HTTPError as e:
+                logger.warning("Pushover request failed (%s), attempt %d/%d", type(e).__name__, attempt, MAX_ATTEMPTS)
+            else:
+                if response.status_code == 200:
+                    return True
+                logger.warning("Pushover rejected the message: HTTP %d", response.status_code)
+                if response.status_code < 500:
+                    return False
+            if attempt < MAX_ATTEMPTS:
+                await asyncio.sleep(2 ** (attempt - 1))
+        return False
+
+    async def send_deal_alert(
+        self, product_title: str, buy_price: float, net_profit: float, net_margin_pct: float, amazon_url: str
+    ) -> bool:
+        """Push for an exceptional deal. Returns True only when Pushover accepted it."""
+        if not self.configured:
+            logger.info("Pushover credentials missing; skipping deal notification")
+            return False
 
         message = (
-            f"🔥 PROFITABLE DEAL FOUND! 🔥\n\n"
             f"Product: {product_title}\n"
-            f"Buy Price: €{buy_price}\n"
-            f"Estimated Margin: {profit_margin}%\n\n"
+            f"Buy price: EUR {buy_price:.2f}\n"
+            f"Estimated net profit: EUR {net_profit:.2f} ({net_margin_pct:.1f}% on cost)\n\n"
             f"Link: {amazon_url}"
         )
-
-        payload = {
-            "token": self.api_token,
-            "user": self.user_key,
-            "title": "Vindera Arbitrage Alert",
+        sent = await self._send({
+            "title": "Vindera Deal Alert",
             "message": message,
             "url": amazon_url,
-            "url_title": "Buy on Amazon",
-            "priority": 1 # High priority
-        }
+            "url_title": "Open on Amazon",
+            "priority": 1,  # High priority
+        })
+        if sent:
+            logger.info("Deal notification sent")
+        return sent
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(self.url, data=payload)
-                if response.status_code == 200:
-                    print("✅ Notification sent successfully!")
-                else:
-                    print(f"❌ Failed to send notification: {response.text}")
-        except Exception as e:
-            print(f"Error sending notification: {str(e)}")
+    async def send_keepa_tokens_exhausted(self, retry_after_seconds: int) -> bool:
+        """At most one push per day, however many ASINs hit the limit. True when a push was sent."""
+        today = datetime.now(timezone.utc).date()
+        if self._tokens_alert_day == today:
+            return False
+        if not self.configured:
+            return False
+
+        minutes = max(1, round(retry_after_seconds / 60))
+        sent = await self._send({
+            "title": "Vindera: Keepa tokens exhausted",
+            "message": f"Scans are failing because the Keepa token budget is used up. Tokens refill in about {minutes} min. See the scan list in the admin dashboard.",
+            "priority": 0,
+        })
+        if sent:
+            self._tokens_alert_day = today
+        return sent
 
     async def send_dead_stock_alert(self, items: list[dict], threshold_days: int) -> bool:
         """Send one digest push for items that have tied up capital too long.
@@ -52,8 +99,8 @@ class NotificationService:
         if not items:
             return False
 
-        if not self.user_key or not self.api_token:
-            print("Pushover credentials missing. Skipping dead-stock notification.")
+        if not self.configured:
+            logger.info("Pushover credentials missing; skipping dead-stock notification")
             return False
 
         header = f"{len(items)} item{'s' if len(items) != 1 else ''} tied up capital for more than {threshold_days} days:\n"
@@ -71,26 +118,10 @@ class NotificationService:
         if len(lines) < len(items):
             message += f"\n+{len(items) - len(lines)} more"
 
-        payload = {
-            "token": self.api_token,
-            "user": self.user_key,
-            "title": "Vindera Dead Stock",
-            "message": message,
-            "priority": 0,
-        }
+        sent = await self._send({"title": "Vindera Dead Stock", "message": message, "priority": 0})
+        if sent:
+            logger.info("Dead-stock notification sent")
+        return sent
 
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(self.url, data=payload)
-        except Exception as e:
-            print(f"Error sending dead-stock notification: {str(e)}")
-            return False
-
-        if response.status_code != 200:
-            print(f"❌ Failed to send dead-stock notification: {response.text}")
-            return False
-
-        print("✅ Dead-stock notification sent successfully!")
-        return True
 
 notification_service = NotificationService()
