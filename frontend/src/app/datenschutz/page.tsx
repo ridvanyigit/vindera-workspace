@@ -25,6 +25,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import StoreNav from '@/components/StoreNav';
 import StoreFooter from '@/components/StoreFooter';
+import { LEGAL } from '@/lib/legal';
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <section>
@@ -52,8 +53,8 @@ export default function Datenschutz() {
           <Section title="1. Verantwortlicher">
             <p>
               Verantwortlicher im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:<br />
-              Rıdvan Yiğit, Kühgasse 8/9, 1110 Wien, Österreich<br />
-              E-Mail: <a href="mailto:info@rai-recht.at" className="text-indigo-600 hover:text-indigo-700">info@rai-recht.at</a>
+              {LEGAL.name}, {LEGAL.street}, {LEGAL.postalCode} {LEGAL.city}, {LEGAL.country}<br />
+              E-Mail: <a href={`mailto:${LEGAL.email}`} className="text-indigo-600 hover:text-indigo-700">{LEGAL.email}</a>
             </p>
             <p>Details zum Anbieter finden Sie in unserem <Link href="/impressum" className="text-indigo-600 hover:text-indigo-700">Impressum</Link>.</p>
           </Section>
@@ -121,7 +122,7 @@ export default function Datenschutz() {
               folgende Rechte zu: Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der
               Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) sowie Widerspruch gegen die Verarbeitung
               (Art. 21). Kontaktieren Sie uns hierzu unter{' '}
-              <a href="mailto:info@rai-recht.at" className="text-indigo-600 hover:text-indigo-700">info@rai-recht.at</a>.
+              <a href={`mailto:${LEGAL.email}`} className="text-indigo-600 hover:text-indigo-700">{LEGAL.email}</a>.
             </p>
             <p>
               Zudem haben Sie das Recht, sich bei der österreichischen Datenschutzbehörde zu beschweren:

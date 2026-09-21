@@ -3,8 +3,9 @@
 /**
  * Impressum (Offenlegung gemäß § 5 ECG und § 25 MedienG).
  *
- * Facts here were supplied directly by the site operator, not invented —
- * two are marked explicitly provisional because they don't exist yet:
+ * The operator's details come from lib/legal.ts (edit them there). They were
+ * supplied directly by the site operator, not invented — two are provisional
+ * because they don't exist yet:
  *   - the domain (read dynamically from window.location, never hardcoded,
  *     so this is always accurate for wherever the site is actually running)
  *   - the Gewerbeberechtigung (trade license), not yet registered
@@ -15,6 +16,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import StoreNav from '@/components/StoreNav';
 import StoreFooter from '@/components/StoreFooter';
+import { LEGAL } from '@/lib/legal';
 
 export default function Impressum() {
   const [origin, setOrigin] = useState('');
@@ -35,16 +37,16 @@ export default function Impressum() {
           <section>
             <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-gray-500">Unternehmen</h2>
             <p>
-              Rıdvan Yiğit<br />
-              Kühgasse 8/9, 1110 Wien<br />
-              Österreich
+              {LEGAL.name}<br />
+              {LEGAL.street}, {LEGAL.postalCode} {LEGAL.city}<br />
+              {LEGAL.country}
             </p>
           </section>
 
           <section>
             <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-gray-500">Kontakt</h2>
             <p>
-              E-Mail: <a href="mailto:info@rai-recht.at" className="text-indigo-600 hover:text-indigo-700">info@rai-recht.at</a><br />
+              E-Mail: <a href={`mailto:${LEGAL.email}`} className="text-indigo-600 hover:text-indigo-700">{LEGAL.email}</a><br />
               Web: {origin || '…'}
             </p>
           </section>
@@ -61,10 +63,11 @@ export default function Impressum() {
           <section>
             <h2 className="mb-2 text-[13px] font-semibold uppercase tracking-wide text-gray-500">Unternehmensdaten</h2>
             <p>
-              Steuernummer: 03 796/2073<br />
-              Mitglied der: Wirtschaftskammer Wien<br />
-              Aufsichtsbehörde: Magistratisches Bezirksamt Wien<br />
-              Gewerbeberechtigung: Handelsgewerbe (freies Gewerbe gemäß Gewerbeordnung 1994) — Anmeldung in Vorbereitung<br />
+              Steuernummer: {LEGAL.taxNumber}<br />
+              {LEGAL.vatId && <>UID-Nummer: {LEGAL.vatId}<br /></>}
+              Mitglied der: {LEGAL.chamber}<br />
+              Aufsichtsbehörde: {LEGAL.supervisoryAuthority}<br />
+              Gewerbeberechtigung: {LEGAL.tradeLicense}<br />
               Anwendbare Vorschriften: Gewerbeordnung (abrufbar unter www.ris.bka.gv.at)
             </p>
           </section>

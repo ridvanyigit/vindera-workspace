@@ -116,12 +116,31 @@ Migration `invoices` klasörünü private yapar ve onu anlatan eski politikalar�
 Dashboard → **Storage** → **Policies** → `storage.objects` altındaki her politikayı oku; herkese (`public`/`anon`) okuma izni veren varsa sil.
 **Doğrulama:** Gizli pencerede eski bir fatura linkini aç: artık açılmamalı.
 
+### M17. Yasal sayfaları avukata / Steuerberater'a gösterilecek noktalar (Faz 5)
+Yazılım yasal metin yazmaz; ben yalnızca teknik kısmı yaptım: sana ait bilgiler (ad, adres, e-posta, Steuernummer, Gewerbe durumu) artık **tek dosyada**: `frontend/src/lib/legal.ts`. Impressum, Datenschutz ve sayfa altbilgisi buradan okur; bir bilgi değişince sadece bu dosyayı düzenle.
+Sayfaların **metinlerini** canlıya çıkmadan önce bir avukatla ya da Steuerberater'la gözden geçir. Sorulacak noktalar:
+1. **Impressum, "Vertragspartner" cümlesi:** Metin "Vindera sözleşmenin tarafı değildir, sözleşme alıcı ile Willhaben'deki satıcı arasında kurulur" diyor. Willhaben'de satıcı sensin. Bu cümle doğru mu, nasıl yazılmalı?
+2. **Gewerbeberechtigung:** Metin "Anmeldung in Vorbereitung" (başvuru hazırlanıyor) diyor. Düzenli satıştan önce Gewerbeanmeldung gerekir; verilince `legal.ts` içindeki `tradeLicense` satırını güncelle.
+3. **İletişim e-postası:** `info@rai-recht.at` alan adı işinle mi ilgili, başka bir firmaya mı ait? Yayına almadan önce doğru adres olduğundan emin ol.
+4. **Datenschutz, hosting paragrafı:** Şu an genel ("Cloud-Hosting-Anbieter"). Hosting sağlayıcısını seçince adını ve sunucu konumunu ekletmek gerekir. Supabase paragrafı Frankfurt bölgesini söylüyor; bölgeyi Supabase panelinden doğrula.
+5. **Gewährleistung / Widerrufsrecht (FAGG):** Kargoyla satışlarda alıcıya hangi bilgiler verilmeli (cayma hakkı, garanti)? İlan metnine ve sayfalara ne eklenmeli?
+6. **Kleinunternehmer fatura notu:** Faturalarda § 6 Abs 1 Z 27 UStG notu nasıl yazılmalı?
+7. **Registrierkassenpflicht:** Nakit (Barzahlung bei Abholung) satışlar için kasa yükümlülüğü var mı?
+**Doğrulama:** Avukat/Steuerberater onayladıktan sonra `/impressum` ve `/datenschutz` sayfalarını aç, bilgilerin doğru göründüğünü kontrol et.
+
 ---
 
 ## Soon
 
-### M8. Eski fatura dosyalarını yeniden yükle
-`opportunities.invoice_url` alanındaki eski herkese açık linkler çalışmayacak. Dosyaları Storage'dan indirip uygulamadaki fatura yükleme düğmesiyle yeniden yükle; sonra eski `invoice_url` alanını temizle. (Uygulama tarafı Faz 5'te güncellenecek.)
+### M8. Eski faturalar
+Faz 5'ten sonra yeni faturalar **özel** klasöre yüklenir ve "View Invoice" ile 10 dakikalık geçici bir linkle açılır. Eskiden yüklenen faturaların `invoice_url` alanındaki herkese açık linkleri artık çalışmaz, ama dosyalar klasörde duruyor: uygulama bu eski kayıtlarda **"View Invoice (legacy)"** düğmesini gösterir ve dosyayı yine geçici linkle açar. Yani eski faturalar için zorunlu bir işlem yok.
+İstersen bir eski faturayı **"Attach again"** ile yeniden yükleyebilirsin; o zaman kayıt yeni yapıya (`invoice_path`) geçer. Hiçbir şeyi elle silme.
+**Doğrulama:** Bir fırsatı aç → "View Invoice" → fatura yeni sekmede açılır. Aynı linki gizli pencerede 10 dakika sonra aç: açılmamalı.
+
+### M18. Sitenin gerçek adresini (`NEXT_PUBLIC_SITE_URL`) tanıt (Faz 5)
+`robots.txt`, `sitemap.xml`, arama motoru ve paylaşım önizlemeleri sitenin tam adresine ihtiyaç duyar. Frontend'in ortam değişkenlerine (Vercel → Project → Settings → Environment Variables) şunu ekle: `NEXT_PUBLIC_SITE_URL=https://senin-alan-adin.at` (sonunda `/` olmadan). Eklemezsen bu dosyalarda `http://localhost:3000` görünür.
+**Doğrulama:** `https://senin-alan-adin.at/robots.txt` içinde "Sitemap:" satırı gerçek alan adını göstermeli; `/sitemap.xml` satırları da. İstersen sitemap'i Google Search Console'a gönder.
+Not: Ürün sayfaları en fazla 1 dakika önbellekte tutulur; satılan ürün birkaç saniye içinde 404 sayfasına döner.
 
 ### M9. Admin hesabına MFA (2 adımlı doğrulama) ekle
 Dashboard → Authentication → Multi-Factor'ı aç, sonra kendi hesabın için bir doğrulama uygulaması (TOTP) tanımla.

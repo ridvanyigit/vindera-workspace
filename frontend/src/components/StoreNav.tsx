@@ -16,12 +16,14 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { Package, Search, X } from 'lucide-react';
+import { CARD_COLUMNS } from '@/lib/storefront';
+import ListingImage from '@/components/ListingImage';
 import { TARGET_CATEGORIES } from '@/lib/constants';
-import type { StorefrontListing } from '@/lib/types';
+import type { StorefrontCardListing } from '@/lib/types';
 
 export default function StoreNav() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<StorefrontListing[]>([]);
+  const [results, setResults] = useState<StorefrontCardListing[]>([]);
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [hidden, setHidden] = useState(false);
@@ -45,10 +47,10 @@ export default function StoreNav() {
     const timeout = setTimeout(async () => {
       const { data, error } = await supabase
         .from('storefront_listings')
-        .select('*')
+        .select(CARD_COLUMNS)
         .ilike('title', `%${q}%`)
         .limit(8);
-      if (!error) setResults((data as StorefrontListing[]) || []);
+      if (!error) setResults((data as unknown as StorefrontCardListing[]) || []);
       setSearching(false);
     }, 250);
     return () => clearTimeout(timeout);
@@ -92,8 +94,8 @@ export default function StoreNav() {
                   <div className="p-4 text-center text-[13px] text-gray-400">No matches.</div>
                 ) : results.map(r => (
                   <Link key={r.id} href={`/product/${r.id}`} className="flex items-center gap-3 border-b border-gray-50 p-3 last:border-0 hover:bg-gray-50">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
-                      {r.image_url ? <img src={r.image_url} alt="" className="h-full w-full object-contain" /> : <Package className="h-5 w-5 text-gray-200" />}
+                    <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50">
+                      <ListingImage src={r.image_url} alt="" className="object-contain" fallbackClassName="h-5 w-5 text-gray-200" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[13px] font-medium text-gray-800">{r.title}</p>

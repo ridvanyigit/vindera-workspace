@@ -84,11 +84,11 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 5 - Storefront, invoices and SEO
 
-- [ ] 5.1 Private invoices
-- [ ] 5.2 Storefront pagination / images
-- [ ] 5.3 Product page SEO
-- [ ] 5.4 Sold / missing-URL states
-- [ ] 5.5 Legal pages config (technical only)
+- [x] 5.1 Private invoices
+- [x] 5.2 Storefront pagination / images
+- [x] 5.3 Product page SEO
+- [x] 5.4 Sold / missing-URL states
+- [x] 5.5 Legal pages config (technical only)
 
 ### Phase 6 - Reliability and observability
 
@@ -236,6 +236,21 @@ Observations, left as they are (not bugs against the plan):
 - Approving the quality check shows no success toast (the card just moves).
 
 NOT tested: the Bought modal and the Manual Entry `Units` field / back-fill statuses were not exercised in the dark scan or with quantity > 1 (same components / API-tested in Phase 4); invoice upload and viewing (broken until Phase 5.1); the `/dead-stock/scan` alert flow through the UI; the 401 sign-out redirect; Realtime refresh after a scan; any real Keepa/OpenAI/Pushover call; CSV opened in Excel itself (only the file bytes); phone-width layout; browsers other than Chrome; the hosted project. Machine note: on this Mac the first read of a file costs about one second (a scan of some kind), so a cold backend start after a long idle can take minutes; warm the cache with `find backend/.venv -type f | xargs -P 48 cat > /dev/null`.
+
+### Phase 5
+
+Files: frontend `lib/{invoices,storefront,legal,site,supabaseServer}.ts`, `components/{ListingImage,ProductGallery,RecordView}.tsx`, `app/{robots,sitemap}.ts`, `app/admin/layout.tsx`, `app/product/[id]/{page,not-found}.tsx`; patched `app/page.tsx`, `admin/page.tsx`, `ProductCard`, `CategoryQuadTile`, `StoreNav`, `StoreFooter`, Impressum, Datenschutz, root layout. Turkish docs: `MANUEL-ADIMLAR.md` M8 (rewritten), M17 (legal review points), M18 (`NEXT_PUBLIC_SITE_URL`).
+
+Verified (local Supabase, isolated backend :8100 and a frontend copy :3100, no external services): invoice flow in Chrome (wrong type and 20 MB file refused with a readable toast, PDF uploaded to `invoices/<deal id>/<timestamp>.pdf`, `invoice_path` saved, "View Invoice" opens a signed URL that answers 200; a legacy public link answers 400 to an anonymous request and opens through a signed URL for the admin); product page view-source (title, description, canonical, Open Graph image, Product JSON-LD with `EUR`, price, availability, condition; ad copy containing `</script>` cannot break out of the JSON-LD); 404 with the friendly page for a quarantined, sold, unknown and malformed id; disabled "Bald verfügbar" button plus hint without a Willhaben URL; `/robots.txt`, `/sitemap.xml` (only sellable items), `noindex` on `/admin/*`; homepage requests only the card columns with `limit=60`, a category grid loads 24 then "Load more" (24 + 6), recently viewed is fetched by id. `tsc` clean, `next build` passes (run in a copy of `frontend/`, not the real `.next`); lint shows nothing new (the 3 errors it lists in Impressum, Datenschutz and StoreNav are older and belong to Phase 6.7).
+NOT verified: a production build served with `next start` (dev server used for the runtime checks; the build itself passed); real product photos (test rows use dummy image URLs); the sitemap with more than 1000 rows; what Google actually indexes.
+
+Decisions and deviations:
+- `next/image` with `unoptimized` (`ListingImage`): photos are pasted in as arbitrary https URLs, and allow-listing every host (or `**`) would turn `/_next/image` into an open image proxy. Lazy loading and layout-shift protection stay; anything that is not an https URL shows the placeholder.
+- The product page is a server component with `revalidate = 60`; the gallery and the "recently viewed" recorder are small client components; the accordions are native `<details>`. A sold item may stay visible for up to a minute.
+- Homepage rails are built from the newest 60 listings; a per-category rail shows at most 12 (the category page has them all). "Recently Viewed" asks for exactly the remembered ids.
+- Legacy invoices: the storage path is recovered from the old public URL and opened through a signed URL ("View Invoice (legacy)"), so no data has to be migrated or cleared for viewing.
+- Legal: `legal.ts` only holds the facts; no legal wording was written or changed (the lawyer questions are in M17).
+- `CLAUDE.md` still says every page is client-rendered and mentions `invoice_url`; it is rewritten in Phase 7.4 / 9.1.
 
 ## Manual steps pending
 

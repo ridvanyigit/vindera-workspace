@@ -25,6 +25,7 @@ import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
 import { TARGET_CATEGORIES } from '@/lib/constants';
 import { fetchAllRows } from '@/lib/fetchAll';
+import { INVOICE_ACCEPT, invoiceViewUrl, uploadInvoice } from '@/lib/invoices';
 import { HELD_STATUSES, effectiveCost, holdingDays, returnByBadge } from '@/lib/lifecycle';
 import { useBusinessConfig } from '@/lib/useBusinessConfig';
 import type { ReportSummary } from '@/lib/reportTypes';
@@ -43,7 +44,7 @@ interface Opportunity {
   buybox_seller: string; buybox_is_fba: boolean; deal_score?: number; holding_period_months?: number; seasonality_analysis?: string;
   sku?: string; emergency_sell_price?: number; warehouse_location?: string; product_condition?: string; days_in_inventory?: number;
   is_quarantine?: boolean; score_breakdown?: ScoreBreakdown; willhaben_realistic_price?: number; purchase_thesis?: string;
-  invoice_url?: string; willhaben_url?: string; created_at: string; sold_at?: string;
+  invoice_url?: string; invoice_path?: string | null; willhaben_url?: string; created_at: string; sold_at?: string;
   net_profit_estimate?: number | null; net_margin_estimate?: number | null;
   // Purchase record — filled in by "Mark as Bought"; the effective cost is the actual price when recorded.
   purchase_price_actual?: number | null; purchased_at?: string | null; received_at?: string | null; return_by?: string | null;
@@ -125,7 +126,7 @@ export default function Dashboard() {
     try {
       const data = await fetchAllRows<Opportunity>((from, to) => supabase.from('opportunities').select(`
         id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
-        deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, willhaben_url, created_at, sold_at,
+        deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, invoice_path, willhaben_url, created_at, sold_at,
         net_profit_estimate, net_margin_estimate, purchase_price_actual, purchased_at, received_at, return_by, inbound_shipping_cost, packaging_cost,
         actual_sell_price, actual_profit, shipping_and_prep_cost, platform_fees, customer_inquiries_count, customer_messages_summary, sold_during_event, time_to_sell_days,
         products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
@@ -182,20 +183,28 @@ export default function Dashboard() {
   };
 
   const handleInvoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>, dealId: string) => {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (!file) return;
+    setUploadingInvoice(true);
     try {
-      if (!event.target.files || event.target.files.length === 0) return;
-      setUploadingInvoice(true);
-      const file = event.target.files[0];
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${dealId}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const { error } = await supabase.storage.from('invoices').upload(fileName, file);
-      if (error) throw error;
-      const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
-      const { error: updateError } = await supabase.from('opportunities').update({ invoice_url: publicUrlData.publicUrl }).eq('id', dealId);
-      if (updateError) throw updateError;
+      await uploadInvoice(dealId, file);
       toasts.success('Invoice uploaded.');
       fetchOpportunities();
-    } catch (error) { toasts.error(`Could not upload the invoice: ${errorMessage(error, 'unknown error')}`); } finally { setUploadingInvoice(false); }
+    } catch (error) { toasts.error(`Could not upload the invoice: ${errorMessage(error, 'unknown error')}`); } finally { setUploadingInvoice(false); input.value = ''; }
+  };
+
+  const handleInvoiceOpen = async (deal: Opportunity) => {
+    // Opened synchronously so the popup blocker treats it as part of the click; the signed URL is set once it exists.
+    const tab = window.open('', '_blank');
+    if (tab) tab.opener = null;
+    try {
+      const url = await invoiceViewUrl(deal.invoice_path, deal.invoice_url);
+      if (tab) tab.location.href = url; else window.location.href = url;
+    } catch (error) {
+      tab?.close();
+      toasts.error(`Could not open the invoice: ${errorMessage(error, 'unknown error')}`);
+    }
   };
 
   const copyToClipboard = (text: string, id: string) => { navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); };
@@ -436,14 +445,15 @@ export default function Dashboard() {
                         <span className={`border px-2 py-0.5 rounded shadow-sm text-xs font-bold ${selectedDeal.product_condition === 'NEW' ? 'bg-white border-gray-200 text-gray-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>{selectedDeal.product_condition || 'NEW'}</span>
                         
                         <span className="text-gray-300">|</span>
-                        {selectedDeal.invoice_url ? (
-                          <a href={selectedDeal.invoice_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 px-2 py-0.5 rounded">
-                            <FileText className="h-4 w-4"/> View Invoice
-                          </a>
-                        ) : (
+                        {(selectedDeal.invoice_path || selectedDeal.invoice_url) && (
+                          <button onClick={() => handleInvoiceOpen(selectedDeal)} title={selectedDeal.invoice_path ? undefined : 'Legacy public link, opened through a private link now.'} className="flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 px-2 py-0.5 rounded">
+                            <FileText className="h-4 w-4"/> View Invoice{selectedDeal.invoice_path ? '' : ' (legacy)'}
+                          </button>
+                        )}
+                        {!selectedDeal.invoice_path && (
                           <label className="flex items-center gap-1 text-gray-500 hover:text-indigo-600 font-bold cursor-pointer transition">
-                            <UploadCloud className="h-4 w-4"/> {uploadingInvoice ? 'Uploading...' : 'Attach Invoice'}
-                            <input type="file" accept=".pdf,image/*" className="hidden" disabled={uploadingInvoice} onChange={(e) => handleInvoiceUpload(e, selectedDeal.id)} />
+                            <UploadCloud className="h-4 w-4"/> {uploadingInvoice ? 'Uploading...' : selectedDeal.invoice_url ? 'Attach again' : 'Attach Invoice'}
+                            <input type="file" accept={INVOICE_ACCEPT} className="hidden" disabled={uploadingInvoice} onChange={(e) => handleInvoiceUpload(e, selectedDeal.id)} />
                           </label>
                         )}
                       </div>

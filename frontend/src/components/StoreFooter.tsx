@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Package } from 'lucide-react';
+import { LEGAL } from '@/lib/legal';
 
 /** Corporate footer with legal links — shared by every public storefront page. */
 export default function StoreFooter() {
@@ -41,14 +42,14 @@ export default function StoreFooter() {
           <div>
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-gray-100">Kontakt</h3>
             <ul className="mt-3 flex flex-col gap-2 text-[13px]">
-              <li><a href="mailto:info@rai-recht.at" className="transition hover:text-white">info@rai-recht.at</a></li>
-              <li className="text-gray-500">Wien, Österreich</li>
+              <li><a href={`mailto:${LEGAL.email}`} className="transition hover:text-white">{LEGAL.email}</a></li>
+              <li className="text-gray-500">{LEGAL.city}, {LEGAL.country}</li>
             </ul>
           </div>
         </div>
 
         <div className="mt-10 flex flex-col gap-2 border-t border-gray-800 pt-6 text-[12px] text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-          <p>© {year} Rıdvan Yiğit — Vindera</p>
+          <p>© {year} {LEGAL.name} — Vindera</p>
           <p>Käufe erfolgen ausschließlich über Willhaben — Vindera ist nicht Vertragspartner des Kaufvertrags.</p>
         </div>
       </div>
