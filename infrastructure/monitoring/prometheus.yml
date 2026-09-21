@@ -1,7 +1,21 @@
 global:
   scrape_interval: 15s
 
+# Alert rules are evaluated here and shown in the Prometheus UI (Alerts). Delivering
+# them by e-mail or Pushover needs an Alertmanager, which is a manual step
+# (docs/MANUEL-ADIMLAR.md).
+rule_files:
+  - /etc/prometheus/alerts.yml
+
 scrape_configs:
   - job_name: 'vindera_fastapi'
+    # The backend protects /metrics with a bearer token (METRICS_TOKEN in .env).
+    # Put the same value, on a single line and nothing else, into
+    # infrastructure/monitoring/secrets/metrics_token (git-ignored). The compose
+    # file mounts that folder at /etc/prometheus/secrets. Local development
+    # accepts any value while METRICS_TOKEN is unset on the backend.
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/metrics_token
     static_configs:
       - targets: ['host.docker.internal:8000']

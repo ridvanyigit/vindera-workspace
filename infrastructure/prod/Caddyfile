@@ -1,0 +1,39 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# Domains and the e-mail address come from the environment (see docker-compose.yml).
+{
+	email {$ACME_EMAIL}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}
+
+# --- Backend API ------------------------------------------------------------
+{$API_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+
+	# The API only answers JSON; it never needs to load anything.
+	header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+
+	# Prometheus scrapes /metrics over the internal network. It must never be reachable
+	# from the internet, token or not.
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+
+	reverse_proxy backend:8000
+}
+
+# --- n8n (workflow editor; protected by n8n's own login) ---------------------
+{$N8N_DOMAIN} {
+	import security_headers
+	encode zstd gzip
+	reverse_proxy n8n:5678
+}

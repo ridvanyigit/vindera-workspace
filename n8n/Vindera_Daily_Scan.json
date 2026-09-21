@@ -1,119 +1,157 @@
 {
     "name": "Vindera Daily Auto-Scan",
     "nodes": [
-      {
-        "parameters": {
-          "rule": {
-            "interval": [
-              {
-                "field": "cronExpression",
-                "expression": "15 8 * * *"
-              }
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "cronExpression",
+                            "expression": "15 8 * * *"
+                        }
+                    ]
+                }
+            },
+            "name": "Schedule Trigger (08:15 AM)",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
             ]
-          }
         },
-        "name": "Schedule Trigger (08:15 AM)",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1,
-        "position": [250, 300]
-      },
-      {
-        "parameters": {
-          "values": {
-            "string": [
-              {
-                "name": "asins",
-                "value": "B09Y2MYL5C,B08N5WRWNW,B0CQ8T5Z1P"
-              }
+        {
+            "parameters": {
+                "method": "GET",
+                "url": "={{ ($env.VINDERA_API_BASE_URL || 'http://host.docker.internal:8000') + '/api/v1/deals/watchlist' }}",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "options": {}
+            },
+            "name": "Fetch Watchlist",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4,
+            "position": [
+                450,
+                300
+            ],
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 5000,
+            "notes": "Active ASINs come from the watchlist_asins table (edit the rows in the Supabase Table Editor). Seed list, in case the table is ever lost: B09Y2MYL5C, B08N5WRWNW, B0CQ8T5Z1P.",
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "",
+                    "name": "Vindera Automation Key"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "fieldToSplitOut": "asins",
+                "options": {}
+            },
+            "name": "Split Watchlist",
+            "type": "n8n-nodes-base.splitOut",
+            "typeVersion": 1,
+            "position": [
+                650,
+                300
             ]
-          }
         },
-        "name": "Set ASIN List",
-        "type": "n8n-nodes-base.set",
-        "typeVersion": 1,
-        "position": [450, 300]
-      },
-      {
-        "parameters": {
-          "mode": "runOnceForEachItem",
-          "jsCode": "const asins = $input.item.json.asins.split(',');\nreturn asins.map(asin => ({ json: { asin: asin.trim() } }));"
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{ ($env.VINDERA_API_BASE_URL || 'http://host.docker.internal:8000') + '/api/v1/deals/scan' }}",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "asin",
+                            "value": "={{ $json.asins }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "name": "Trigger FastAPI Deal Scan",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4,
+            "position": [
+                850,
+                300
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "",
+                    "name": "Vindera Automation Key"
+                }
+            }
         },
-        "name": "Split into Items",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [650, 300]
-      },
-      {
-        "parameters": {
-          "method": "POST",
-          "url": "http://host.docker.internal:8000/api/v1/deals/scan",
-          "sendBody": true,
-          "bodyParameters": {
-            "parameters": [
-              {
-                "name": "asin",
-                "value": "={{ $json.asin }}"
-              }
-            ]
-          },
-          "options": {}
-        },
-        "name": "Trigger FastAPI Deal Scan",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4,
-        "position": [850, 300]
-      },
-      {
-        "parameters": {
-          "method": "POST",
-          "url": "http://host.docker.internal:8000/api/v1/deals/dead-stock/scan",
-          "options": {}
-        },
-        "name": "Trigger Dead Stock Check",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4,
-        "position": [450, 500]
-      }
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "={{ ($env.VINDERA_API_BASE_URL || 'http://host.docker.internal:8000') + '/api/v1/deals/dead-stock/scan' }}",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "options": {}
+            },
+            "name": "Trigger Dead Stock Check",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4,
+            "position": [
+                450,
+                500
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "",
+                    "name": "Vindera Automation Key"
+                }
+            }
+        }
     ],
     "connections": {
-      "Schedule Trigger (08:15 AM)": {
-        "main": [
-          [
-            {
-              "node": "Set ASIN List",
-              "type": "main",
-              "index": 0
-            },
-            {
-              "node": "Trigger Dead Stock Check",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Set ASIN List": {
-        "main": [
-          [
-            {
-              "node": "Split into Items",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Split into Items": {
-        "main": [
-          [
-            {
-              "node": "Trigger FastAPI Deal Scan",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      }
+        "Schedule Trigger (08:15 AM)": {
+            "main": [
+                [
+                    {
+                        "node": "Fetch Watchlist",
+                        "type": "main",
+                        "index": 0
+                    },
+                    {
+                        "node": "Trigger Dead Stock Check",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Watchlist": {
+            "main": [
+                [
+                    {
+                        "node": "Split Watchlist",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Split Watchlist": {
+            "main": [
+                [
+                    {
+                        "node": "Trigger FastAPI Deal Scan",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
     },
     "active": true
-  }
+}

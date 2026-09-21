@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { Package, ExternalLink } from 'lucide-react';
-import type { StorefrontListing } from '@/lib/types';
+import { ExternalLink } from 'lucide-react';
+import type { StorefrontCardListing } from '@/lib/types';
+import ListingImage from '@/components/ListingImage';
 
 export type ProductCardSize = 'standard' | 'compact' | 'large' | 'tall';
 
 interface ProductCardProps {
-  item: StorefrontListing;
+  item: StorefrontCardListing;
   size?: ProductCardSize;
 }
 
@@ -48,12 +49,8 @@ const PADDING_CLASS: Record<ProductCardSize, string> = {
 export default function ProductCard({ item, size = 'standard' }: ProductCardProps) {
   return (
     <div className="group relative flex h-full w-full flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
-      <Link href={`/product/${item.id}`} className={`flex ${IMAGE_ASPECT[size]} items-center justify-center overflow-hidden bg-gray-50`}>
-        {item.image_url ? (
-          <img src={item.image_url} alt={item.title} className="h-full w-full object-contain p-4" />
-        ) : (
-          <Package className="h-16 w-16 text-gray-200" />
-        )}
+      <Link href={`/product/${item.id}`} className={`relative flex ${IMAGE_ASPECT[size]} items-center justify-center overflow-hidden bg-gray-50`}>
+        <ListingImage src={item.image_url} alt={item.title} />
       </Link>
 
       <div className={`flex flex-1 flex-col gap-2 ${PADDING_CLASS[size]}`}>
@@ -72,7 +69,7 @@ export default function ProductCard({ item, size = 'standard' }: ProductCardProp
           <a
             href={item.willhaben_url}
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer nofollow"
             className="mt-1 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-[13px] font-bold text-white transition hover:bg-indigo-700"
           >
             Auf Willhaben Kaufen <ExternalLink className="h-4 w-4" />

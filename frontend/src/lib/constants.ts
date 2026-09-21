@@ -29,7 +29,14 @@ export const TARGET_CATEGORIES: Option[] = [
   ...PRODUCT_CATEGORIES,
 ];
 
-/** Opportunity lifecycle states, in pipeline order. */
+/**
+ * Opportunity lifecycle states, in pipeline order.
+ *
+ * Must match the CHECK constraint on `opportunities.status` (supabase/migrations)
+ * and `OpportunityStatus` in backend/src/core/validation.py. `cancelled` and
+ * `written_off` are terminal states that the four workspace tabs do not show;
+ * they appear in Product Master and the manual-entry status list.
+ */
 export const STATUS_OPTIONS: Option[] = [
   { value: 'pending', label: 'Pending — not bought yet' },
   { value: 'bought', label: 'Bought — awaiting receiving check' },
@@ -37,6 +44,8 @@ export const STATUS_OPTIONS: Option[] = [
   { value: 'listed', label: 'Listed — live on Willhaben' },
   { value: 'sold', label: 'Sold — deal closed' },
   { value: 'rejected', label: 'Rejected — failed the No-Buy rules' },
+  { value: 'cancelled', label: 'Cancelled — order cancelled before delivery' },
+  { value: 'written_off', label: 'Written Off — lost, damaged or discarded' },
 ];
 
 /**

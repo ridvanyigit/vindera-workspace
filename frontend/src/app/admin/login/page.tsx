@@ -14,12 +14,14 @@
  */
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { checkIsAdmin } from '@/lib/auth';
 import { ShieldCheck, AlertCircle, ArrowRight, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import { useDarkMode } from '@/lib/useDarkMode';
 
 export default function AdminLogin() {
+  const router = useRouter();
   const { dark, toggle: toggleDark } = useDarkMode();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -52,7 +54,7 @@ export default function AdminLogin() {
       return;
     }
 
-    window.location.href = '/admin';
+    router.replace('/admin');
   };
 
   return (

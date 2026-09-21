@@ -1,18 +1,17 @@
 # 🚀 VINDERA — Technical Documentation
 
-> **Cross-Border AI Arbitrage Engine** — A full-stack business intelligence platform that detects high-margin opportunities on Amazon (via Keepa API) using an AI agent pipeline, and generates localized, SEO-optimized listings for the Austrian second-hand marketplace Willhaben.
+> **Cross-Border AI Arbitrage Engine** — finds price gaps between Amazon.de and the Austrian second-hand marketplace Willhaben (Keepa data, AI-assisted scoring), tracks every unit from scan to sale or return, and keeps the books (ledger, reports, VAT threshold) for a one-person Austrian *Kleinunternehmer*.
 
-**Document Version:** 3.3
-**Last Updated:** 2026-09-20
-**Baseline Release:** `v2.7.0`
-**Source:** Regenerated via full codebase inspection of `/Users/ridvanyigit/Desktop/vindera-workspace`.
+**Document Version:** 4.0 (launch-hardening branch)
+**Last Updated:** 2026-09-21
+**Source:** rewritten from the code after Phases 0-8 of `docs/LAUNCH-PLAN.md`. Where this file and the code disagree, the code wins; `CLAUDE.md` holds the short rules for contributors, `docs/DEPLOY.md` the production runbook.
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#1-overview)
-2. [Architecture Diagram](#2-architecture-diagram)
+2. [Architecture](#2-architecture)
 3. [Technology Stack](#3-technology-stack)
 4. [Project Directory Structure](#4-project-directory-structure)
 5. [Environment Variables](#5-environment-variables)
@@ -22,474 +21,277 @@
 9. [Design System & Typography](#9-design-system--typography)
 10. [n8n Automation Layer](#10-n8n-automation-layer)
 11. [Monitoring / Observability](#11-monitoring--observability)
-12. [Local Development Setup](#12-local-development-setup)
-13. [Known Issues & Technical Debt](#13-known-issues--technical-debt)
+12. [Run, Test and Deploy Commands](#12-run-test-and-deploy-commands)
+13. [Known Limits & Open Items](#13-known-limits--open-items)
 14. [Roadmap](#14-roadmap)
+15. [Release Changelog](#15-release-changelog)
 
 ---
 
 ## 1. Overview
 
-Vindera tracks price drops on Amazon.de using the **Keepa API**, evaluates arbitrage opportunities through an **OpenAI (gpt-4o-mini)** agent chain scored against a 10-criteria acquisition methodology, and generates Austrian-German, SEO-compliant listings for **Willhaben**.
-
 | Layer | Technology | Responsibility |
 |---|---|---|
-| **Frontend** | Next.js 16 (App Router) | IDE-style resizable workspace, product master table, tax & financial reports with business-expense tracking, Austria market calendar |
-| **Backend** | FastAPI (Python) | REST API, AI agent orchestration, deal scoring, guardrails |
-| **Database** | Supabase (PostgreSQL) | Products, price history, opportunities, listings, event calendar, business expenses, invoice storage |
-| **Automation** | n8n (Docker) | Scheduled daily ASIN batch scans and dead-stock check |
-| **Monitoring** | Prometheus + Grafana (Docker) | Backend metric scraping and visualization |
+| **Frontend** | Next.js 16 (App Router), Tailwind v4 | Public storefront (SEO product pages) and the admin back office (workspace, Product Master, Manual Entry, Reports) |
+| **Backend** | FastAPI (Python 3.14, uv) | Authenticated REST API, scan pipeline, profit engine, lifecycle rules, reports, alerts |
+| **Database** | Supabase (PostgreSQL, RLS, Storage, Auth) | Products, units, ledger, settings, audit log, private invoice bucket |
+| **Automation** | n8n | Daily watchlist scan and inventory alerts |
+| **Monitoring** | Prometheus, Grafana, Sentry (optional) | Metrics, alert rules, error tracking |
 
-### Core End-to-End Workflow
+Each `opportunities` row is **one physical unit**. It lives through `pending → bought → in_inventory → listed → sold` (or `rejected`, `cancelled`, `written_off`), and a customer return puts it back in stock.
+
+### Core end-to-end workflow
 
 ```mermaid
 flowchart TD
-    A[ASIN input<br/>Terminal '/scan' command or n8n schedule] --> B[run_deal_scan_pipeline]
-    B --> C[KeepaService.fetch_product_data<br/>Amazon.de pricing & 90-day history]
-    C --> D[Fetch events_calendar<br/>next 90 days of seasonal events]
-    D --> E[DealAnalyzerAgent.analyze_deal<br/>10-criteria score, seasonality, purchase thesis]
-    E -- is_profitable --> F[ListingGeneratorAgent<br/>German listing copy + suggested price]
-    E -- not profitable --> G[Pipeline terminates cleanly]
-    F --> H{No-Buy Guardrails<br/>margin >= 25% AND profit >= 15 EUR}
-    H -- pass --> I[(Persist: status = pending)]
-    H -- fail --> J[(Persist: status = rejected)]
-    I --> K[Pushover alert if deal_score >= 80]
-    I --> L[Frontend workspace<br/>Supabase Realtime refresh]
-    J --> L
+    A[ASIN: admin scan, chatbot /scan or n8n watchlist] --> B[POST /deals/scan<br/>202 + scan_jobs row]
+    B --> C[Keepa: price, BuyBox, demand, 90-day history]
+    C --> D[profit_calculator<br/>sell price, net profit, guardrails]
+    D --> E[DealAnalyzerAgent<br/>qualitative scores; deal_score in code]
+    E --> F{No-Buy guardrails<br/>margin and profit from business_settings}
+    F -- fail --> G[(rejected, no listing copy)]
+    F -- pass --> H[ListingGeneratorAgent<br/>German copy + legal footer from settings]
+    H --> I[persist_scan_result RPC<br/>status pending]
+    I --> J[Pushover if deal_score >= 80<br/>once per product per 7 days]
+    I --> K[Dashboard refresh via Realtime]
+    G --> K
+    K --> L[Owner: Mark as Bought -> Receive -> Listed -> Item Sold / Returned]
+    L --> M[(sale_events ledger)]
+    M --> N[Reports: revenue, COGS, gross profit, ROI, VAT bar, CSV]
 ```
 
 ---
 
-## 2. Architecture Diagram
+## 2. Architecture
 
-```mermaid
-graph TB
-    subgraph Client ["Client Layer (Next.js 16 / React 19)"]
-        STORE["/ — Public Storefront (no account)"]
-        LEGAL["/impressum, /datenschutz"]
-        DASH["/admin — 3-pane Workspace"]
-        PROD["/admin/products — Product Master table"]
-        REP["/admin/reports — Tax & Financial Reports"]
-        ALOGIN["/admin/login — separate admin sign-in"]
-    end
-
-    subgraph BackendApp ["Backend Layer (FastAPI) :8000"]
-        API_ROUTER["API Router (/api/v1)"]
-        CHAT_EP["/chat/"]
-        DEALS_EP["/deals/scan, /deals/manual<br/>/deals/{id}/status<br/>/deals/dead-stock/scan"]
-        EXPENSES_EP["/expenses/ (CRUD)"]
-
-        subgraph Agents ["AI Agent Pipeline"]
-            CHATBOT_AGENT["ChatbotAgent<br/>slash commands + function calling"]
-            DEAL_AGENT["DealAnalyzerAgent<br/>structured output scorecard"]
-            LISTING_AGENT["ListingGeneratorAgent<br/>German copy + auto-pricing"]
-        end
-
-        subgraph Services ["Integrations"]
-            KEEPA_SVC["KeepaService"]
-            NOTIF_SVC["NotificationService (Pushover)"]
-            PROM_INST["Prometheus Instrumentator (/metrics)"]
-        end
-    end
-
-    subgraph DataLayer ["Supabase"]
-        SUPABASE[("PostgreSQL<br/>products · price_history<br/>opportunities · generated_listings<br/>events_calendar · business_expenses")]
-        STORAGE[("Storage bucket: invoices")]
-        AUTH["Supabase Auth"]
-    end
-
-    subgraph ExternalServices ["External APIs"]
-        OPENAI_API["OpenAI gpt-4o-mini"]
-        KEEPA_API["Keepa API (domain 3)"]
-        PUSHOVER_API["Pushover"]
-    end
-
-    subgraph Infra ["Auxiliary Infrastructure (Docker)"]
-        N8N["n8n :5678"]
-        PROM["Prometheus :9090"]
-        GRAFANA["Grafana :3002"]
-    end
-
-    LOGIN --> AUTH
-    DASH --> SUPABASE
-    DASH --> STORAGE
-    PROD --> SUPABASE
-    REP --> SUPABASE
-    DASH -- HTTP REST --> API_ROUTER
-
-    API_ROUTER --> CHAT_EP
-    API_ROUTER --> DEALS_EP
-    API_ROUTER --> EXPENSES_EP
-    CHAT_EP --> CHATBOT_AGENT
-    CHATBOT_AGENT --> DEAL_AGENT
-    DEAL_AGENT --> LISTING_AGENT
-
-    CHATBOT_AGENT --> OPENAI_API
-    DEAL_AGENT --> OPENAI_API
-    LISTING_AGENT --> OPENAI_API
-    DEAL_AGENT --> KEEPA_SVC
-    KEEPA_SVC --> KEEPA_API
-    DEAL_AGENT --> NOTIF_SVC
-    NOTIF_SVC --> PUSHOVER_API
-    DEALS_EP -- Service Role Key --> SUPABASE
-    EXPENSES_EP -- Service Role Key --> SUPABASE
-    DEALS_EP --> NOTIF_SVC
-    REP -- HTTP REST --> EXPENSES_EP
-
-    N8N -. scheduled POST .-> DEALS_EP
-    PROM -- scrapes /metrics --> PROM_INST
-    GRAFANA --> PROM
 ```
+Browser ──> Vercel (Next.js frontend) ──> Supabase (Auth, Postgres, Storage)      reads with the anon/user key, RLS
+   │                                            ▲
+   └──── HTTPS + Bearer <Supabase access token> │ service role (writes, RPC)
+                     ▼                          │
+             Caddy (VPS, 80/443) ──> FastAPI backend (ONE uvicorn worker) ──> Keepa, OpenAI, Pushover
+                     ├──> n8n  (own owner login)  ── X-Vindera-Key ──> backend
+                     └── Prometheus (scrapes /metrics with METRICS_TOKEN) ── Grafana (127.0.0.1, SSH tunnel)
+```
+
+- **Write-path rule:** all mutations from the browser go through the backend (service role). The browser's Supabase role can only `SELECT`, plus a column-level `UPDATE` of `opportunities.invoice_url` / `invoice_path` and the file upload into the private `invoices` bucket.
+- **Production** (Docker Compose in `infrastructure/prod/`): Caddy, backend, n8n, Prometheus, Grafana on one VPS; the frontend on Vercel; the database on hosted Supabase (EU). Details, DNS, firewall and rollback: `docs/DEPLOY.md`.
+- **Local**: everything runs from the workspace root against a local Supabase (`supabase start`); see §12.
 
 ---
 
 ## 3. Technology Stack
 
-| Scope | Technology | Version |
-|---|---|---|
-| Frontend Framework | Next.js (App Router) | `16.3.4` |
-| UI Runtime | React / React DOM | `19.2.8` |
-| Styling | TailwindCSS (CSS-first `@theme`) | `^4` |
-| UI Font | Inter (`next/font/google`) | variable |
-| Mono Font | JetBrains Mono (`next/font/google`) | variable |
-| Icons | lucide-react | `^1.45.0` |
-| Charts | recharts | `^3.10.1` |
-| Layout / Splitters | react-resizable-panels | `^4.12.4` |
-| Date Utilities | date-fns | `^4.4.0` |
-| DB Client (Frontend) | @supabase/supabase-js | `^2.116.0` |
-| Backend Framework | FastAPI | `>=0.141.1` |
-| ASGI Server | uvicorn[standard] | `>=0.52.4` |
-| Python Runtime / Manager | CPython `>=3.14` / uv | `uv.lock` |
-| Validation | Pydantic + pydantic-settings | `>=2.13.5` / `>=2.15.0` |
-| HTTP Client (Backend) | httpx | `>=0.28.1` |
-| AI SDK | openai (Python) | `>=3.13.0` |
-| DB Client (Backend) | supabase (Python) | `>=2.31.0` |
-| Metrics | prometheus-fastapi-instrumentator | `>=8.1.0` |
-| Language Model | OpenAI `gpt-4o-mini` | — |
-| Automation | n8n | `docker.n8n.io/n8nio/n8n` |
-| Pricing Data | Keepa API (domain 3 = Amazon.de) | — |
+| Area | Choice |
+|---|---|
+| Frontend | Next.js 16, React 19, Tailwind CSS v4 (no `tailwind.config.js`), recharts, Vitest 5 |
+| Backend | FastAPI, Pydantic v2 / pydantic-settings, supabase-py, httpx, slowapi (rate limits), prometheus-client, sentry-sdk (optional), `tzdata`; tests: pytest, pytest-asyncio, respx |
+| Database | PostgreSQL 17 on Supabase; SQL functions (RPC), triggers, RLS |
+| AI | OpenAI (`OPENAI_MODEL`, default `gpt-4o-mini`), structured outputs |
+| Data | Keepa API (Amazon.de, domain 3) |
+| Notifications | Pushover |
+| Automation | n8n |
+| Ops | Docker, Caddy 2.10 (automatic HTTPS), Prometheus 3.5, Grafana 12.2, GitHub Actions |
 
 ---
 
 ## 4. Project Directory Structure
 
 ```
-vindera-workspace/
-├── .env                          # Git-ignored active secrets
-├── .env.example                  # Environment template
-├── CLAUDE.md                     # Guidance for Claude Code
-├── README.md
-├── TECH-DOKUMENTATION.md         # This document
-│
-├── backend/
-│   ├── .python-version
-│   ├── pyproject.toml
-│   ├── uv.lock
-│   └── src/
-│       ├── main.py               # FastAPI app: CORS, lifespan, Prometheus, routers
-│       ├── agents/
-│       │   ├── chatbot_agent.py
-│       │   ├── deal_analyzer_agent.py
-│       │   └── listing_generator_agent.py
-│       ├── api/endpoints/
-│       │   ├── chat.py
-│       │   ├── deals.py          # Scan pipeline, manual deals, status, dead-stock scan
-│       │   └── expenses.py       # Business expense CRUD
-│       ├── core/
-│       │   ├── categories.py     # Canonical categories + Keepa category mapping
-│       │   ├── config.py
-│       │   └── database.py
-│       └── services/
-│           ├── keepa_service.py
-│           └── notification_service.py
-│
-├── frontend/
-│   ├── src/app/
-│   │   ├── layout.tsx            # Root layout: Inter + JetBrains Mono font variables
-│   │   ├── globals.css           # Design tokens, typography scale, scoped dark mode
-│   │   ├── page.tsx              # Public storefront
-│   │   ├── product/[id]/page.tsx # Public product detail
-│   │   ├── impressum/page.tsx · datenschutz/page.tsx
-│   │   └── admin/
-│   │       ├── page.tsx          # 3-pane Workspace (protected)
-│   │       ├── login/page.tsx    # Separate admin sign-in
-│   │       ├── manual-entry/page.tsx  # Manual deal entry / edit form
-│   │       ├── products/page.tsx      # Product Master (resizable table + CSV export)
-│   │       └── reports/page.tsx       # Tax & Financial Reports + business expenses
-│   ├── src/components/
-│   │   ├── CommandBar.tsx        # Embedded AI terminal
-│   │   ├── AustriaCalendarModal.tsx  # Austria market calendar (opened from AI Smart Radar)
-│   │   └── ProductCard · CategoryQuadTile · HorizontalRail · StoreNav · StoreFooter
-│   ├── src/lib/
-│   │   ├── api.ts                # Backend base URL helper (NEXT_PUBLIC_API_URL)
-│   │   ├── auth.ts               # Admin check (is_admin RPC)
-│   │   ├── austriaCalendar.ts    # Austria calendar data + holiday computation
-│   │   ├── constants.ts          # Categories, statuses, conditions, score criteria, expense categories
-│   │   ├── recentlyViewed.ts · types.ts
-│   │   ├── supabase.ts
-│   │   └── useDarkMode.ts        # Dark/light mode hook (localStorage + system preference)
-│   └── next.config.ts · tsconfig.json · eslint.config.mjs · postcss.config.mjs
-│
-├── supabase/
-│   ├── config.toml
-│   ├── seed.sql                  # Local-only seed data (runs on `supabase db reset`)
-│   ├── .temp/                    # CLI cache (git-ignored)
-│   └── migrations/               # Schema of record — never edit an applied migration
-│
-├── infrastructure/monitoring/
-│   ├── docker-compose.yml        # Prometheus + Grafana
-│   └── prometheus.yml
-│
-└── n8n/
-    ├── docker-compose.yml
-    └── Vindera_Daily_Scan.json   # Daily 08:15 batch scan + dead-stock check workflow
+backend/
+  Dockerfile, .dockerignore, pyproject.toml, uv.lock
+  scripts/smoke_auth.sh            end-to-end auth check of a running backend
+  src/main.py                      app factory, middleware, router mounting, startup guards
+  src/core/                        config, auth, database, validation, rate_limit, middleware,
+                                   logging_config, metrics, sentry, categories
+  src/api/endpoints/               deals.py, expenses.py, reports.py, chat.py, health.py
+  src/services/                    profit_calculator, lifecycle, scan_pipeline, keepa_service,
+                                   business_settings, inventory_alerts, notification_service, db_util
+  src/agents/                      deal_analyzer_agent, listing_generator_agent, chatbot_agent
+  tests/                           conftest.py (isolation), fakes.py (in-memory Supabase), test_*.py, data/
+frontend/
+  src/app/                         /, /product/[id], /impressum, /datenschutz, robots, sitemap, error pages
+  src/app/admin/                   page (workspace), products, manual-entry, reports, login, layout
+  src/components/                  ProductCard, StoreNav/Footer, CommandBar, Bought/Sale/Return modals, Toast, ScanStatusList, ...
+  src/lib/                         apiFetch, profit (preview port), lifecycle, storefront, invoices, legal, constants, ...
+  src/lib/__tests__/               Vitest (profit golden vectors, lifecycle helpers)
+supabase/
+  migrations/                      immutable, timestamped (never edit an applied one)
+  tests/                           phase2_smoke.sql, report_summary_smoke.sql (rolled back)
+  scripts/                         cleanup_test_data.sql (manual, NOT a migration)
+  seed.sql, config.toml
+n8n/                               docker-compose.yml, Vindera_Daily_Scan.json
+infrastructure/
+  monitoring/                      local Prometheus + Grafana, alerts.yml
+  prod/                            docker-compose.yml, Caddyfile, prometheus.yml, .env.prod.example
+  backup/                          backup.sh, backup.env.example
+.github/workflows/ci.yml           backend, frontend, database, deploy-config jobs (no secrets)
+docs/                              LAUNCH-PLAN, LAUNCH-PROGRESS, DEPLOY, MANUEL-ADIMLAR (tr), LAUNCH-CHECKLIST.tr, MANUAL-TEST-SCRIPT (tr)
 ```
 
 ---
 
 ## 5. Environment Variables
 
-Root template: `.env.example`. The backend resolves it via `env_file="../.env"` in `core/config.py`.
+**Backend** (`/.env` locally, `infrastructure/prod/.env.prod` on the server). Template: `.env.example`.
 
-| Variable | Description | Required |
+| Variable | Required | Meaning |
 |---|---|---|
-| `SUPABASE_URL` | Supabase project API URL | ✅ |
-| `SUPABASE_ANON_KEY` | Public key (frontend) | Frontend |
-| `SUPABASE_SERVICE_ROLE_KEY` | Admin key bypassing RLS | ✅ Backend |
-| `OPENAI_API_KEY` | `gpt-4o-mini` access | Optional — falls back to mock data |
-| `KEEPA_API_KEY` | Keepa access token | Optional — falls back to mock (€45 / €99) |
-| `PUSHOVER_USER_KEY` | Pushover delivery token | Optional |
-| `PUSHOVER_API_TOKEN` | Pushover app token | Optional |
-| `ENVIRONMENT` | `development` / `production` | Default `development` |
-| `FASTAPI_SECRET_KEY` | Application secret | Insecure default ⚠️ |
-| `CORS_ALLOWED_ORIGINS` | Comma-separated origins allowed to call the API | Default: local dev servers |
-| `GRAFANA_ADMIN_PASSWORD` | Grafana admin password (monitoring compose) | Default `admin` ⚠️ |
+| `ENVIRONMENT` | no | `development` (default), `test`, `production`. `production` enables the startup guard below |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | yes | Service-role access; never leaves the backend |
+| `AUTOMATION_SHARED_SECRET` | prod | n8n header `X-Vindera-Key` (32+ chars in production) |
+| `METRICS_TOKEN` | prod | Bearer token for `/metrics` (32+ chars in production) |
+| `CORS_ALLOWED_ORIGINS` | prod | Comma-separated frontend origins; no localhost in production |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | optional | Without a key no OpenAI call is made and a scan ends as a failed job |
+| `KEEPA_API_KEY` | optional | Same rule for Keepa |
+| `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN` | optional | Push notifications |
+| `SENTRY_DSN` | optional | Enables Sentry (PII scrubbed) |
+| `LOG_LEVEL` | no | `INFO` default |
+| `ALLOW_MOCK_DATA` | dev only | `true` allows `[MOCK]` deals without keys; refused in production |
+| `RETURN_WINDOW_DAYS`, `SELL_PRICE_POSITION` | no | Defaults 30 and 0.5 (midpoint of today's and the 90-day price) |
 
-Frontend additionally uses `frontend/.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_API_URL`.
+`ENVIRONMENT=production` makes the backend **refuse to start** unless the Supabase URL and key, `AUTOMATION_SHARED_SECRET` and `METRICS_TOKEN` are set (32+ characters), `CORS_ALLOWED_ORIGINS` has no localhost entry and `ALLOW_MOCK_DATA` is false. It also turns off `/docs`, `/redoc` and `/openapi.json`.
+
+**Production-only** (`.env.prod`): `API_DOMAIN`, `N8N_DOMAIN`, `ACME_EMAIL`, `N8N_ENCRYPTION_KEY`, `N8N_IMAGE_TAG`, `GRAFANA_ADMIN_PASSWORD`. Every service gets its own `environment:` list, so n8n and Grafana never see the backend's secrets.
+
+**Frontend** (`frontend/.env.local` locally, Vercel project settings in production; template `frontend/.env.example`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SITE_URL`. Public by definition: never put a secret in a `NEXT_PUBLIC_*` variable. They are read at build time.
+
+The owner's business numbers (shipping, packaging, fees, minimum margin/profit, VAT threshold, return window, listing texts) are **not** environment variables: they are the single `business_settings` row (60 s cache in the backend).
 
 ---
 
 ## 6. Backend (FastAPI)
 
-### 6.1 Application Entry — `backend/src/main.py`
+### 6.1 Authentication
 
-- Real entrypoint:
-  ```bash
-  cd backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-  ```
-- `lifespan` performs a Supabase connectivity probe against `products` on startup.
-- **CORS:** origins come from `CORS_ALLOWED_ORIGINS` (comma-separated). A wildcard is deliberately not used because credentials are enabled.
-- Prometheus metrics exposed at `/metrics`.
-- Routers `deals`, `chat` and `expenses` mounted under `/api/v1`.
+- Every `/api/v1/*` route requires `Authorization: Bearer <Supabase access token>` of an account in `admin_users` (`core/auth.py: require_admin`; the token check is cached for 60 s). A valid token of a non-admin gives 403, a bad one 401, an unreachable auth service 503.
+- `POST /deals/scan`, `POST /deals/dead-stock/scan`, `GET /deals/watchlist` also accept `X-Vindera-Key: <AUTOMATION_SHARED_SECRET>` (constant-time comparison; `require_admin_or_automation`).
+- `/metrics` needs `Authorization: Bearer <METRICS_TOKEN>`. `/healthz` and `/readyz` are the only public routes (no data). In production Caddy additionally answers `/metrics` with 404 from the internet.
+- `main.py` calls `assert_routes_protected`: a new `/api/v1` router without an auth dependency stops the app from starting.
+- Rate limits (slowapi): chat 20/min, scan 30/min, everything else 120/min per IP, plus a shared 300/min application limit; the client IP comes from `--proxy-headers` behind Caddy.
 
-### 6.2 API Endpoints
+### 6.2 API endpoints (`/api/v1`)
 
-| Method | Path | Description |
+| Method and path | Auth | Purpose |
 |---|---|---|
-| `GET` | `/` | Health check |
-| `GET` | `/metrics` | Prometheus scrape endpoint |
-| `POST` | `/api/v1/chat/` | Dispatches a message to `ChatbotAgent` |
-| `POST` | `/api/v1/deals/scan` | Queues a background deal scan for one ASIN. Returns `202 Accepted` immediately. Used by the n8n daily batch |
-| `POST` | `/api/v1/deals/manual` | Persists a hand-entered deal (`products` → `opportunities` → `generated_listings`) through the service role. Returns `201` with the generated SKU and computed margin |
-| `PUT` | `/api/v1/deals/{opportunity_id}/manual` | Replaces every editable field of an existing deal across all three tables. Stamps or clears `sold_at` as the status changes |
-| `DELETE` | `/api/v1/deals/{opportunity_id}` | Deletes one opportunity and its generated listing. The `products` row and its price history are kept |
-| `POST` | `/api/v1/deals/dead-stock/scan` | Queues the dead-stock check (see §6.6). Returns `202 Accepted`; called daily by n8n. Safe to call repeatedly — an item is only announced once |
-| `POST` / `GET` | `/api/v1/expenses/` | Record one business expense / list all, newest first |
-| `PUT` / `DELETE` | `/api/v1/expenses/{expense_id}` | Replace every editable field of an expense / delete it. `404` for an unknown id |
-| `PATCH` | `/api/v1/deals/{opportunity_id}/status` | Updates lifecycle status and optional fields (`product_condition`, `is_quarantine`, `target_sell_price`, `purchase_thesis`); stamps `sold_at` when status becomes `sold`; returns `404` for an unknown id |
+| `POST /deals/scan` | admin or key | Start a scan for one ASIN; 202 + `job_id` |
+| `GET /deals/watchlist` | admin or key | Active ASINs from `watchlist_asins` (used by n8n) |
+| `POST /deals/dead-stock/scan` | admin or key | Run the two inventory alerts (dead stock, return deadline) |
+| `GET /deals/scans` | admin | Recent scan jobs with outcome and reason |
+| `PATCH /deals/{id}/status` | admin | Status change (state machine) and editable fields; illegal move gives 409 |
+| `POST /deals/{id}/sale` | admin | Record a sale in the ledger; the backend computes the profit |
+| `POST /deals/{id}/return` | admin | Customer return: refund event, unit back in stock in quarantine |
+| `DELETE /deals/{id}` | admin | Soft delete (`deleted_at`); refused (409) for a unit with a sale |
+| `POST /deals/manual`, `PUT /deals/{id}/manual` | admin | Manual entry through the atomic RPCs (quantity 1-50 creates suffixed SKUs) |
+| `GET /reports/summary?year=` | admin | Yearly report (`report_summary` SQL function) |
+| `GET /reports/export.csv?year=` | admin | CSV for the Steuerberater (UTF-8 BOM, `;`, decimal comma, formula-safe) |
+| `POST/GET/PUT/DELETE /expenses/` | admin | Business expenses |
+| `POST /chat/` | admin | Chatbot (`/list`, `/scan`, `/help`, natural language). It **cannot delete** anything |
+| `GET /healthz`, `GET /readyz` | public | Liveness; database reachability (503 when down) |
+| `GET /metrics` | metrics token | Prometheus |
 
-> The scan pipeline is also reachable from the workspace terminal via `/scan <ASIN>`.
+Errors from the SQL functions are mapped by `services/db_util.call_rpc`: `22023` gives 422, `P0002` 404, `55000` 409, `23505` 409. Validation (`core/validation.py`) checks ASIN format, status values, numeric bounds and https/willhaben URLs.
 
-### 6.3 Deal Scan Pipeline — `run_deal_scan_pipeline(asin)`
+### 6.3 Scan pipeline (`services/scan_pipeline.py`)
 
-1. Fetch Keepa product data (or mock values if no key), including the product category.
-2. Pick a simulated BuyBox seller via `random.choice` (Amazon / MediaMarkt AT / third-party FBM).
-3. Load `events_calendar` rows for the next 90 days and pass them to the AI as seasonality context.
-4. `DealAnalyzerAgent.analyze_deal(...)` produces the scorecard. A non-profitable verdict ends the run.
-5. If profitable, `ListingGeneratorAgent` generates the German listing and suggested price.
-6. **No-Buy Guardrails:** status is set to `rejected` when `estimated_profit_margin < 25` **or** raw profit `< €15`.
-7. Persist `products` (upsert on `asin,amazon_locale`), 6 synthetic `price_history` rows, the `opportunity` (with generated SKU `GEN-XXXXXX`, emergency price = 85% of target, warehouse `A01`), and the `generated_listing`.
-8. Push a Pushover alert only when `deal_score >= 80` **and** the deal was not rejected.
+At most 2 scans run at once; each one is a `scan_jobs` row that ends as `succeeded | rejected | failed` with a readable reason (dashboard: AI Terminal → **Scans**).
 
-### 6.4 AI Agents
+1. **Keepa** (`services/keepa_service.py`): `stats=90, history=1, buybox=1, days=90, domain=3`. Buy price = BuyBox, else Amazon, else 3rd-party new; reference = 90-day BuyBox average (fallbacks: Amazon, then new). Real daily price points are stored. HTTP 429/503 means "tokens exhausted": the job fails with `retry_after` and one Pushover per day. 3 attempts with backoff.
+2. **Profit** (`services/profit_calculator.py`): sell price = midpoint of today's price and the 90-day price (`SELL_PRICE_POSITION`).
+3. **DealAnalyzerAgent**: qualitative scores only (clamped to 0-10 in code); `deal_score` is computed in code, demand is capped at 5 without Keepa demand data, risk at 3 for a seller that is neither Amazon nor FBA.
+4. **ListingGeneratorAgent**: German Willhaben copy; the payment line and the legal footer are appended **verbatim from `business_settings`**; the model never sees buy price and never writes legal wording. Rejected deals get no listing.
+5. **`persist_scan_result` RPC**: one transaction for product, price history, opportunity and listing. Scanning the same ASIN again refreshes its single open row.
+6. **Pushover** for hot deals (score >= 80), once per product per 7 days.
 
-#### `ChatbotAgent` (`chatbot_agent.py`)
-Two execution modes:
+A Keepa or OpenAI failure fails the job and writes nothing. There is no mock fallback outside `ALLOW_MOCK_DATA=true`. Jobs left `queued`/`running` by a restart are closed at startup.
 
-1. **Deterministic slash commands (no API credits needed):**
-   - `/list` — inventory listing from `opportunities` joined with `products`
-   - `/scan <ASIN>` — spawns `run_deal_scan_pipeline` via `asyncio.create_task`
-   - `/delete <ASIN>` — cascade-deletes the product
-   - `/help` — command reference
-2. **Natural language mode (`gpt-4o-mini`)** with three declared tools: `get_inventory_status`, `scan_new_asin`, `delete_asin`. Every OpenAI call is wrapped: on auth or quota failure the agent returns a formatted banner pointing back to the slash commands. Unrecognized slash commands return the help text instead of falling through to the model.
+### 6.4 Profit engine (one place for all money math)
 
-#### `DealAnalyzerAgent` (`deal_analyzer_agent.py`)
-Structured output via `client.beta.chat.completions.parse` against:
+`backend/src/services/profit_calculator.py` (Decimal; every amount rounded to cents, half away from zero, before the next step):
 
-```python
-class ScoreBreakdown(BaseModel):
-    discount: int; demand: int; competition: int
-    capital_efficiency: int; storage_size: int
-    risk_level: int; seasonality: int          # each 0-10
-
-class DealAnalysisResult(BaseModel):
-    is_profitable: bool
-    estimated_profit_margin: float
-    reasoning: str
-    deal_score: int                            # 0-100
-    seasonality_analysis: str
-    holding_period_months: int
-    breakdown: ScoreBreakdown
-    willhaben_realistic_price: float
-    purchase_thesis: str
+```
+total_cost     = purchase_price + inbound_shipping + packaging
+platform_fees  = sell_price * platform_fee_pct / 100 + platform_fee_fixed
+payment_fees   = sell_price * payment_fee_pct / 100
+return_reserve = sell_price * return_reserve_pct / 100
+net_profit     = sell_price - total_cost - outbound_shipping - platform_fees - payment_fees - return_reserve
+net_margin_pct = net_profit / total_cost * 100          (margin on COST)
 ```
 
-Risk weighting: Amazon-owned or FBA BuyBox scores high on `risk_level`; third-party FBM is penalized heavily.
+- **No-Buy guardrail:** net margin >= `min_net_margin_pct` AND net profit >= `min_net_profit_eur` (both from `business_settings`; equal passes).
+- **Break-even price**, **emergency price** (85 % of target, never below break-even; only lifted, never lowered, when cost or target changes) come from the same module.
+- **Actual profit** of a sale uses the recorded sale amounts and the effective cost of the unit; a cost that was never recorded counts as zero (same rule as the report).
+- `frontend/src/lib/profit.ts` is a preview-only port. Both are tested against `backend/tests/data/profit_golden_vectors.json`; the backend recomputes and stores its own figures on every save and never trusts a client-sent profit.
+- Effective unit cost = `coalesce(purchase_price_actual, buy_price) + inbound_shipping_cost + packaging_cost` (SQL: `effective_total_cost(o)`).
 
-#### `ListingGeneratorAgent` (`listing_generator_agent.py`)
-Produces a `GeneratedListing` (title, structured German description, suggested price). The description template is intentionally **German** because it is published verbatim on Willhaben (`Zustand`, `Lieferumfang`, `Garantie/Rechnung`, `Übergabe`, `Bezahlung`).
+### 6.5 Lifecycle, ledger and alerts
 
-Auto-pricing: `suggested_price = bought_price + (historical_price − bought_price) / 2`
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> bought
+    pending --> rejected
+    rejected --> pending
+    bought --> in_inventory
+    bought --> cancelled
+    in_inventory --> listed
+    in_inventory --> written_off
+    listed --> sold: POST /sale only
+    listed --> in_inventory
+    listed --> written_off
+    sold --> in_inventory: POST /return (quarantine)
+```
 
-### 6.5 Services
+- `services/lifecycle.py` is the only place that defines transitions (illegal gives 409; status changes are compare-and-set). `sold` is reached only through `POST /deals/{id}/sale`; `POST /deals/{id}/return` reverses it in the ledger.
+- Sales and refunds are rows of the **append-only `sale_events` ledger** (UPDATE/DELETE/TRUNCATE raise). A unit with a sale is never deleted; a product row is never deleted. All reads exclude `deleted_at IS NOT NULL`.
+- `return_by` = purchase date + `return_window_days`. `services/inventory_alerts.py` (called by `/dead-stock/scan`) sends one Pushover per unit for stock older than 60 days and for units whose return window closes within 5 days.
+- Status, price and link changes are recorded in `audit_log` by trigger.
 
-- **`KeepaService`** — `GET https://api.keepa.com/product` with `domain=3`, `stats=1`, `days=90`. Parses Keepa's cent-integer arrays; falls back from the Amazon price index to the third-party New index when Amazon is out of stock (`-1`). Maps Keepa's `categoryTree` onto the canonical categories in `core/categories.py`.
-- **`NotificationService`** — Pushover POST at priority 1 with product title, buy price, margin and Amazon URL (hot deals). `send_dead_stock_alert()` sends one priority-0 digest for dead-stock items and returns `True` only when Pushover accepted it.
+### 6.6 Reports
 
-### 6.6 Dead-Stock Push Notification — `run_dead_stock_scan()`
+`GET /reports/summary` calls the SQL function `report_summary(year)`: revenue = sales minus refunds by **Europe/Vienna** calendar year; COGS = effective cost of sold units (reversed by a refund); gross profit; expenses; before-tax result; ROI = gross profit / COGS; VAT-threshold percentage = year revenue / `vat_threshold_eur`; a cash (E/A) view by purchase date. The cash view is a management aid, not tax advice. `GET /reports/export.csv` is the same data for the Steuerberater.
 
-Mirrors the "Dead Stock Alert" banner in the workspace inspector (open item older than 60 days), but proactively:
+### 6.7 Observability
 
-1. Select `opportunities` with status `bought` / `in_inventory` / `listed`, `created_at` older than `DEAD_STOCK_DAYS` (60) and `dead_stock_notified_at IS NULL`.
-2. Keep only items strictly more than 60 full days old (same rule as the UI banner), sorted oldest first.
-3. Send **one** Pushover digest (`Vindera Dead Stock`; messages are truncated below Pushover's 1024-character limit with a "+N more" line).
-4. Only after Pushover accepts the message, stamp `dead_stock_notified_at`. An item is therefore announced once, and retried on the next run if delivery failed (missing credentials, network error).
-
-Triggered by the second branch of the n8n workflow (§10) via `POST /api/v1/deals/dead-stock/scan`.
+JSON logs on stdout with a request id (`X-Request-Id`), secrets masked, request bodies never logged, `httpx` logging capped at WARNING (Keepa's key travels in the query string). A middleware turns unexpected errors into a JSON 500 with the request id and reports to Sentry. Prometheus metrics: `vindera_scan_jobs_total`, `vindera_keepa_tokens_left`, `vindera_openai_errors_total`, plus the standard HTTP metrics; alert rules in `infrastructure/monitoring/alerts.yml` (BackendDown, HighServerErrorRate, ScanJobsFailing, KeepaTokensLow, OpenAIErrors). **Metrics are per process: run exactly one uvicorn worker.**
 
 ---
 
 ## 7. Database (Supabase / PostgreSQL)
 
-Schema of record: `supabase/migrations/`.
-
-### 7.0 Row Level Security
-
-Migration `20260916140000_enable_rls_policies.sql` enables RLS on **the original five tables** and grants `SELECT` to the `authenticated` role only (`opportunities` additionally allows `UPDATE` for the in-browser invoice attachment). The blanket `anon` grants from the original remote schema are revoked.
-
-Consequences:
-- Every frontend route must have a valid Supabase session; all of them now guard for it.
-- The backend is unaffected — the service role key bypasses RLS by design.
-- Before this migration the public anon key could read the entire database without logging in, and `events_calendar` was unreadable because RLS was on with no policy at all.
-- `business_expenses` (added later) follows the admin model: RLS on, `SELECT` for `is_admin()` only, no write policies — writes go through the backend's service role.
-
 ### 7.1 Tables
 
-| Table | Purpose |
+| Table / view | Purpose |
 |---|---|
-| `products` | Amazon catalogue entries, unique on `(asin, amazon_locale)` |
-| `price_history` | Time-series of Amazon / BuyBox prices |
-| `opportunities` | The core arbitrage record and its full lifecycle |
-| `generated_listings` | AI-generated Willhaben copy per opportunity |
-| `events_calendar` | Seasonal events used as AI seasonality context |
-| `business_expenses` | Costs not tied to a single deal (storage, packaging, subscriptions, …); subtracted from gross profit on Tax & Reports. One row per payment; `is_recurring` only labels the row, it does not generate future rows |
+| `products` | One row per ASIN (title, category, images, Keepa figures). Never deleted |
+| `opportunities` | One row per physical unit: status (CHECK constraint), prices, purchase record, return-by, SKU (unique), invoice, Willhaben URL, `deleted_at`, quarantine flag |
+| `price_history` | Real Keepa price points (unique per product and timestamp) |
+| `generated_listings` | German ad copy per unit |
+| `sale_events` | Append-only ledger of sales and refunds |
+| `business_settings` | The single settings row (fees, shipping, minimums, VAT threshold, texts) |
+| `scan_jobs` | One row per scan with outcome and reason |
+| `watchlist_asins` | ASINs the daily n8n run scans (`active` flag) |
+| `business_expenses` | Costs not tied to a deal |
+| `events_calendar` | Seasonal events used by the AI prompt |
+| `audit_log` | Trigger-written history of status, price and link changes |
+| `admin_users` | Who may use the admin API (RLS on, no policies: invisible to browsers) |
+| `storefront_listings` (view) | The only thing the public storefront reads |
 
-**`opportunities` columns** (beyond the original set): `deal_score`, `holding_period_months`, `seasonality_analysis`, `sku`, `emergency_sell_price`, `warehouse_location`, `product_condition`, `days_in_inventory`, `is_quarantine`, `score_breakdown` (jsonb), `willhaben_realistic_price`, `purchase_thesis`, `invoice_url`, `sold_at`, `dead_stock_notified_at` (timestamp; set by the backend once the dead-stock push for the item was delivered; not exposed by `storefront_listings`).
+Functions: `is_admin()` (SECURITY DEFINER), the atomic writers `persist_scan_result`, `create_manual_deal`, `update_manual_deal`, `record_sale`, `record_return` (executable by `service_role` only; payload keys documented in `20260921091100_atomic_write_functions.sql`), `report_summary(year)`, `effective_purchase_price(o)`, `effective_total_cost(o)`.
 
-All foreign keys cascade on delete. Invoice PDFs/images live in the Supabase Storage bucket **`invoices`**.
+### 7.2 Access model
 
-### 7.2 Entity Relationship Diagram
+- `authenticated` (the browser) has SELECT only, plus column-level UPDATE of `opportunities.invoice_url` / `invoice_path`. `anon` reads only `storefront_listings`.
+- `storefront_listings` shows only `in_inventory` / `listed` units that are not quarantined and not soft-deleted, with customer-safe columns (no buy price, margin or thesis). Adding a column to a table does **not** expose it.
+- DB guards: sold units and units with sale events cannot be hard- or soft-deleted; products and units are `ON DELETE RESTRICT`; `sale_events` is append-only.
+- Storage: bucket `invoices` is **private** (PDF/images, size limit); files are opened through 10-minute signed URLs (`frontend/src/lib/invoices.ts`). Legacy public invoice links are recovered to signed URLs ("View Invoice (legacy)").
+- Realtime: `opportunities` is in the publication; the dashboard refreshes after a background scan.
 
-```mermaid
-erDiagram
-    products ||--o{ price_history : "tracks"
-    products ||--o{ opportunities : "generates"
-    opportunities ||--o{ generated_listings : "produces"
-    events_calendar {
-        UUID id PK
-        VARCHAR event_name
-        DATE event_date
-        TEXT_ARRAY target_categories
-    }
+### 7.3 Migrations and tests
 
-    business_expenses {
-        UUID id PK
-        TEXT description
-        NUMERIC amount
-        TEXT category
-        DATE incurred_at
-        BOOLEAN is_recurring
-        TIMESTAMP created_at
-    }
-
-    products {
-        UUID id PK
-        VARCHAR asin
-        VARCHAR amazon_locale
-        TEXT title
-        VARCHAR category
-        TEXT image_url
-        TIMESTAMP created_at
-    }
-
-    price_history {
-        UUID id PK
-        UUID product_id FK
-        NUMERIC price_amazon
-        NUMERIC price_buybox
-        BOOLEAN is_deal
-        TIMESTAMP recorded_at
-    }
-
-    opportunities {
-        UUID id PK
-        UUID product_id FK
-        NUMERIC buy_price
-        NUMERIC target_sell_price
-        NUMERIC emergency_sell_price
-        NUMERIC willhaben_realistic_price
-        NUMERIC profit_margin
-        INTEGER deal_score
-        JSONB score_breakdown
-        TEXT ai_decision
-        TEXT purchase_thesis
-        TEXT seasonality_analysis
-        VARCHAR sku
-        VARCHAR status
-        VARCHAR product_condition
-        VARCHAR warehouse_location
-        BOOLEAN is_quarantine
-        TEXT invoice_url
-        TIMESTAMP created_at
-        TIMESTAMP sold_at
-        TIMESTAMP dead_stock_notified_at
-    }
-
-    generated_listings {
-        UUID id PK
-        UUID opportunity_id FK
-        VARCHAR target_platform
-        VARCHAR language
-        TEXT generated_title
-        TEXT generated_description
-        TIMESTAMP created_at
-    }
-```
-
-### 7.3 Opportunity Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> pending: pipeline passes guardrails
-    [*] --> rejected: No-Buy guardrails fail
-    pending --> bought: Mark as Bought
-    bought --> in_inventory: Receiving checklist passed
-    bought --> in_inventory: Checklist failed → is_quarantine = true
-    in_inventory --> listed: Listed on Willhaben
-    listed --> listed: Price drop 5% (age > 14 days)
-    listed --> sold: Item Sold
-    sold --> in_inventory: Customer return → quarantine, −10% price
-```
+- `supabase/migrations/` is append-only history: **never edit an applied migration**. `supabase db reset --local` rebuilds everything from scratch (CI does this on every push). Pushing to the hosted project (`supabase db push`) is a manual owner step after a backup (`docs/MANUEL-ADIMLAR.md`).
+- `supabase/tests/phase2_smoke.sql` (115 checks) and `report_summary_smoke.sql` (21 checks, hand-computed scenario) run inside a rolled-back transaction.
+- `supabase/scripts/cleanup_test_data.sql` is a manual, guarded clean-up for test rows; it is not a migration and never runs automatically.
 
 ---
 
@@ -497,47 +299,31 @@ stateDiagram-v2
 
 ### 8.1 Routes
 
-Since `v1.20.0`, the app is split into a public storefront and an admin-only area gated on `admin_users` / `is_admin()` (not just "being logged in") — see §5.x on RLS. Since `v2.3.0` the storefront has **no customer account system**: nothing is purchasable on Vindera itself (every item redirects to its live Willhaben listing), so an account had nothing to do — the `wishlists` table, `/login` and `/wishlist` were removed. `/admin/login` is the sole, separate sign-in, used only by the admin.
+| Route | Rendering | Auth |
+|---|---|---|
+| `/` | Client component (rails, category grids, search) | none (anon) |
+| `/product/[id]` | **Server component** (metadata, Open Graph, Product JSON-LD, `notFound()`, `revalidate = 60`) | none |
+| `/impressum`, `/datenschutz` | Static; owner data in `src/lib/legal.ts` (no legal wording written by software) | none |
+| `/robots.txt`, `/sitemap.xml` | Generated from `NEXT_PUBLIC_SITE_URL` and `storefront_listings` | none |
+| `/admin` | Workspace: deal explorer, deal inspector, dashboard + AI terminal + Smart Radar | admin |
+| `/admin/products` | Product Master: searchable, resizable table, paging, CSV | admin |
+| `/admin/manual-entry` | Enter or edit a complete deal (profit preview, purchase record, quantity) | admin |
+| `/admin/reports` | Yearly reports, VAT bar, expenses, CSV export | admin |
+| `/admin/login` | Sign-in | none |
 
-| Route | Description |
-|---|---|
-| `/` | Public storefront — product rails of `in_inventory`/`listed` items from the `storefront_listings` view, "Buy on Willhaben" deep link. No account, no cart, no payment flow. A "How it works" note at the top explains that Vindera does not process purchases itself. |
-| `/product/[id]` | Public product detail page |
-| `/impressum` / `/datenschutz` | Legal notice and privacy policy |
-| `/admin` | Three-pane resizable workspace (admin-only). Carries a dark/light mode toggle in the top-right nav. |
-| `/admin/products` | Product Master: searchable table with pointer-driven column resizing and CSV export (admin-only). Dark/light toggle in the nav |
-| `/admin/manual-entry` | Manual deal entry form — create a full opportunity without Keepa or OpenAI (admin-only). Dark/light toggle in the nav |
-| `/admin/reports` | Tax & Financial Reports: KPI cards incl. **Net Profit** (gross profit − business expenses), VAT threshold bar, monthly bar chart (net profit per month), category pie chart, and the Business Expenses section (admin-only). Dark/light toggle in the nav |
-| `/admin/login` | Separate, unlinked admin sign-in. Carries a fixed top-right dark/light mode toggle that persists across page load. |
+Admin pages are `noindex`, need the `vindera-admin` root class and the dark/light toggle (`useDarkMode`), and sit behind the Supabase session plus `is_admin()`.
 
-### 8.2 Workspace (`src/app/admin/page.tsx`)
+### 8.2 Calling the backend
 
-- **Left panel** — Tabs (`DEALS`, `INVENTORY`, `SOLD`, `REJECTED`), category filter, deal list with inventory-age badges; lower sub-panel holds the Financial & Risk dashboard (revenue vs. €55,000 threshold, gross profit, average ROI, average days-to-sell, inventory value, stress-test liquidation net) and the Quarterly Category Audit modal. Its header row holds the Quarterly Category Audit button.
-- **Center panel** — Deal inspector: SKU / ASIN / warehouse location / condition strip, invoice upload to Supabase Storage, BuyBox trust badges, high-capital-exposure warning, AI scorecard with a 7-metric breakdown, Decision Journal, dead-stock alert after 60 days, and the action pipeline. Lower sub-panel embeds the AI terminal.
-- **Right panel** — 3-tier price strategy cards (max buy / target sell / emergency), the Amazon price history chart (real `price_history` rows when two or more exist, otherwise a deterministic sample curve marked with a `Sample` badge), generated Willhaben listing with copy-to-clipboard. Lower sub-panel is the AI Smart Radar ranked by `deal_score` with the next calendar event countdown. The next-event badge (e.g. "Next: Halloween (T-40)") uses Tailwind's `animate-pulse` and an amber color scheme to draw attention — it is the most time-sensitive data point on the radar. A calendar icon at the far right of the radar header opens the Austria market calendar (§8.5).
-- **Dark/light toggle:** Moon/Sun icon button in the top-right nav bar. Preference is persisted in `localStorage` under `'vindera-theme'`, with `prefers-color-scheme` as the fallback on first visit.
-- **Realtime:** a Supabase channel on `opportunities` re-fetches on any change.
-- **Layout reset:** double-clicking any splitter remounts the panel group at its default sizes.
-- **Aligned bottom panels:** the lower panels of all three columns (Financial & Risk Dashboard, Vindera AI Terminal, AI Smart Radar) use identical vertical sizing — top `defaultSize={80}`, bottom `defaultSize={35}` / `minSize={35}` — so their top borders line up on initial load. In `react-resizable-panels` v4 numeric sizes are pixels; the group normalizes them proportionally, so the columns only line up when every column uses the same pair of numbers.
-- **Click-to-minimize:** clicking the title of a bottom panel ("Financial & Risk Dashboard", "Vindera AI Terminal", "AI Smart Radar") shrinks that panel to its minimum height via the imperative panel API (`usePanelRef().resize(BOTTOM_PANEL_MIN_PX)`, 35 px). The panel never closes entirely — its header row stays visible — and it is restored by dragging the splitter or double-clicking it. The terminal title is wired through the `onTitleClick` prop of `CommandBar`. Keep `BOTTOM_PANEL_MIN_PX` in sync with the panels' `minSize`.
+`src/lib/apiFetch.ts` attaches the access token, signs the user out on 401 and throws readable errors (Pydantic prefixes are stripped). Failures show as toasts (`Toast.tsx`) or inside the open modal. Lifecycle actions use `BoughtModal`, `SaleModal` and `ReturnModal`; the modals show a preview computed with `src/lib/profit.ts`, the backend stores its own numbers. Product photos are pasted-in https URLs, shown through `ListingImage` (`next/image` with `unoptimized`, so `/_next/image` cannot become an open proxy). Security headers and a CSP are set in `next.config.ts`.
 
-### 8.3 Embedded Terminal (`src/components/CommandBar.tsx`)
+### 8.3 Storefront
 
-Typing `/` opens a React-Portal command palette anchored above the input (avoids overflow clipping). Messages are POSTed to the backend chat endpoint resolved by `src/lib/api.ts`.
+Anonymous, no accounts, no cart. "Buy" opens the live Willhaben ad; without a Willhaben URL the button is disabled ("Bald verfügbar"). Rails are built from the newest 60 listings; category pages page by 24. Sold, quarantined and deleted units are not visible; a product page for one of them shows a friendly 404.
 
-Because the palette is rendered via `createPortal` to `document.body` — outside the `.vindera-admin` CSS scope — dark mode is applied with direct `dark:` Tailwind variants on the portal's root element and its children rather than via the scoped CSS overrides in `globals.css`.
+### 8.4 Workspace terminal
 
-### 8.4 Manual Entry (`src/app/admin/manual-entry/page.tsx`)
-
-A full-width form for entering a deal by hand when Keepa or OpenAI credits are unavailable, or when back-filling stock that is already in the storage room. It covers every column the rest of the app reads, grouped into six sections: product identity, pricing strategy, acquisition scorecard (overall score plus the seven 0-10 criteria as sliders), lifecycle and logistics, decision notes, and the German Willhaben listing.
-
-- **Guidance:** every field label carries a hover hint explaining where to find the value (ASIN in the Amazon URL, realistic price from comparable Willhaben listings, and so on).
-- **Live preview:** gross profit and margin update as you type, with a badge mirroring the backend's No-Buy Guardrails (>= 25% margin AND >= €15 profit). It is informational — manual entries are never blocked.
-- **Defaults:** SKU is auto-generated (regenerable), emergency price falls back to 85% of the target, realistic Willhaben price falls back to the target, and `profit_margin` is always recomputed server-side from the two prices.
-- **Persistence:** `POST /api/v1/deals/manual`. The browser cannot write directly — RLS grants it `SELECT` only.
-- **Edit mode:** `/admin/manual-entry?id=<opportunity_id>` loads an existing deal into the same form. Reached from the **Edit** button in the workspace deal inspector, or by clicking any row in the Product Master. Saving issues `PUT .../manual`; a **Delete** button issues `DELETE`. The two Amazon reference prices stay blank on load so the stored price history is preserved unless you deliberately re-enter them.
-- **Price history:** filling in *Amazon Price Today* and *Amazon 90-Day Average* writes two real `price_history` rows (today, and 90 days back), which the workspace chart prefers over its sample curve.
-- **Shared vocabulary:** categories, statuses, conditions and score criteria come from `src/lib/constants.ts`, which the workspace filter also uses.
+`CommandBar.tsx` is the embedded terminal: `/list`, `/scan <ASIN>`, `/help` and natural language through `POST /chat/`. There is no delete command. The "Scans" button opens `ScanStatusList` (last scans and why one failed).
 
 ### 8.5 Austria Market Calendar (`src/components/AustriaCalendarModal.tsx`, `src/lib/austriaCalendar.ts`)
 
@@ -549,13 +335,9 @@ Opened from the calendar icon in the AI Smart Radar header. A month grid (Monday
 - **Independent of the database:** the calendar is static frontend data and deliberately **not** merged into `events_calendar`, so the radar's "Next:" badge and the AI seasonality prompt are not flooded with holidays. **Refresh `STATIC_ITEMS` once a year.**
 - **Known gaps:** no confirmed 2027 stadium concerts were found; Post Christmas shipping cut-off dates are omitted (no reliable 2026 source); the Wiener Derby date may still shift.
 
-### 8.6 Tax & Reports — Business Expenses (`src/app/admin/reports/page.tsx`)
+### 8.6 Reports page (`src/app/admin/reports/page.tsx`)
 
-Costs that do not belong to a single deal (storage rent, packaging, Keepa / OpenAI subscriptions, …) are recorded in `business_expenses`.
-
-- **Net profit:** the KPI card shows `gross profit − total expenses`; the monthly chart plots net profit per month (months with expenses but no sales still appear). If expenses cannot be loaded the card says so instead of silently excluding them.
-- **Read/write split:** the page reads `business_expenses` directly (admin-only RLS); adding and deleting expenses goes through `/api/v1/expenses/` (service role), following the write-path rule.
-- **Form:** description, amount (> 0), category (`EXPENSE_CATEGORIES` in `constants.ts`; frontend-only vocabulary, the backend stores any non-empty category), date and a *Recurring* label.
+Reads only the backend (`/reports/summary`, `/expenses/`): year selector (only years with data), management view and cash (E/A) view, VAT-threshold bar (indigo, amber from the warning percentage, red near the limit), business expenses (description, amount, category, date, recurring label) and **Export CSV**. Errors show a banner with Retry instead of silent zeros.
 
 ---
 
@@ -614,98 +396,87 @@ Dark mode uses a **class-based** strategy: toggling `.dark` on `<html>` (Tailwin
 
 **`/admin/login` approach:** Uses direct `dark:` Tailwind variants (light-default + `dark:` override) rather than the scoped `.vindera-admin` CSS block, because the login page is standalone.
 
-**Hook — `src/lib/useDarkMode.ts`:**
-```ts
-// useState lazy initializer reads localStorage key 'vindera-theme',
-// falling back to window.matchMedia('(prefers-color-scheme: dark)').
-// useEffect syncs the .dark class on document.documentElement.
-// toggle() is a setDark functional update that also writes localStorage.
-```
-The lazy initializer pattern avoids the `react-hooks/set-state-in-effect` ESLint error that would occur if the initial read were done inside a `useEffect`.
+**Hook — `src/lib/useDarkMode.ts`:** reads the `vindera-theme` key of `localStorage` (fallback: `prefers-color-scheme`) through `useSyncExternalStore` with a light server snapshot, so the first client render matches the server HTML (no hydration error); it keeps an in-memory fallback when storage is blocked, and syncs the `.dark` class on `<html>`.
+
+---
 
 ---
 
 ## 10. n8n Automation Layer
 
-`n8n/docker-compose.yml` runs n8n at `http://localhost:5678` with `GENERIC_TIMEZONE=Europe/Vienna` and a persistent `n8n_data` volume.
+`n8n/docker-compose.yml` (local) and the `n8n` service of `infrastructure/prod/docker-compose.yml` (production, behind Caddy at `https://n8n.<domain>`, own owner login).
 
-`n8n/Vindera_Daily_Scan.json` defines **Vindera Daily Auto-Scan**:
+`n8n/Vindera_Daily_Scan.json` — **Vindera Daily Auto-Scan**, daily at 08:15 (Europe/Vienna):
 
 ```
-Schedule Trigger (cron 15 8 * * *)
-  → Set ASIN List (comma-separated)
-  → Split into Items (Code node)
-  → HTTP POST http://host.docker.internal:8000/api/v1/deals/scan
-
-Schedule Trigger (same run)
-  → Trigger Dead Stock Check: HTTP POST http://host.docker.internal:8000/api/v1/deals/dead-stock/scan
+Schedule Trigger
+  → Fetch Watchlist (GET /api/v1/deals/watchlist)
+  → Split Watchlist
+  → POST /api/v1/deals/scan            (one call per ASIN, 202)
+Schedule Trigger
+  → POST /api/v1/deals/dead-stock/scan (dead stock + return-deadline alerts, 202)
 ```
 
-The backend accepts both requests and returns `202 Accepted`; each ASIN is processed in a FastAPI background task, and the dead-stock check (§6.6) runs as its own background task. After changing the workflow JSON, re-import it in n8n.
+Authentication is a n8n **Header Auth** credential named `Vindera Automation Key` (`X-Vindera-Key` = `AUTOMATION_SHARED_SECRET`); the file itself contains no secret. The base URL comes from the `VINDERA_API_BASE_URL` environment variable (default `http://host.docker.internal:8000`). Which ASINs are scanned is the `watchlist_asins` table, not the workflow. After changing the JSON, re-import it in n8n.
 
 ---
 
 ## 11. Monitoring / Observability
 
-- **Prometheus** (`:9090`) scrapes `host.docker.internal:8000/metrics` every 15 seconds (job `vindera_fastapi`). Data persists in the `prometheus_data` volume.
-- **Grafana** (`:3002`) visualizes request rates, error frequency and latency. Dashboards persist in the `grafana_data` volume. The admin password comes from `GRAFANA_ADMIN_PASSWORD`.
+- **Local** (`infrastructure/monitoring/`): Prometheus `:9090` and Grafana `:3002`, both bound to `127.0.0.1`; `GRAFANA_ADMIN_PASSWORD` is required. Prometheus scrapes the backend `/metrics` with the bearer token from `infrastructure/monitoring/secrets/metrics_token` (git-ignored).
+- **Production** (`infrastructure/prod/`): Prometheus publishes no port; its token is written from `METRICS_TOKEN` at start. Grafana listens on `127.0.0.1:3002` of the VPS (SSH tunnel); provisioned data source in `grafana/datasources.yml`.
+- **Health**: `/healthz`, `/readyz` (UptimeRobot on `/healthz`). **Errors**: optional Sentry for the backend (the frontend has no error tracking yet). **Alerts** fire inside Prometheus; sending them somewhere needs Alertmanager (backlog).
+- **Backups**: `infrastructure/backup/backup.sh` (pg_dump of `public` + `auth`, verified, optional `age` encryption, 30-day retention, optional ping URL). Storage files are not included. Restore procedure: `docs/DEPLOY.md`.
 
 ---
 
-## 12. Local Development Setup
+## 12. Run, Test and Deploy Commands
 
 ```bash
-# 1. Backend
-cd backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+# Run (from the workspace root)
+cd backend && uv run uvicorn src.main:app --reload         # API      :8000
+cd frontend && npm run dev                                  # Frontend :3000
+supabase start                                              # local Supabase (never link it to the hosted project by accident)
+cd n8n && docker compose up -d                              # n8n      :5678
+cd infrastructure/monitoring && docker compose up -d        # Grafana  :3002 (needs GRAFANA_ADMIN_PASSWORD)
 
-# 2. n8n
-cd n8n && docker compose up -d
+# Test (no network, no real Supabase/Keepa/OpenAI/Pushover, never reads /.env)
+cd backend && uv run pytest -q
+cd frontend && npx tsc --noEmit && npm run lint && npm test && npm run build
+supabase db reset --local
+docker exec -i supabase_db_vindera-workspace psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/phase2_smoke.sql
+docker exec -i supabase_db_vindera-workspace psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/report_summary_smoke.sql
 
-# 3. Monitoring
-cd infrastructure/monitoring && docker compose up -d
-
-# 4. Frontend
-cd frontend && npm run dev
+# Deploy: docs/DEPLOY.md (VPS: docker compose in infrastructure/prod; frontend: Vercel; migrations: supabase db push by the owner after a backup)
 ```
-
-> ⚠️ Apply migrations with `supabase db push` before starting the frontend, otherwise RLS policies will be missing and every query returns empty.
-
-### Port Map
 
 | Service | Address | Credentials |
 |---|---|---|
-| Frontend | `http://localhost:3000` | Supabase Auth |
-| Backend API | `http://localhost:8000` | None |
-| Prometheus | `http://localhost:9090` | None |
-| Grafana | `http://localhost:3002` | `admin` / `$GRAFANA_ADMIN_PASSWORD` |
-| n8n | `http://localhost:5678` | Set on first run |
+| Frontend | `http://localhost:3000` | Supabase login of an `admin_users` account |
+| Backend API | `http://localhost:8000` | Bearer token (or `X-Vindera-Key` for the automation routes); `/healthz` is open |
+| Prometheus | `http://localhost:9090` | none (loopback only) |
+| Grafana | `http://localhost:3002` | `admin` / `GRAFANA_ADMIN_PASSWORD` |
+| n8n | `http://localhost:5678` | owner account created on first run |
+
+CI (`.github/workflows/ci.yml`) runs all of this without any secret: backend tests, frontend checks, a local Supabase with both SQL smoke tests, and the deployment-file checks (compose config, Caddy validate, promtool, shellcheck, image build).
 
 ---
 
-## 13. Known Issues & Technical Debt
+## 13. Known Limits & Open Items
 
-**Resolved in `v1.18.0`** — kept here as a short changelog: the missing `/deals/scan` endpoint, the incomplete `DealAnalyzerAgent` mock fallback, the policy-less RLS on `events_calendar`, the CORS wildcard, the hardcoded Grafana password and port collision, the hardcoded localhost API URL, the hardcoded product category, the `/products` status-vocabulary mismatch and the random-data price chart.
-
-**Open**
-
-1. **Simulated BuyBox data** — `_pick_mock_buybox()` in `deals.py` picks randomly between three mock sellers. Replace with real Keepa merchant data once live credits are active; the function is isolated and marked with a `TODO`.
-2. **Seeded price history** — `_build_price_history()` writes six rows of flat historical values per scan. The chart already prefers real rows, so this becomes a non-issue as soon as Keepa's daily CSV history is imported.
-3. **Insecure secret fallback** — `FASTAPI_SECRET_KEY` still defaults to `"default_secret_if_not_set"`. It is currently unused by any code path, but should be set before anything starts signing tokens with it.
-4. **`next-themes`** is listed in `package.json` but never imported. Remove with `npm uninstall next-themes` so `package-lock.json` stays consistent.
-5. **No automated tests** (`pytest`, `jest`) and no CI/CD workflows.
-6. **Category mapping is keyword-based** — `core/categories.py` maps Keepa's German category names heuristically. Unmatched products land in `Other`; extend `_KEYWORD_MAP` as new categories appear.
-7. The German copy in `ListingGeneratorAgent` is intentional — it is the published Willhaben listing text, not UI chrome. Do not translate it.
+1. **Keepa response shape** was implemented from Keepa's official client sources and has not been checked against a live answer. The first real scan must confirm it (see `docs/LAUNCH-CHECKLIST.tr.md`): especially `stats.avg90[18]` (90-day BuyBox average) and the price history.
+2. **Price history chart** shows real Keepa points; with fewer than 2 points it shows a deterministic sample curve labelled "Sample". Old scans (before the pipeline rewrite) left fabricated points (`MANUEL-ADIMLAR.md`).
+3. **Category list** exists twice: `backend/src/core/categories.py` (`CANONICAL_CATEGORIES`) and `frontend/src/lib/constants.ts` (`PRODUCT_CATEGORIES`). Update both together; no automated check.
+4. **Austria market calendar** (§8.5) `STATIC_ITEMS` cover Sep 2026 - Sep 2027 only; refresh yearly.
+5. **Tests do not cover**: the chatbot's OpenAI tool loop, frontend components (only pure helpers), the workflows on GitHub before their first run. The deployment files were verified locally only, never on a real server.
+6. **Alerts** stay inside Prometheus (no Alertmanager); the "Keepa tokens exhausted" push is deduplicated in memory (a restart can repeat it once).
+7. The German copy in `ListingGeneratorAgent` is intentional (published Willhaben text); do not translate it. Legal wording is the owner's lawyer's job, not software's.
 
 ---
 
 ## 14. Roadmap
 
-- [ ] Wire live Keepa credentials for real BuyBox ownership and daily price history.
-- [ ] Import Keepa's full CSV price history instead of seeding six synthetic rows.
-- [ ] Migrate the agent chain to an agentic framework (LangGraph / CrewAI).
-- [ ] Add pytest / jest suites and a GitHub Actions pipeline.
-- [ ] Add the production frontend domain to `CORS_ALLOWED_ORIGINS` before deploying.
-- [ ] Move local Docker services to AWS with Terraform provisioning.
+Post-launch backlog (not started): Keepa Deals/Tracking webhooks for discovery beyond the watchlist, Willhaben comparable-price research, a watchlist admin UI, recurring expenses, multi-quantity lots as a concept, Willhaben-to-Vindera sale sync, agent framework migration, Alertmanager routing, frontend Sentry, i18n.
 
 ---
 
@@ -713,16 +484,13 @@ cd frontend && npm run dev
 
 | Tag | Date | Summary |
 |---|---|---|
-| `v2.7.0` | 2026-09-20 | Click-to-minimize on the Financial & Risk Dashboard, Vindera AI Terminal and AI Smart Radar titles (panels shrink to their 35 px minimum, header stays visible); `CommandBar` gains `onTitleClick`; documentation update to v3.3 |
-| `v2.6.0` | 2026-09-20 | Austria market calendar (calendar icon in the AI Smart Radar header): public holidays, bridge days, shopping days, school terms, sports, festivals, concerts |
-| `v2.5.1` | 2026-09-20 | Align default panel heights of Financial & Risk Dashboard and AI Smart Radar with the AI Terminal (80 / 35 in every column) |
-| `v2.5.0` | 2026-09-20 | Dead-stock Pushover notification (`/deals/dead-stock/scan`, `dead_stock_notified_at`, n8n trigger); business expense tracking and Net Profit on Tax & Reports (`business_expenses`, `/expenses/`); dark/light toggle on Product Master and Manual Entry; "How it works" note on the storefront homepage |
-| `v2.4.1` | 2026-09-20 | Remove "WORKSPACE" subtitle from nav logo; add amber `animate-pulse` badge to AI Smart Radar next-event countdown |
-| `v2.4.0` | 2026-09-20 | Dark/light mode toggle on `/admin` and `/admin/login`; `useDarkMode` hook; `globals.css` scoped overrides; `CommandBar` portal `dark:` variants |
-| `v2.3.1` | 2026-09-20 | Rename "New Deals" tab to "Deals"; fix Financial & Risk panel vertical alignment (`defaultSize` 20 → 30) |
-| `v2.3.0` | 2026-09-18 | Remove customer account system (wishlists, `/login`, `/wishlist`); no purchasable items on Vindera |
-| `v2.2.0` | 2026-09-18 | Remove Google/Apple OAuth; fix footer pinning on short pages |
-| `v2.1.0` | 2026-09-17 | Redesign homepage into scrollable product rails (new arrivals, open-box, recently-viewed) |
+| launch-hardening | 2026-09-21 | Authenticated API, atomic SQL writers, sale ledger, one profit engine, lifecycle state machine, reports and CSV, private invoices, storefront SEO, observability, tests and CI, production deployment files. 13 migrations applied to the hosted project by the owner on 2026-09-21 |
+| `v2.7.0` | 2026-09-20 | Click-to-minimize on dashboard panels; documentation update |
+| `v2.6.0` | 2026-09-20 | Austria market calendar in the AI Smart Radar header |
+| `v2.5.0` | 2026-09-20 | Dead-stock Pushover notification; business expenses; dark/light toggle on Product Master and Manual Entry |
+| `v2.4.0` | 2026-09-20 | Dark/light mode on `/admin` and `/admin/login` |
+| `v2.3.0` | 2026-09-18 | Customer accounts removed; nothing is purchasable on Vindera |
+| `v2.1.0` | 2026-09-17 | Homepage as scrollable product rails |
 | `v2.0.0` | 2026-09-16 | Split into public storefront and admin back office |
 
 ---

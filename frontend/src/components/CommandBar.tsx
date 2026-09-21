@@ -9,8 +9,10 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { apiUrl } from '@/lib/api';
-import { Send, Bot, User, RefreshCw, Terminal, Trash2 } from 'lucide-react';
+import { apiFetch, ApiError } from '@/lib/apiFetch';
+import { useIsClient } from '@/lib/useClientOnly';
+import { Send, Bot, User, RefreshCw, Terminal, Trash2, ListChecks } from 'lucide-react';
+import ScanStatusList from '@/components/ScanStatusList';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -21,7 +23,6 @@ const COMMAND_LIST = [
   { cmd: '/help', desc: 'Show available system commands' },
   { cmd: '/list', desc: 'List opportunities from the database' },
   { cmd: '/scan ', desc: 'Scan an ASIN (e.g. /scan B09...)' },
-  { cmd: '/delete ', desc: 'Delete a product (e.g. /delete B09...)' },
 ];
 
 export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void }) {
@@ -30,17 +31,14 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
   const [isLoading, setIsLoading] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ left: 0, bottom: 0 });
-  const [mounted, setMounted] = useState(false);
+  const [showScans, setShowScans] = useState(false);
+  const mounted = useIsClient();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -72,17 +70,11 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
     setIsLoading(true);
 
     try {
-      const res = await fetch(apiUrl('/chat/'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: userMsg })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Connection error.' }]);
-      }
+      const data = await apiFetch<{ response: string }>('/chat/', { method: 'POST', json: { message: userMsg } });
+      setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Unable to reach the server.' }]);
+      const reason = error instanceof ApiError ? error.message : 'Unable to reach the server.';
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${reason}` }]);
     }
     setIsLoading(false);
   };
@@ -95,19 +87,30 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
         <button type="button" onClick={onTitleClick} title="Click to minimize panel" className="flex items-center gap-2 cursor-pointer hover:text-gray-700 transition-colors">
           <Terminal className="h-4 w-4 text-indigo-600" /> Vindera AI Terminal
         </button>
-        <button onClick={clearHistory} className="hover:text-red-600 transition-colors" title="Clear Terminal">
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowScans(prev => !prev)}
+            className={`flex items-center gap-1 transition-colors ${showScans ? 'text-indigo-600' : 'hover:text-indigo-600'}`}
+            title="Show the latest scan jobs"
+          >
+            <ListChecks className="h-4 w-4" /> Scans
+          </button>
+          <button onClick={clearHistory} className="hover:text-red-600 transition-colors" title="Clear Terminal">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Chat history */}
       <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50 flex flex-col gap-3">
-        {messages.length === 0 && (
+        {showScans && <ScanStatusList />}
+        {!showScans && messages.length === 0 && (
           <div className="h-full flex items-center justify-center text-gray-400 text-[13px] italic">
-            Command history is empty. Type '/' to see available commands.
+            Command history is empty. Type &apos;/&apos; to see available commands.
           </div>
         )}
-        {messages.map((msg, idx) => (
+        {!showScans && messages.map((msg, idx) => (
           <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'bg-indigo-50/50' : 'bg-white shadow-sm'} p-3 rounded-lg border ${msg.role === 'user' ? 'border-indigo-100' : 'border-gray-200'}`}>
             <div className="mt-0.5 shrink-0">
               {msg.role === 'user' ? <User className="h-5 w-5 text-gray-400" /> : <Bot className="h-5 w-5 text-indigo-600" />}
@@ -115,7 +118,7 @@ export default function CommandBar({ onTitleClick }: { onTitleClick?: () => void
             <div className="type-body text-gray-800 whitespace-pre-wrap">{msg.content}</div>
           </div>
         ))}
-        {isLoading && (
+        {!showScans && isLoading && (
           <div className="flex gap-3 p-3">
             <RefreshCw className="h-5 w-5 text-indigo-600 animate-spin" />
             <div className="text-[13px] text-gray-400 italic">Processing command...</div>

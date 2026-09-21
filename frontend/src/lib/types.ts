@@ -13,3 +13,9 @@ export interface StorefrontListing {
   generated_description: string | null;
   created_at: string;
 }
+
+/** The columns product cards need (see CARD_COLUMNS in lib/storefront.ts). */
+export type StorefrontCardListing = Pick<
+  StorefrontListing,
+  'id' | 'target_sell_price' | 'product_condition' | 'willhaben_url' | 'status' | 'title' | 'image_url' | 'category' | 'created_at'
+>;

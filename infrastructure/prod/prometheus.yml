@@ -1,0 +1,20 @@
+# Production Prometheus: scrapes the backend over the internal Docker network.
+# Not published to the internet; Grafana reads it through the same network.
+
+global:
+  scrape_interval: 15s
+
+# Firing alerts are visible in the Prometheus UI only. Sending them by e-mail or
+# Pushover needs an Alertmanager (docs/DEPLOY.md, "Alerts").
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # The job name is referenced by the rules in infrastructure/monitoring/alerts.yml.
+  - job_name: 'vindera_fastapi'
+    authorization:
+      type: Bearer
+      # Written from METRICS_TOKEN when the container starts (see docker-compose.yml).
+      credentials_file: /tmp/metrics_token
+    static_configs:
+      - targets: ['backend:8000']

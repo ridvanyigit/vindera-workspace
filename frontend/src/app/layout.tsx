@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { SITE_URL } from "@/lib/site";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -15,8 +16,10 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vindera",
+  metadataBase: new URL(SITE_URL),
+  title: { default: "Vindera", template: "%s | Vindera" },
   description: "Certified pre-owned and open-box deals, hand-picked and quality-checked.",
+  openGraph: { siteName: "Vindera", locale: "de_AT" },
 };
 
 export default function RootLayout({

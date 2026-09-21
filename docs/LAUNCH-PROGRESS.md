@@ -1,0 +1,330 @@
+# Launch hardening progress
+
+Work order: `docs/LAUNCH-PLAN.md`. Branch: `launch-hardening`. One commit per phase, never pushed.
+A future session can resume from this file alone: find the first unchecked task and read the matching section of the plan.
+
+## Tooling (checked in Phase 0)
+
+- `uv` 0.9.0, Python 3.14.6 (matches `backend/.python-version`)
+- `node` v24.11.0, `npm` 11.18.0
+- `docker` 28.4.0, daemon running
+- `supabase` CLI 2.117.0, project is linked to the hosted project. Never use `--linked`; local only.
+
+## Tasks
+
+### Phase 0 - Recon and setup
+
+- [x] 0.1 Branch `launch-hardening` created from `main`
+- [x] 0.2 Code read, audit findings confirmed (see Decisions)
+- [x] 0.3 This file
+- [x] 0.4 Tooling report
+- [x] 0.5 `docs/MANUEL-ADIMLAR.md` skeleton
+
+### Phase 1 - Backend authentication and hardening
+
+- [x] 1.1 `core/auth.py` (`require_admin`, `require_admin_or_automation`) applied to every router
+- [x] 1.2 Config: new settings, production fail-fast, remove `FASTAPI_SECRET_KEY`, `.env.example`
+- [x] 1.3 Public surface: docs off in production, `/metrics` bearer token, prometheus.yml
+- [x] 1.4 Rate limiting
+- [x] 1.5 Input validation (ASIN, status Literal, numeric bounds, URLs)
+- [x] 1.6 Chatbot: admin only, delete removed, task reference, `/list` limited
+- [x] 1.7 CORS methods/headers
+- [x] 1.8 Frontend `apiFetch`
+- [x] 1.9 Security headers in `next.config.ts`
+- [x] 1.10 n8n workflow: automation key + base URL variable
+
+### Phase 2 - Database migrations
+
+- [x] 2.1 Status CHECK + frontend `STATUS_OPTIONS` / Product Master filters
+- [x] 2.2 Purchase and lifecycle columns
+- [x] 2.3 Numeric widths, net estimate columns
+- [x] 2.4 Foreign keys RESTRICT
+- [x] 2.5 SKU unique index
+- [x] 2.6 One open scan row per product
+- [x] 2.7 `sale_events`
+- [x] 2.8 `business_settings`
+- [x] 2.9 `scan_jobs`
+- [x] 2.10 `watchlist_asins`
+- [x] 2.11 `audit_log` + trigger
+- [x] 2.12 `storefront_listings` tightened
+- [x] 2.13 Private `invoices` bucket + policies
+- [x] 2.14 Realtime publication
+- [x] 2.15 Events calendar rows for hosted DB
+- [x] 2.16 Atomic RPC functions
+- [x] 2.17 Timestamps are `timestamptz`
+
+### Phase 3 - Profit engine and scan pipeline
+
+- [x] 3.1 `profit_calculator.py` + golden vectors + `profit.ts`
+- [x] 3.2 Scan pipeline rewrite
+- [x] 3.3 Async correctness, retries, semaphore
+- [x] 3.4 UTC timestamps, time-to-sell basis
+- [x] 3.5 `GET /deals/scans` + dashboard scan status list
+- [x] 3.6 Watchlist endpoint + n8n
+- [x] 3.7 Listing generator legal footer / payment text
+
+### Phase 4 - Lifecycle, accounting and reports
+
+- [x] 4.1 State machine
+- [x] 4.2 Status endpoint refactor
+- [x] 4.3 `POST /deals/{id}/sale`
+- [x] 4.4 `POST /deals/{id}/return`
+- [x] 4.5 Soft delete
+- [x] 4.6 Dead stock + return-window alerts
+- [x] 4.7 Reports API
+- [x] 4.8 CSV export
+- [x] 4.9 Reports page rewrite
+- [x] 4.10 Dashboard aggregates
+- [x] 4.11 Bought / Sold / Returned modals
+- [x] 4.12 Return-by badge
+- [x] 4.13 No silent failures
+- [x] 4.14 Manual entry
+- [x] 4.15 Product Master
+- [x] 4b UI smoke test in a real browser (see Phase 4b below)
+
+### Phase 5 - Storefront, invoices and SEO
+
+- [x] 5.1 Private invoices
+- [x] 5.2 Storefront pagination / images
+- [x] 5.3 Product page SEO
+- [x] 5.4 Sold / missing-URL states
+- [x] 5.5 Legal pages config (technical only)
+
+### Phase 6 - Reliability and observability
+
+- [x] 6.1 Structured logging
+- [x] 6.2 Health endpoints
+- [x] 6.3 Sentry (optional)
+- [x] 6.4 Stuck `scan_jobs` on startup
+- [x] 6.5 Global exception handler
+- [x] 6.6 Prometheus business metrics + alerts
+- [x] 6.7 Error boundaries + lint errors
+
+### Phase 7 - Tests and CI
+
+- [x] 7.1 Backend tests
+- [x] 7.2 Frontend checks / Vitest
+- [x] 7.3 CI workflow
+- [x] 7.4 CLAUDE.md update
+
+### Phase 8 - Deployment artifacts
+
+- [x] 8.1 Dockerfile
+- [x] 8.2 Prod compose
+- [x] 8.3 Caddyfile
+- [x] 8.4 Monitoring compose
+- [x] 8.5 Backup script
+- [x] 8.6 Frontend env docs
+- [x] 8.7 `docs/DEPLOY.md`
+
+### Phase 9 - Documentation and manual steps
+
+- [x] 9.1 Tech docs / README / CLAUDE.md
+- [x] 9.2 `docs/MANUEL-ADIMLAR.md` complete (+ `docs/LAUNCH-CHECKLIST.tr.md`)
+- [x] 9.3 `docs/MANUAL-TEST-SCRIPT.md`
+- [x] 9.4 Final pass
+- [x] 9.5 (owner request) `supabase/scripts/cleanup_test_data.sql` for test rows, GitHub merge guide, DEPLOY.md remote fix
+
+## Decisions & assumptions
+
+- Phase 0.1: the plan expected `docs/LAUNCH-PLAN.md` to be uncommitted; it was already committed on `main` (716f344) and the working tree was clean, so branch creation needed no extra commit.
+- Audit findings S1, S2, S3, C1, C2, D1, D2 were re-checked against the code and hold as described. `deals.py` is the only place that contains the pipeline, manual entry and status logic.
+- Additional facts noticed while reading: `products.gallery_image_urls` and `opportunities.dead_stock_notified_at` / `willhaben_url` / `sold_at` exist; `wishlists` was already dropped; `generated_listings` and `opportunities` currently cascade from their parents; `supabase/config.toml` still has `enable_signup = true` (local only; hosted setting is a manual step).
+- Verification runs from a scratch directory with dummy environment variables (never from `backend/`), so `pydantic-settings` cannot pick up the real `/.env` through `env_file="../.env"`. The plan's literal `cd backend && uv run python -c "import src.main"` would load the owner's real keys; the equivalent used here is `uv run --project backend` with `SUPABASE_URL=... AUTOMATION_SHARED_SECRET=... METRICS_TOKEN=...` set inline.
+- Local Supabase is not running at the start of Phase 0. Phase 2 verification starts it with `supabase start` (local containers only).
+
+### Phase 1
+
+- FastAPI 0.141 mounts `include_router` lazily (`_IncludedRouter`), so `app.routes` no longer lists the real routes. The first version of the startup guard passed on an empty list. `core/auth.py:assert_routes_protected` now unwraps `original_router`, fails if it finds no routes at all, and was checked against a deliberately unprotected router.
+- Routers: `deals.router` and `expenses`/`chat` carry `require_admin` at router level; `deals.automation_router` (scan, dead-stock scan) carries `require_admin_or_automation`. Phase 3.6 puts the watchlist endpoint on `automation_router`.
+- `ENVIRONMENT` is a `Literal["development","test","production"]` so a typo such as "prod" fails at startup. In production `AUTOMATION_SHARED_SECRET` and `METRICS_TOKEN` must be at least 32 characters.
+- `/metrics` stays open in development while `METRICS_TOKEN` is unset (so the local Prometheus works); production cannot start without it. `infrastructure/monitoring/prometheus.yml` reads the token from `secrets/metrics_token` (git-ignored, example file provided).
+- Rate limits (slowapi): chat 20/min, scan 30/min, everything else 120/min per IP, plus a shared 300/min application limit enforced in middleware. The decorator limits run inside the handler, i.e. after authentication, so without the application limit a flood of bad tokens to `/chat` or `/scan` would not be throttled before reaching Supabase. Bad tokens are also rejected locally when they are not JWT-shaped.
+- Interim protection against S2 (finished in Phase 3): with `ALLOW_MOCK_DATA=false` a Keepa failure or an OpenAI failure/refusal aborts the scan (nothing is written, no push); `_pick_mock_buybox` is only used when mock data is allowed, otherwise the BuyBox seller is stored as `Unknown`/not FBA. Consequence for local development: without `ALLOW_MOCK_DATA=true` in `.env`, scans without API keys no longer produce sample deals.
+- `PATCH /deals/{id}/status` keeps its old "skip null" semantics except for `willhaben_url`, which is written whenever it is sent (blank clears it). Phase 4.2 generalises this with `model_fields_set`.
+- Frontend: every backend call goes through `apiFetch`. Because validation is stricter now (for example only `https://…willhaben.at` links), dashboard mutations show failures with `alert(...)`, matching the existing invoice-upload style; Phase 4.13 replaces these with a shared toast.
+- n8n: Variables are a paid n8n feature, so the workflow uses a "Header Auth" credential named `Vindera Automation Key` for the secret and the `VINDERA_API_BASE_URL` environment variable (default `http://host.docker.internal:8000`) for the base URL. The local compose sets `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` so the workflow can read it.
+- CSP: `script-src` needs `'unsafe-inline'` because Next.js injects inline bootstrap scripts (a nonce policy would force dynamic rendering); `img-src` allows any `https:` because product photos are pasted in as arbitrary URLs. `upgrade-insecure-requests` is only sent for production builds with an https API URL.
+- The public `/` route of the backend (a status message) is left until Phase 6.2 replaces it with `/healthz`.
+- Lint: still 42 errors, all pre-existing (Phase 6.7). Nothing new was introduced.
+- Not verified against a real Supabase: the admin-token path was tested with a fake Supabase client (401/403/200, cache, 503 handling by review). A real end-to-end check with the local Supabase from Phase 2 is attempted at the end of Phase 2.
+
+### Phase 2
+
+Files (all `supabase/migrations/20260921…`, all idempotent, all with a "why" header): `090000` lifecycle columns + status CHECK, `090100` dedupe + uniqueness, `090200` `sale_events`, `090300` RESTRICT + sold-record protection, `090400` `business_settings`, `090500` `scan_jobs` + `watchlist_asins`, `090600` `audit_log`, `090700` storefront view, `090800` private `invoices` bucket, `090900` least-privilege grants, `091000` realtime + events, `091100` RPC functions. Local smoke test: `supabase/tests/phase2_smoke.sql` (115 checks, rolled back).
+
+What was verified, all against the LOCAL Supabase only (`supabase start`, `--local`, never `--linked`):
+
+- Upgrade path: local DB reset to the 10 old migrations, legacy-style dirty data inserted (duplicate SKUs, duplicate pending rows, NULL / padded statuses, three kinds of sold rows, duplicate price points), then the 12 new migrations applied. Result checked row by row.
+- Fresh path: `supabase db reset --local` (22 migrations + seed) applies cleanly; `supabase db lint` reports no schema errors; every new migration re-applied a second time without error or data change.
+- Real stack, not fakes: real GoTrue tokens through the backend (admin 200, non-admin 403, tampered 401), RPCs called through supabase-py/PostgREST with the SQLSTATE codes intact, browser-role permissions through the REST API, storage bucket privacy/MIME limit/signed URLs.
+- NOT verified: anything on the hosted project. The hosted schema was pulled once (`20260916082200_remote_schema.sql`) but its real data was never inspected, so the data-cleaning steps are only tested on synthetic legacy data. That is why a backup comes first (`docs/MANUEL-ADIMLAR.md` M1).
+
+Decisions and deviations:
+
+- Statuses: unknown legacy values make the migration stop with a clear message rather than being guessed. `status` is now NOT NULL with default `pending`.
+- Duplicate open scan rows are soft-deleted (`deleted_at`), never hard-deleted. Every read path excludes `deleted_at` since Phase 4.5, so the migrations may be pushed once the owner has taken a backup (Phase 5 still has to fix invoice viewing).
+- Beyond the plan, small and in the spirit of rule 4 (write-path): `authenticated` lost every table privilege except SELECT plus column-level UPDATE on `opportunities.invoice_url` / `invoice_path` (`090900`); the initial schema had granted TRUNCATE and friends, which RLS does not stop. Also a DB-level guard: sold units and units with sale events cannot be hard-deleted or soft-deleted (`090300`), and `sale_events` is append-only (UPDATE / DELETE / TRUNCATE raise).
+- Also added early so a later migration is not needed: `opportunities.return_alert_notified_at` and `last_alerted_at` (4.6, 3.2.12), `scan_jobs.retry_after` (3.2.6), `business_settings.listing_payment_text` (3.7; default is the existing wording), `price_history` unique index `(product_id, recorded_at)` (3.2.11), `effective_purchase_price(o)` / `effective_total_cost(o)` SQL functions (also usable as PostgREST computed columns).
+- `business_settings` defaults are placeholder assumptions, marked as such in the migration and in `MANUEL-ADIMLAR.md` M5.
+- `record_return` resets `sold_at`, `listed_at`, `time_to_sell_days` and the legacy `actual_*` / customer columns after writing the refund event (the plan only named `sold_at`); the sale stays in `sale_events` and the old column values stay in `audit_log`. Reason: stale sale figures on an in-stock unit are what audit finding C6 complained about.
+- `update_manual_deal` refuses to move a sold deal back or to change its recorded sale amounts (ledger). The lifecycle cost columns are only changed when their key is present in the payload, so an edit form that does not know them cannot wipe what "Mark as Bought" stored.
+- `audit_log.changed_by` is only set inside the RPC functions (payload key `actor`) or for browser writes (`auth.uid()`); direct service-role table writes record NULL. Phase 4 should route status changes through RPCs (or pass the actor another way) if that matters.
+- PostgREST error codes for Phases 3-4: `22023` bad payload (422), `P0002` not found (404), `55000` wrong state (409), `23505` unique violation (409). supabase-py exposes them as `APIError.code`. The payload keys of each RPC are documented in the header of `20260921091100_atomic_write_functions.sql`.
+- Open item for Phase 3: old scans wrote 6 fabricated `price_history` rows each; the migrations leave them alone (deleting data was not asked for). See `MANUEL-ADIMLAR.md` M13.
+- Frontend (2.1): `STATUS_OPTIONS` has the two new statuses; Product Master got a status filter (the workspace tabs are unchanged, as planned).
+
+### Phase 3
+
+Files: `services/profit_calculator.py` (money math, Decimal, half-up cents), `services/business_settings.py` (60 s cache), `services/keepa_service.py`, `services/scan_pipeline.py` (pipeline moved out of `deals.py`), `agents/deal_analyzer_agent.py`, `agents/listing_generator_agent.py`, `services/notification_service.py`; frontend `lib/profit.ts`, `components/ScanStatusList.tsx` (opened from the "Scans" button in the AI terminal header); n8n workflow reads the watchlist. Golden vectors: `backend/tests/data/profit_golden_vectors.json` (10 cases, hand-computed; Python and TS both match, checked with one-off scripts, no test runner yet: pytest/Vitest come in Phase 7).
+
+Verified (local Supabase, Keepa/OpenAI/Pushover simulated, 41 checks + 10 Keepa-HTTP checks): failure with mock off writes nothing and closes the job as `failed`; token exhaustion (429/503) -> failed + `retry_after` + one push per day; good deal -> pending with net 19.80 / margin 62.86 on cost 31.50, computed `deal_score`, BuyBox from Keepa, 4 real price days + today; same ASIN twice -> one open row, one listing, no duplicate price points; rejected deal is stored without a listing or an OpenAI listing call; hot-deal push once per 7 days; max 2 scans at once; event loop keeps running during a scan; endpoints (`/scan` -> 202 + `job_id`, `/watchlist`, `/scans`, manual deal, sold via status). `npx tsc` and `npm run build` pass; lint: no new errors (3 in `CommandBar.tsx` are older).
+NOT verified: any call to the real Keepa, OpenAI or Pushover (no keys used), so the response shape of a live Keepa answer is unchecked; the hosted database.
+
+Keepa sources (rule in 3.2.4): official Java client `keepacom/api_backend` (`Product.java`, `Stats.java`, `KeepaTime.java`, `Request.java`, `Response.java`, read through WebFetch, i.e. summarised) cross-checked against the `keepa` Python package 1.5.0 (`utils.py`, `constants.py`), which confirmed csv indices, that `*_SHIPPING` series (18 = BUY_BOX_SHIPPING) are `[time, price, shipping]` triples, the 2011-01-01 epoch and `429 = NOT_ENOUGH_TOKEN`. Request: `stats=90, history=1, buybox=1, days=90, domain=3`. Rate limit: HTTP 429 and 503 both count as "tokens exhausted".
+
+Decisions and deviations:
+
+- Prices: buy price = `stats.buyBoxPrice`, else Amazon, else 3rd-party New (flagged `marketplace_new` in `ai_decision`). Reference = `stats.avg90[18]` (90-day BuyBox), else `avg90[0]`, else `avg90[1]`. The reading of `avg90[18]` as a plain cents value is an assumption from the `Stats.java` comment; if a live answer differs the parser falls back to the Amazon average.
+- Keepa gives only a seller ID, so `buybox_seller` is `Amazon` (`buyBoxIsAmazon`), `Marketplace (<id>)`, or `Unknown`; no seller names are invented.
+- Sell price = midpoint (`SELL_PRICE_POSITION`, default 0.5); `OPENAI_MODEL` is configurable. The model no longer returns `is_profitable`, `estimated_profit_margin` or `deal_score`.
+- Beyond the plan, small: `discount` score is computed from the prices; `demand` is capped at 5 without Keepa demand data and `risk_level` at 3 for a seller that is neither Amazon nor FBA (the plan asked for "higher risk"). The LLM schema uses plain integers and the code clamps to 0-10 (instead of `Field(ge, le)` on the schema sent to OpenAI, which could not be tried against the live API); the stored `ScoreBreakdown` does carry the bounds.
+- The listing agent no longer sees the buy or reference price (it could quote them); the payment line and the legal footer are appended verbatim from `business_settings`, and the model is told not to write payment or legal wording. Rejected deals get no listing (saves an OpenAI call).
+- Mock: only with `ALLOW_MOCK_DATA`, title `[MOCK]`, seller `MOCK`, no price history. A depleted Keepa budget never falls back to mock.
+- Price history: last value per UTC day for Amazon and BuyBox (BuyBox includes shipping), at most 90 days, plus one "today" point; a product with neither Amazon nor BuyBox price gets no point (`price_history` has no column for a marketplace price).
+- `profit_margin` now holds the NET margin on cost for scans and manual deals (it used to be the LLM's guess or gross markup). Older rows keep their old values.
+- Manual entry (`POST/PUT /deals/manual`) now takes net profit, margin and the default emergency price from the calculator (interim until Phase 4.14 moves it to the RPCs). Found while testing: creating a manual deal for an ASIN that already has an open scan row answers 500 with the raw unique-violation text; Phase 4 should map `23505` to 409.
+- 3.3: pipeline DB calls use `asyncio.to_thread`, endpoints that only call supabase-py are plain `def` (thread pool), chatbot DB calls and OpenAI clients got timeouts/retries; Keepa (3 attempts, 1 s / 2 s backoff), Pushover (3 attempts) and OpenAI (SDK `max_retries=2`) are bounded.
+- 3.4: all `datetime.now()` in `deals.py` are UTC; `time_to_sell_days` counts from `listed_at`, else `purchased_at`, else `created_at` (only in the interim status endpoint; `record_sale` does the same in SQL).
+- The "Keepa tokens exhausted" push dedupe is in memory (one per day per process); a restart can repeat it once.
+- `CLAUDE.md` still describes the old mock BuyBox and the hardcoded n8n list; it is rewritten in Phase 7.4 / 9.1.
+- n8n: JSON re-serialised (indentation changed, so the diff is noisy); it now fetches the watchlist. Owner must re-import it (`MANUEL-ADIMLAR.md` M11).
+
+### Phase 4
+
+Files: backend `services/lifecycle.py` (state machine), `services/db_util.py` (`call_rpc` maps SQLSTATE 22023/P0002/55000/23505 to 422/404/409/409, `fetch_all` pages past the 1000-row cap), `services/inventory_alerts.py` (dead stock + return deadlines, moved out of `deals.py`), `api/endpoints/reports.py` (`GET /reports/summary`, `GET /reports/export.csv`), `deals.py` (status refactor, `POST /{id}/sale`, `POST /{id}/return`, soft delete, manual entry through the RPCs), `profit_calculator.actual_profit`; migration `20260921091200_report_summary.sql` (`report_summary(year)`); `tzdata` added to the backend dependencies (Europe/Vienna on slim images). Frontend: `components/{Toast,ModalShell,BoughtModal,SaleModal,ReturnModal}.tsx`, `lib/{fetchAll,lifecycle,useBusinessConfig,reportTypes}.ts`, `profit.ts` (+ `actualProfit`), rewritten Reports page, patched Workspace / Manual Entry / Product Master. Turkish docs: `docs/MANUAL-TEST-SCRIPT.md` (first version), `MANUEL-ADIMLAR.md` M16.
+
+Verified (local Supabase, auth overridden, no external services; 79 checks): state machine (legal and illegal moves, unknown id, race-safe compare-and-set), bought record + return-by + estimate recompute, sale (profit computed in the backend, client value ignored, second sale 409), return (refund event, quarantine, target price kept, sale history kept), re-list and re-sell, soft delete (sold or with sale history 409, hidden from every read path and the storefront, product row kept), report against a hand calculation (revenue / COGS / shipping / fees / gross / before-tax / ROI / VAT % / cash view), previous year empty, CSV (BOM, `;`, decimal comma, formula guard), manual entry through the RPCs (quantity 3 -> 3 SKUs, duplicate open row and duplicate SKU -> 409 with readable text, PUT keeps purchase fields that were not sent), inventory alerts (age from `received_at`, return-by 3 days, deleted/overdue units ignored, announced once), `fetch_all` past 1000 rows (1006 expenses in the report). Frontend: `tsc`, `npm run build`, lint has no new errors (34 -> 28 on the touched pages, all older); profit/lifecycle helpers checked with a Node script (12 checks).
+NOT verified: the UI was never opened in a browser (modals, toasts, dark mode, Reports page were only type-checked and built); real Supabase auth tokens on the new endpoints (auth is overridden in the test, as in Phase 1 tests); anything on the hosted project.
+
+Decisions and deviations:
+
+- Sale is accepted from `in_inventory` as well as `listed` (goods handed over without an ad); the plan named only `listed -> sold`. `bought -> sold` is refused (the RPC would allow it, the endpoint does not).
+- Status changes are plain updates with a compare-and-set on the old status, not an RPC, so `audit_log.changed_by` is NULL for them (old/new rows and time are still logged). Sale, return and manual entry pass the actor.
+- `actual_profit` counts a cost that was never recorded as zero (same rule as `report_summary`), so a deal's profit and the report agree. Estimates (`net_profit_estimate`) still use the `business_settings` defaults for missing inbound/packaging.
+- Report definitions (also in the migration header): revenue = sale amounts minus refunds by Vienna calendar year; COGS = effective cost of sold units, reversed by a refund; ROI = gross profit / COGS; cash view purchases = effective cost of bought units by purchase date (fallback receipt, then scan date, flagged); VAT % = year revenue / `vat_threshold_eur`. Cash view is a management aid only; how purchases are deducted is for the Steuerberater.
+- Emergency price: recomputed only when cost or target changes, and only lifted (never lowered) to break-even; a manually typed emergency price is respected.
+- Dashboard: revenue, gross profit, ROI and the VAT bar come from `/reports/summary` for the current year; inventory value uses effective cost (planned or paid price + inbound + packaging); category audit is this year's ledger figures. `Drop price 5%` and the 60-day banner now count from receipt/purchase.
+- The workspace invoice upload still writes a public URL (`getPublicUrl`) into a bucket that is private since Phase 2, so opening invoices fails until Phase 5.1 switches to `invoice_path` + signed URLs; only its error handling was fixed here.
+- Manual entry: `actual_profit` is no longer accepted from the client; `quantity` (1-50) creates identical units with suffixed SKUs. The old `Delete` button is now `Remove` and hidden for sold deals.
+- `/dead-stock/scan` (n8n) now runs both alerts; no workflow change needed.
+
+### Phase 4b: UI smoke test
+
+Run against local Supabase only (db reset, auth NOT overridden: a local admin logged in through the real login page, so the new endpoints were called with real Supabase access tokens). Headless Chrome driven by Playwright from the scratchpad; the built-in browser tools were not available in the session. Backend on :8100 and a copy of `frontend/` (without `.env.local`) on :3100, every setting inline, Keepa/OpenAI/Pushover empty. The developer's own servers on :8000 and :3001 were already running and were not touched. Text-based reading, no screenshots.
+
+Tested (all against `docs/MANUAL-TEST-SCRIPT.md`): login; manual deal (profit box +29.80 / 138.6 %, duplicate pending row -> readable 409); Mark as Bought modal (total 23.00, 28.30 / 123.0 %, return-by +30 days, stored correctly); receive and approve; Listed; Willhaben URL validation (bad host rejected, good saved); Manual Entry shows the purchase record; Item Sold modal (30.10 / 130.9 %, DB matches); no Sold/Remove actions on a sold card; Return (quarantine, target price kept, refund event); Resolve and re-list; re-sale 70/5/1.50 -> actual profit 40.50; Reports (management: revenue 70.00, cost 23.00, shipping 16.40, fees 1.50, gross 29.10, ROI 126.5 %, before-tax 19.10 after a 10.00 expense; cash view: 70.00 / 23.00 / 27.90 / 19.10); year selector to another year (revenue 0, VAT 0 %); VAT bar colour (indigo, amber at 87.5 %, red at 97.2 %); CSV export (BOM, `;`, decimal comma, the expected nine lines); Product Master (paging text, deleted rows excluded, CSV columns); Remove of a pending and of a listed deal (hidden from workspace, Product Master and storefront; product page shows "not available"); storefront as anonymous visitor (pending, quarantined, sold and deleted units hidden; in-inventory and listed units visible); dark mode toggle plus a scan for light surfaces on Workspace, deal detail, Sale modal, Return modal, Reports, Product Master, Manual Entry (none); error feedback with the backend stopped (toast on Save, error inside the open Sale modal, Reports error banner with Retry).
+
+Found and fixed:
+- Hydration error on every admin page when the stored theme was dark: `useDarkMode` read `localStorage` in a `useState` initialiser, so the first client render differed from the server HTML. Now `useSyncExternalStore` (server snapshot = light), with an in-memory fallback when storage is blocked.
+- Reports: the VAT limit and the year revenue were formatted with different locales ("EUR 70.00 / EUR 55 000,00"); both now use the same grouping.
+- 422 messages showed Pydantic's "Value error, " prefix ("willhaben_url: Value error, URL must point to willhaben.at"); the prefix is stripped in `describeError`.
+- `docs/MANUAL-TEST-SCRIPT.md`: break-even in 1.2 is 29.28 (30.82 is the cost after purchase), the VAT text shows "0.1% used", the year selector lists only years that have data (how to test it added), VAT colour steps added.
+
+Observations, left as they are (not bugs against the plan):
+- "Item Sold!" is offered only on `listed` cards; a sale from `in_inventory` works through the API only.
+- Product Master shows the net profit ESTIMATE also for sold rows, not the actual profit.
+- Approving the quality check shows no success toast (the card just moves).
+
+NOT tested: the Bought modal and the Manual Entry `Units` field / back-fill statuses were not exercised in the dark scan or with quantity > 1 (same components / API-tested in Phase 4); invoice upload and viewing (broken until Phase 5.1); the `/dead-stock/scan` alert flow through the UI; the 401 sign-out redirect; Realtime refresh after a scan; any real Keepa/OpenAI/Pushover call; CSV opened in Excel itself (only the file bytes); phone-width layout; browsers other than Chrome; the hosted project. Machine note: on this Mac the first read of a file costs about one second (a scan of some kind), so a cold backend start after a long idle can take minutes; warm the cache with `find backend/.venv -type f | xargs -P 48 cat > /dev/null`.
+
+### Phase 5
+
+Files: frontend `lib/{invoices,storefront,legal,site,supabaseServer}.ts`, `components/{ListingImage,ProductGallery,RecordView}.tsx`, `app/{robots,sitemap}.ts`, `app/admin/layout.tsx`, `app/product/[id]/{page,not-found}.tsx`; patched `app/page.tsx`, `admin/page.tsx`, `ProductCard`, `CategoryQuadTile`, `StoreNav`, `StoreFooter`, Impressum, Datenschutz, root layout. Turkish docs: `MANUEL-ADIMLAR.md` M8 (rewritten), M17 (legal review points), M18 (`NEXT_PUBLIC_SITE_URL`).
+
+Verified (local Supabase, isolated backend :8100 and a frontend copy :3100, no external services): invoice flow in Chrome (wrong type and 20 MB file refused with a readable toast, PDF uploaded to `invoices/<deal id>/<timestamp>.pdf`, `invoice_path` saved, "View Invoice" opens a signed URL that answers 200; a legacy public link answers 400 to an anonymous request and opens through a signed URL for the admin); product page view-source (title, description, canonical, Open Graph image, Product JSON-LD with `EUR`, price, availability, condition; ad copy containing `</script>` cannot break out of the JSON-LD); 404 with the friendly page for a quarantined, sold, unknown and malformed id; disabled "Bald verfügbar" button plus hint without a Willhaben URL; `/robots.txt`, `/sitemap.xml` (only sellable items), `noindex` on `/admin/*`; homepage requests only the card columns with `limit=60`, a category grid loads 24 then "Load more" (24 + 6), recently viewed is fetched by id. `tsc` clean, `next build` passes (run in a copy of `frontend/`, not the real `.next`); lint shows nothing new (the 3 errors it lists in Impressum, Datenschutz and StoreNav are older and belong to Phase 6.7).
+NOT verified: a production build served with `next start` (dev server used for the runtime checks; the build itself passed); real product photos (test rows use dummy image URLs); the sitemap with more than 1000 rows; what Google actually indexes.
+
+Decisions and deviations:
+- `next/image` with `unoptimized` (`ListingImage`): photos are pasted in as arbitrary https URLs, and allow-listing every host (or `**`) would turn `/_next/image` into an open image proxy. Lazy loading and layout-shift protection stay; anything that is not an https URL shows the placeholder.
+- The product page is a server component with `revalidate = 60`; the gallery and the "recently viewed" recorder are small client components; the accordions are native `<details>`. A sold item may stay visible for up to a minute.
+- Homepage rails are built from the newest 60 listings; a per-category rail shows at most 12 (the category page has them all). "Recently Viewed" asks for exactly the remembered ids.
+- Legacy invoices: the storage path is recovered from the old public URL and opened through a signed URL ("View Invoice (legacy)"), so no data has to be migrated or cleared for viewing.
+- Legal: `legal.ts` only holds the facts; no legal wording was written or changed (the lawyer questions are in M17).
+- `CLAUDE.md` still says every page is client-rendered and mentions `invoice_url`; it is rewritten in Phase 7.4 / 9.1.
+
+### Phase 6
+
+Files: backend `core/{logging_config,middleware,sentry,metrics}.py`, `api/endpoints/health.py`, `main.py`, `services/scan_pipeline.py` (`fail_interrupted_scan_jobs`, metrics), `services/keepa_service.py`, the three OpenAI agents (error counter, no-key guard); `pyproject.toml` / `uv.lock` (`sentry-sdk[fastapi]`); `infrastructure/monitoring/{alerts.yml,prometheus.yml,docker-compose.yml}`; `scripts/smoke_auth.sh`; `.env.example` (`LOG_LEVEL`). Frontend: `app/{error,global-error,not-found}.tsx`, `app/admin/error.tsx`, `lib/useClientOnly.ts`, and the lint fixes. Turkish docs: `MANUEL-ADIMLAR.md` M19.
+
+Verified (local Supabase, isolated backend :8100 and frontend copy :3100): `/healthz` 200, `/readyz` 200 and 503 with PostgREST stopped (then 200 again), `/` 404; JSON log lines with request id, one access line per request (path only, no query string), `X-Request-Id` echoed when harmless and replaced otherwise, scan logs carry the id of the request that started them; stuck jobs (running 20 min, queued 20 min) closed at startup while fresh ones stay; `/metrics` shows `vindera_scan_jobs_total`, `vindera_keepa_tokens_left` (NaN until Keepa answers), `vindera_openai_errors_total`; unhandled exception -> JSON 500 with request id, CORS header present, no stack trace, traceback only in the log (checked with a test app, 14 checks in one script); log and Sentry scrubbing (Bearer, `key=`, configured secret values, request headers/body); Sentry starts only with a DSN and captures without crashing (pointed at a dead local port); `promtool check config` on the Prometheus files: valid, 5 rules. Frontend: `tsc` clean, `eslint src` 0 errors 0 warnings (was 34 + 3), `next build` passes; in Chrome: login redirect, deal selection and Willhaben draft, command menu, panel separators, Product Master column resize, storefront search, Impressum origin, 404 page, no console or hydration errors.
+NOT verified: the error boundary pages themselves (they only render on a real crash; compiled and built, never displayed); Sentry against a real project; Prometheus loading the rules in the running container; anything on the hosted project or with real keys.
+
+Decisions and deviations:
+- Found while testing: with `OPENAI_API_KEY` empty the agents still called api.openai.com with a dummy key (two real requests, answered 401, no real key or data involved). All three OpenAI callers now check `settings.openai_configured` first and fail (or use the dev mock) without touching the network.
+- Logging is configured in `main.py` before the app exists. `httpx`/`httpx2`/`httpcore` are set to WARNING because they log full URLs at INFO and Keepa's key travels in the query string; the formatter additionally masks configured secret values and credential-looking fragments. Uvicorn's own access log is off; the request middleware writes one line per request. `/healthz`, `/readyz`, `/metrics` are logged at DEBUG only.
+- The catch-all for unexpected errors is a middleware inside CORS, not `@app.exception_handler(Exception)` (that one runs outside CORS, so the browser would see a network error instead of the 500). It also reports to Sentry, which cannot see an exception a middleware swallows.
+- Beyond the plan (6.4): jobs stuck in `queued` for more than 15 minutes are closed too; they have the same cause (a restart loses the in-process task).
+- Metrics are per process: run ONE uvicorn worker in production (Phase 8 must not use two, or a scrape sees only one worker's numbers). `KEEPA_TOKENS_LEFT` starts as NaN so the "tokens low" alert does not fire before the first Keepa call.
+- Docker `HEALTHCHECK` on `/healthz` belongs to the Dockerfile in Phase 8.1. The old public `/` status message is gone.
+- Frontend Sentry is not trivial (wizard, config files, CSP); documented in M19 instead. Frontend errors are not logged to the console on purpose.
+- Lint: the inner components (`ResizeHandle`, `Header`) moved to module level; effects that called functions declared later were moved below them; `any` types replaced by real ones (`SavedDeal` for the edit form, `Session`); `useIsClient` / `useOrigin` (`useSyncExternalStore`) replace mount effects; the Willhaben draft resets by adjusting state during render. One justified `eslint-disable` remains on the dashboard's mount effect (its fetchers are recreated every render and only use state setters).
+- `CLAUDE.md` is still the old text; it is rewritten in Phase 7.4 / 9.1.
+
+### Phase 7
+
+Files: backend `tests/{conftest,fakes,helpers}.py` and 10 test modules (279 tests, a few seconds), `pyproject.toml` `[tool.pytest.ini_options]` + dev group (`pytest`, `pytest-asyncio`, `respx`); frontend `vitest.config.mts`, `src/lib/__tests__/{profit,lifecycle}.test.ts` (26 tests), `npm test`; `supabase/tests/report_summary_smoke.sql` (21 checks, hand-calculated report scenario); `.github/workflows/ci.yml`; `CLAUDE.md` rewritten (statements about "no tests", client-only rendering, mock fallbacks, `FASTAPI_SECRET_KEY`, hardcoded n8n list, `invoice_url` were no longer true).
+
+Verified: `uv run pytest -q` 279 passed; `npx tsc`, `npm run lint`, `npm test`, `npm run build` all clean in a fresh copy of `frontend/` after `npm ci` (this is what CI does); both SQL smoke tests pass after `supabase db reset --local` on a Supabase started with the reduced service list the CI job uses; `actionlint` reports nothing for the workflow. Mutation check: six deliberate bugs (mock data allowed, an illegal transition, any automation key accepted, banker's rounding, deleting a sold deal, OpenAI called without a key) were each caught by at least one test.
+NOT verified: the workflow has never run on GitHub (action versions `checkout@v4`, `setup-node@v4`, `setup-uv@v6`, `supabase/setup-cli@v1` are from memory, not resolved; the repository has no remote yet); the Python 3.14 download by uv on the runner.
+
+Decisions and deviations:
+- The tests cannot touch the owner's `.env` or any service: `conftest.py` sets its own environment, imports the app from a scratch directory (`env_file="../.env"` is relative to the working directory), asserts the values it got, replaces every Supabase client by an in-memory fake and refuses outgoing sockets. The "thin interface" of the plan is the fake `FakeSupabase` (tables as lists, the query methods the code uses, RPC handlers registered per test).
+- Dedupe (same ASIN twice -> one open row) is enforced by a unique index and `persist_scan_result` in SQL, so it is covered by `supabase/tests/phase2_smoke.sql` (already there since Phase 2) and not by a Python test; the pipeline test only checks that a repeated scan calls the RPC again. Report aggregation is SQL and has its own smoke script.
+- Not covered by automated tests: the chatbot's OpenAI tool loop, the frontend components (only the pure helpers are tested), `expenses.py` beyond the auth sweep.
+- `@types/node` went from `^20` to `^24` because Vitest 5 needs Node types >= 22; the machine and CI use Node 24.
+- CI has a third job that starts a local Supabase inside the runner (no secrets) so that "migrations reproducible from scratch" is checked on every push.
+- `CLAUDE.md` mentions only what exists now; the deploy files and `docs/DEPLOY.md` are added to it in Phase 8.
+
+### Phase 8
+
+Files: `backend/{Dockerfile,.dockerignore}`, `infrastructure/prod/{docker-compose.yml,Caddyfile,prometheus.yml,.env.prod.example,grafana/datasources.yml}`, `infrastructure/backup/{backup.sh,backup.env.example}`, `infrastructure/monitoring/{docker-compose.yml,.env.example}` (8.4), `frontend/.env.example` (+ `!.env.example` in `frontend/.gitignore`, which used to ignore it), `docs/DEPLOY.md`, `backend/scripts/smoke_auth.sh` (`BEHIND_PROXY=1`), README deployment section, CI job `deploy-config`, `CLAUDE.md`. Turkish docs: `MANUEL-ADIMLAR.md` M20 (server, domain, accounts), M21 (backups and restore drill), M22 (local Grafana password).
+
+Verified locally, never against a server and only against the LOCAL Supabase: `docker build` of the backend image (nothing pushed); the image runs as uid 10001 with a single uvicorn process, `.env` absent, reports `healthy`, `/healthz` 200, `/readyz` 200 with the local Supabase (503 without), `/docs` and `/openapi.json` 404, API 401, `/metrics` 401; `smoke_auth.sh` passes directly and through a temporary Caddy in front of it (`/metrics` 404 even with the token); `docker compose config` accepts the prod file with a complete env file, refuses the example with empty secrets, publishes only Caddy's 80/443 (+443/udp) and Grafana on 127.0.0.1, and n8n's environment holds none of the backend's secrets; `caddy validate` and `caddy fmt` clean; `promtool check config` on the prod Prometheus config (token file written from the environment) plus the 5 alert rules; `backup.sh` against the local database: dump verified (39 tables with data), encrypted with real `age` and decrypted again, a wrong password and a missing URL exit non-zero without leaving a partial file, retention removed a 30-day-old dummy file and left an unrelated file; restore of that dump into a scratch database with matching row counts and zero `pg_restore` errors; `shellcheck` clean on `backup.sh` and `smoke_auth.sh`; `actionlint` clean on the workflow, and the five commands of the `deploy-config` job were run locally.
+NOT verified: anything on a real server or with real accounts (Let's Encrypt issuance, DNS, ufw / Hetzner firewall, Docker Engine on Ubuntu, memory sizing), Vercel, n8n's first-run screens and importing the workflow into the production n8n image, the Grafana data source provisioning, the Prometheus container actually starting with the compose entrypoint (only the config and the token-file write were run, not the compose service), the Session-pooler connection string with `backup.sh`, cron, and a full rebuild of a lost project from a dump. No server, domain or account was created; nothing was pushed or published.
+
+Decisions and deviations:
+- **ONE uvicorn worker** (owner's correction, replaces the plan's "2 workers max"): the metrics are per process. The Dockerfile passes `--workers 1` explicitly and says why; the container also gets `--proxy-headers --forwarded-allow-ips '*'` so the rate limiter sees the real client behind Caddy. That is safe only because the backend has no published port; the compose file publishes nothing except Caddy.
+- Grafana: the plan asked to choose between Caddy basic auth and an SSH tunnel. Chosen: SSH tunnel with Grafana bound to `127.0.0.1:3002` (no extra credential to manage, never on the internet). Prometheus publishes nothing. n8n stays reachable through Caddy at `n8n.<domain>` protected by its own owner login; the owner has to create that account right after the first start (documented as urgent in M20).
+- Every service gets an explicit `environment:` list instead of `env_file`, so n8n and Grafana never see the backend's secrets. Required secrets use `${VAR:?message}`. Prometheus gets the metrics token from `METRICS_TOKEN` through a tiny `sh -c` entrypoint that writes `/tmp/metrics_token`, so there is one source of truth (no secrets file to forget).
+- Images: `caddy:2.10`, `prom/prometheus:v3.5.0`, `grafana/grafana:12.2.0` (tags checked to exist), n8n through `N8N_IMAGE_TAG` (default `latest`; the owner pins it after the first run because the exported workflow comes from their local n8n). No `latest` for anything else.
+- The local monitoring compose now requires `GRAFANA_ADMIN_PASSWORD`, binds both UIs to loopback and drops the `admin` default (8.4). The owner's running containers were not touched; `docker compose config` was only run with dummy env files, so the real `infrastructure/monitoring/.env` was never read.
+- `backup.sh` dumps schemas `public` and `auth` in custom format with `pg_dump` from a `postgres:17-alpine` container (same major as the Supabase database; a newer client can dump older servers), so the server needs Docker only. Storage files are not included (documented). `PG_DUMP_LOCAL=1` is offered but passes the URL as an argument (noted in the script).
+- Restore procedure as tested: scratch database from `template0`, `drop schema public`, `pg_restore --no-owner --no-privileges`. With `--clean --if-exists` a fresh database produced 18 harmless "does not exist" errors, so the runbook does not use it.
+- `frontend/.gitignore` ignored `.env*` including the new example; `!.env.example` was added.
+- `CLAUDE.md` and the README now mention the production files; the rest of the README is still the old text (Phase 9.1).
+
+### Phase 9
+
+Files: `TECH-DOKUMENTATION.md` (rewritten from the code, v4.0; the calendar and design-system sections were kept), `README.md`, `CLAUDE.md` (+ manual clean-up script line, step numbers), `docs/DEPLOY.md` (section 5: the remote exists; Vercel plan note; MFA text corrected), `docs/MANUEL-ADIMLAR.md` (rewritten as one sequential guide, steps 1-24), `docs/LAUNCH-CHECKLIST.tr.md` (new: go-live checkboxes, first real scan, first-week routine, rollback and emergency stop), `docs/MANUAL-TEST-SCRIPT.md` (local setup block, storefront/invoice, mock scan, alert checks), `supabase/scripts/cleanup_test_data.sql` (new, manual, not a migration).
+
+Owner facts recorded: M1 done 21 Sep 2026; signup on the hosted project is disabled (step 2 marked done); `origin` = `github.com/ridvanyigit/vindera-workspace`, and local `main` is one commit ahead of `origin/main` (the plan file); `launch-hardening` can be fast-forwarded into `main` (main is its ancestor).
+
+Verified: the clean-up script against the LOCAL Supabase only (`supabase start` reduced list, `db reset --local`, synthetic rows): dry run reports the counts and leaves every table unchanged; placeholder ASIN, malformed ASIN, unknown/typo ASIN, a real product whose title lacks "Test Product for ASIN", too many units and `v_commit` without the confirmation phrase are all refused with nothing changed; the real run removed exactly the listed products (units, sale rows, listings, price points), wrote one `audit_log` note holding a copy of the deleted `sale_events` rows plus the trigger's own DELETE row per unit, left an unrelated sold unit and its sale untouched, and afterwards both guard triggers were enabled again and still refused deleting a sale row or a sold unit; a second run refused ("no test product found"). The three read-only queries of Part 1 run without error. `supabase stop` afterwards. Documentation only otherwise: no code changed, so the test suites were not re-run.
+NOT verified: the script in the hosted Supabase SQL Editor (only local psql: how the editor shows the "DRY RUN OK" error, run-selection behaviour and its confirmation dialog are assumed); the CI workflow on GitHub (still never run); the Turkish click paths of Supabase / Vercel / GitHub / Keepa / Pushover / OpenAI dashboards (written from knowledge of those products, menu names may differ); the manual test script's new sections 0, 8-10 were written from the code and Phase 4b/5 results but not re-walked in a browser; a real Keepa answer.
+
+Decisions and deviations:
+- **Clean-up script shape.** Instead of a bare `BEGIN; ... ROLLBACK;` the delete step is one `DO` block (one statement = one transaction) with `v_commit := false` by default: the block ends by raising an error whose text is the report, PostgreSQL undoes everything, and the trailing `COMMIT` becomes a rollback. Reason: the Dashboard SQL Editor shows only the last statement's result, so a plain `ROLLBACK` at the end would hide what would have been deleted. Guards are lifted with `ALTER TABLE ... DISABLE TRIGGER` (transactional DDL, both triggers re-enabled and checked before the block ends), only the two guard triggers, and every delete is filtered by ids selected from the owner's ASIN list; products must also match "Test Product for ASIN" unless `v_require_test_title` is switched off; at most 25 units; typing `DELETE TEST DATA` is required to commit. `scan_jobs` are kept.
+- **MFA.** The plan asked to "enable MFA and enrol the admin". The app has no MFA screens or `aal2` check, so switching it on in the Dashboard changes nothing for the admin login. The guide (step 11) and DEPLOY.md now say so, advise a long unique password and 2FA on the surrounding accounts; MFA in the app is in the backlog (step 24).
+- **Numbering.** The guide is renumbered 1-24 in the order the owner does things (old M-numbers are gone from the docs). Mapping old -> new: M1 1, M2 2, M3 5, M4 12, M5 8, M6 14, M7 7, M8 18, M9 11, M10 22, M11 12, M12 21, M13 19, M14 1, M15 6/15, M16 17, M17 16, M18 10, M19 14, M20 9-12, M21 13, M22 14.
+- **Owner's item list.** Items 4 and 5 of the request ran together; done as: the wrong "no remote" sentence fixed, the GitHub merge/CI/private-repository guide (step 4), the Vercel section aligned with reality (DEPLOY.md 9 and guide step 10, including the Hobby-plan terms caveat), and `TECH-DOKUMENTATION.md` / README / CLAUDE.md brought to the current endpoints, tables, auth model, profit formula, lifecycle, environment variables and run/test/deploy commands.
+- CI runs on `push` to `main` and on pull requests only, so the guide has the owner open a pull request from `launch-hardening` first (a plain push of the branch would not start it).
+- Vercel Hobby terms (non-commercial) and GitHub Free's monthly Actions minutes for private repositories are stated as "check the current terms", not as facts.
+
+## Manual steps done
+
+- **M1 (21 Sep 2026, by the owner):** the 13 migrations `20260921090000` ... `20260921091200` were applied to the hosted Supabase project after a backup and a dry run, without errors. Checked afterwards: 1 `sale_events` row, 1 `business_settings` row, `invoices` bucket private, 3 old duplicate scans hidden (`deleted_at`, not deleted), 7 `events_calendar` rows. The hosted schema is now ahead of the old `main` code: deploy the new backend and frontend together (see M1 in `MANUEL-ADIMLAR.md`).
+
+## Manual steps pending
+
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish, steps 1-24, sequential) and `docs/LAUNCH-CHECKLIST.tr.md` (go-live checkboxes). Done: step 1 (migrations, 21 Sep 2026), step 2 (signup off). Launch-blockers still open, in order: 3 clean up test data, 4 private repository + PR + first CI run, 5 rotate secrets, 6 accounts, 7 Supabase panel checks, 8 `business_settings` numbers, 9 server (`docs/DEPLOY.md`), 10 Vercel, 11 first admin, 12 n8n, 13 backups + restore drill, 14 monitoring, 15 first real scan (Keepa 90-day BuyBox average and price history), 16 legal and tax (start now, in parallel).

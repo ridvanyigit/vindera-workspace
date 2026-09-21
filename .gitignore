@@ -9,6 +9,8 @@
 .env
 .env.local
 .env.development.local
+.env.prod
+infrastructure/backup/backup.env
 
 # Node / Next.js
 node_modules/

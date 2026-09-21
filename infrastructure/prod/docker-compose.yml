@@ -1,0 +1,150 @@
+# Production stack for ONE small VPS: Caddy (HTTPS), backend, n8n, Prometheus, Grafana.
+#
+# The frontend is NOT here (it runs on Vercel) and neither is the database (hosted
+# Supabase). Runbook: docs/DEPLOY.md. Always pass the env file explicitly:
+#
+#   docker compose --env-file .env.prod up -d --build
+#
+# Exposure: only Caddy publishes ports (80/443). The backend, n8n and Prometheus
+# are reachable inside the Docker network only. Grafana is bound to the server's
+# loopback (127.0.0.1:3002) and is used through an SSH tunnel, never over the internet:
+#
+#   ssh -L 3002:127.0.0.1:3002 <user>@<server>     then open http://localhost:3002
+#
+# Every secret comes from .env.prod (git-ignored). A variable written as ${NAME:?...}
+# is required: compose refuses to start without it, so a forgotten secret is an error
+# instead of an empty value.
+
+name: vindera
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  backend:
+    build:
+      context: ../../backend
+    # To roll back: `BACKEND_IMAGE=vindera-backend:previous docker compose --env-file .env.prod up -d --no-build`
+    image: ${BACKEND_IMAGE:-vindera-backend:prod}
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      ENVIRONMENT: production
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL in .env.prod}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?Set SUPABASE_SERVICE_ROLE_KEY in .env.prod}
+      AUTOMATION_SHARED_SECRET: ${AUTOMATION_SHARED_SECRET:?Set AUTOMATION_SHARED_SECRET in .env.prod}
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in .env.prod}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?Set CORS_ALLOWED_ORIGINS in .env.prod}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      KEEPA_API_KEY: ${KEEPA_API_KEY:-}
+      PUSHOVER_USER_KEY: ${PUSHOVER_USER_KEY:-}
+      PUSHOVER_API_TOKEN: ${PUSHOVER_API_TOKEN:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      SELL_PRICE_POSITION: ${SELL_PRICE_POSITION:-0.5}
+      ALLOW_MOCK_DATA: "false"
+    networks: [vindera]
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      # Encrypts the credentials stored in n8n (the automation key). Losing it makes them unreadable.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Set N8N_ENCRYPTION_KEY in .env.prod}
+      N8N_HOST: ${N8N_DOMAIN:?Set N8N_DOMAIN in .env.prod}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_DOMAIN}/
+      N8N_SECURE_COOKIE: "true"
+      # One reverse proxy (Caddy) sits in front of n8n.
+      N8N_PROXY_HOPS: "1"
+      GENERIC_TIMEZONE: Europe/Vienna
+      TZ: Europe/Vienna
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      # The workflow reads the backend address from this variable ($env), over the internal network.
+      VINDERA_API_BASE_URL: http://backend:8000
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks: [vindera]
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env.prod}
+      N8N_DOMAIN: ${N8N_DOMAIN:?Set N8N_DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env.prod}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [vindera]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN in .env.prod}
+    # The bearer token for scraping /metrics is written to a file from the environment at
+    # start, so it lives in .env.prod only (prometheus.yml points at that file).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '%s' "$$METRICS_TOKEN" > /tmp/metrics_token &&
+        exec /bin/prometheus
+        --config.file=/etc/prometheus/prometheus.yml
+        --storage.tsdb.path=/prometheus
+        --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    networks: [vindera]
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    logging: *logging
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env.prod}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    # Loopback only: reach it through an SSH tunnel (see the top of this file).
+    ports:
+      - "127.0.0.1:3002:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    networks: [vindera]
+
+networks:
+  vindera:
+
+volumes:
+  n8n_data:
+  caddy_data:
+  caddy_config:
+  prometheus_data:
+  grafana_data:

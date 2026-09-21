@@ -1,0 +1,134 @@
+# Continuous integration: nothing here needs a secret. Tests use fakes and dummy
+# values, and the database job runs a throw-away local Supabase inside the runner.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      # Python 3.14 comes from backend/.python-version; uv downloads it.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run tests
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Public values only, and dummies: the build never talks to Supabase or the API.
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      NEXT_PUBLIC_API_URL: https://api.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests (profit and lifecycle helpers)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  database:
+    name: Migrations and SQL checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Local containers only: no login, no link, nothing is pushed anywhere.
+      - name: Start a local Supabase
+        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,supavisor,postgres-meta
+
+      - name: Apply every migration and the seed from scratch
+        run: supabase db reset --local
+
+      - name: Smoke test of the launch-hardening schema
+        run: docker exec -i supabase_db_vindera-workspace psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/phase2_smoke.sql
+
+      - name: Accounting report against a hand calculation
+        run: docker exec -i supabase_db_vindera-workspace psql -U postgres -v ON_ERROR_STOP=1 < supabase/tests/report_summary_smoke.sql
+
+  deploy-config:
+    name: Deployment files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fill every empty value of the example with a placeholder: the check is that the
+      # compose files are well formed and that no required secret is missing from the example.
+      - name: Validate the production compose file
+        run: |
+          sed 's/=$/=ci-placeholder/' infrastructure/prod/.env.prod.example > "$RUNNER_TEMP/prod.env"
+          docker compose --env-file "$RUNNER_TEMP/prod.env" -f infrastructure/prod/docker-compose.yml config -q
+
+      - name: Validate the local monitoring compose file
+        run: |
+          echo 'GRAFANA_ADMIN_PASSWORD=ci-placeholder' > "$RUNNER_TEMP/monitoring.env"
+          docker compose --env-file "$RUNNER_TEMP/monitoring.env" -f infrastructure/monitoring/docker-compose.yml config -q
+
+      - name: Validate the Caddyfile
+        run: |
+          docker run --rm -e API_DOMAIN=api.example.com -e N8N_DOMAIN=n8n.example.com -e ACME_EMAIL=owner@example.com \
+            -v "$PWD/infrastructure/prod/Caddyfile":/etc/caddy/Caddyfile:ro caddy:2.10 \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
+      - name: Check the Prometheus configuration and alert rules
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -v "$PWD/infrastructure/prod/prometheus.yml":/etc/prometheus/prometheus.yml:ro \
+            -v "$PWD/infrastructure/monitoring/alerts.yml":/etc/prometheus/alerts.yml:ro \
+            prom/prometheus:v3.5.0 -c 'echo token > /tmp/metrics_token && promtool check config /etc/prometheus/prometheus.yml'
+
+      - name: Shell scripts
+        run: shellcheck infrastructure/backup/backup.sh backend/scripts/smoke_auth.sh
+
+      # Build only; nothing is pushed anywhere.
+      - name: Build the backend image
+        run: docker build -t vindera-backend:ci backend
