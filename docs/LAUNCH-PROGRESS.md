@@ -119,10 +119,11 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 9 - Documentation and manual steps
 
-- [ ] 9.1 Tech docs / README / CLAUDE.md
-- [ ] 9.2 `docs/MANUEL-ADIMLAR.md` complete
-- [ ] 9.3 `docs/MANUAL-TEST-SCRIPT.md`
-- [ ] 9.4 Final pass
+- [x] 9.1 Tech docs / README / CLAUDE.md
+- [x] 9.2 `docs/MANUEL-ADIMLAR.md` complete (+ `docs/LAUNCH-CHECKLIST.tr.md`)
+- [x] 9.3 `docs/MANUAL-TEST-SCRIPT.md`
+- [x] 9.4 Final pass
+- [x] 9.5 (owner request) `supabase/scripts/cleanup_test_data.sql` for test rows, GitHub merge guide, DEPLOY.md remote fix
 
 ## Decisions & assumptions
 
@@ -303,10 +304,27 @@ Decisions and deviations:
 - `frontend/.gitignore` ignored `.env*` including the new example; `!.env.example` was added.
 - `CLAUDE.md` and the README now mention the production files; the rest of the README is still the old text (Phase 9.1).
 
+### Phase 9
+
+Files: `TECH-DOKUMENTATION.md` (rewritten from the code, v4.0; the calendar and design-system sections were kept), `README.md`, `CLAUDE.md` (+ manual clean-up script line, step numbers), `docs/DEPLOY.md` (section 5: the remote exists; Vercel plan note; MFA text corrected), `docs/MANUEL-ADIMLAR.md` (rewritten as one sequential guide, steps 1-24), `docs/LAUNCH-CHECKLIST.tr.md` (new: go-live checkboxes, first real scan, first-week routine, rollback and emergency stop), `docs/MANUAL-TEST-SCRIPT.md` (local setup block, storefront/invoice, mock scan, alert checks), `supabase/scripts/cleanup_test_data.sql` (new, manual, not a migration).
+
+Owner facts recorded: M1 done 21 Sep 2026; signup on the hosted project is disabled (step 2 marked done); `origin` = `github.com/ridvanyigit/vindera-workspace`, and local `main` is one commit ahead of `origin/main` (the plan file); `launch-hardening` can be fast-forwarded into `main` (main is its ancestor).
+
+Verified: the clean-up script against the LOCAL Supabase only (`supabase start` reduced list, `db reset --local`, synthetic rows): dry run reports the counts and leaves every table unchanged; placeholder ASIN, malformed ASIN, unknown/typo ASIN, a real product whose title lacks "Test Product for ASIN", too many units and `v_commit` without the confirmation phrase are all refused with nothing changed; the real run removed exactly the listed products (units, sale rows, listings, price points), wrote one `audit_log` note holding a copy of the deleted `sale_events` rows plus the trigger's own DELETE row per unit, left an unrelated sold unit and its sale untouched, and afterwards both guard triggers were enabled again and still refused deleting a sale row or a sold unit; a second run refused ("no test product found"). The three read-only queries of Part 1 run without error. `supabase stop` afterwards. Documentation only otherwise: no code changed, so the test suites were not re-run.
+NOT verified: the script in the hosted Supabase SQL Editor (only local psql: how the editor shows the "DRY RUN OK" error, run-selection behaviour and its confirmation dialog are assumed); the CI workflow on GitHub (still never run); the Turkish click paths of Supabase / Vercel / GitHub / Keepa / Pushover / OpenAI dashboards (written from knowledge of those products, menu names may differ); the manual test script's new sections 0, 8-10 were written from the code and Phase 4b/5 results but not re-walked in a browser; a real Keepa answer.
+
+Decisions and deviations:
+- **Clean-up script shape.** Instead of a bare `BEGIN; ... ROLLBACK;` the delete step is one `DO` block (one statement = one transaction) with `v_commit := false` by default: the block ends by raising an error whose text is the report, PostgreSQL undoes everything, and the trailing `COMMIT` becomes a rollback. Reason: the Dashboard SQL Editor shows only the last statement's result, so a plain `ROLLBACK` at the end would hide what would have been deleted. Guards are lifted with `ALTER TABLE ... DISABLE TRIGGER` (transactional DDL, both triggers re-enabled and checked before the block ends), only the two guard triggers, and every delete is filtered by ids selected from the owner's ASIN list; products must also match "Test Product for ASIN" unless `v_require_test_title` is switched off; at most 25 units; typing `DELETE TEST DATA` is required to commit. `scan_jobs` are kept.
+- **MFA.** The plan asked to "enable MFA and enrol the admin". The app has no MFA screens or `aal2` check, so switching it on in the Dashboard changes nothing for the admin login. The guide (step 11) and DEPLOY.md now say so, advise a long unique password and 2FA on the surrounding accounts; MFA in the app is in the backlog (step 24).
+- **Numbering.** The guide is renumbered 1-24 in the order the owner does things (old M-numbers are gone from the docs). Mapping old -> new: M1 1, M2 2, M3 5, M4 12, M5 8, M6 14, M7 7, M8 18, M9 11, M10 22, M11 12, M12 21, M13 19, M14 1, M15 6/15, M16 17, M17 16, M18 10, M19 14, M20 9-12, M21 13, M22 14.
+- **Owner's item list.** Items 4 and 5 of the request ran together; done as: the wrong "no remote" sentence fixed, the GitHub merge/CI/private-repository guide (step 4), the Vercel section aligned with reality (DEPLOY.md 9 and guide step 10, including the Hobby-plan terms caveat), and `TECH-DOKUMENTATION.md` / README / CLAUDE.md brought to the current endpoints, tables, auth model, profit formula, lifecycle, environment variables and run/test/deploy commands.
+- CI runs on `push` to `main` and on pull requests only, so the guide has the owner open a pull request from `launch-hardening` first (a plain push of the branch would not start it).
+- Vercel Hobby terms (non-commercial) and GitHub Free's monthly Actions minutes for private repositories are stated as "check the current terms", not as facts.
+
 ## Manual steps done
 
 - **M1 (21 Sep 2026, by the owner):** the 13 migrations `20260921090000` ... `20260921091200` were applied to the hosted Supabase project after a backup and a dry run, without errors. Checked afterwards: 1 `sale_events` row, 1 `business_settings` row, `invoices` bucket private, 3 old duplicate scans hidden (`deleted_at`, not deleted), 7 `events_calendar` rows. The hosted schema is now ahead of the old `main` code: deploy the new backend and frontend together (see M1 in `MANUEL-ADIMLAR.md`).
 
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M22. Launch-blockers still open: M20 server / domain / accounts (`docs/DEPLOY.md`), M21 backups and restore drill, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish, steps 1-24, sequential) and `docs/LAUNCH-CHECKLIST.tr.md` (go-live checkboxes). Done: step 1 (migrations, 21 Sep 2026), step 2 (signup off). Launch-blockers still open, in order: 3 clean up test data, 4 private repository + PR + first CI run, 5 rotate secrets, 6 accounts, 7 Supabase panel checks, 8 `business_settings` numbers, 9 server (`docs/DEPLOY.md`), 10 Vercel, 11 first admin, 12 n8n, 13 backups + restore drill, 14 monitoring, 15 first real scan (Keepa 90-day BuyBox average and price history), 16 legal and tax (start now, in parallel).

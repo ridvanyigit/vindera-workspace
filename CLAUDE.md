@@ -60,10 +60,12 @@ Copy `.env.example` and fill in keys. `OPENAI_API_KEY`, `KEEPA_API_KEY` and `PUS
 
 ```bash
 supabase db reset --local    # local DB + all migrations + seed.sql
-supabase db push             # hosted project: only the owner does this, after a backup (docs/MANUEL-ADIMLAR.md M1)
+supabase db push             # hosted project: only the owner does this, after a backup (docs/MANUEL-ADIMLAR.md step 1)
 ```
 
 Never use `--linked`, `db push` or anything else that touches the hosted project unless the owner asked for it in that very message.
+
+`supabase/scripts/cleanup_test_data.sql` is a **manual** clean-up script for test rows (dry run by default, the owner runs it in the SQL Editor). It is not a migration; never run it against the hosted project yourself and never move it into `supabase/migrations/`.
 
 **Never edit an already-applied migration.** Always create a new file: `supabase/migrations/YYYYMMDDHHMMSS_description.sql`, idempotent where feasible, with a header comment that says why. `seed.sql` only runs on `db reset`.
 

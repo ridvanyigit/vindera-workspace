@@ -31,7 +31,7 @@ All server files are in `infrastructure/prod/`; the backup script is in `infrast
 | A domain | `www.`, `api.` and `n8n.` addresses | Any registrar |
 | A VPS in the EU | Runs the backend, n8n, monitoring | Hetzner Cloud, Ubuntu 24.04, 2 vCPU / 4 GB is plenty (e.g. CX22), Falkenstein or Nuremberg |
 | Supabase project (already exists) | Database, login, files | Pro plan recommended: daily backups, no pausing |
-| Vercel account | Hosts the frontend | Free plan is enough to start |
+| Vercel account | Hosts the frontend | Vercel's free Hobby plan is for non-commercial use under its terms; a business site may need the Pro plan (read the current terms) |
 | Optional: Sentry, UptimeRobot, healthchecks.io | Errors, uptime alarm, backup alarm | All have free tiers |
 | Pushover, Keepa, OpenAI keys | Phone alerts, prices, AI | Set a monthly spending cap at OpenAI |
 
@@ -78,9 +78,9 @@ Log in again as `vindera` for everything that follows.
 
 ## 5. Get the code onto the server
 
-The repository has no remote yet. Either:
+The repository already has a remote: `origin` = `https://github.com/ridvanyigit/vindera-workspace.git`. Nothing from the launch-hardening branch is on it until the owner merges and pushes (Turkish step-by-step in `docs/MANUEL-ADIMLAR.md`, step 4: private repository, pull request, first CI run, merge). **The repository must be Private** (Settings -> General -> Danger Zone -> Change visibility): it contains the deployment layout and the owner's business data model, and a read-only deploy key is enough for the server. Either:
 
-- **Private Git repository** (recommended): push the `launch-hardening` branch (or `main` once merged) to a private GitHub repository, create a read-only deploy key (`ssh-keygen -t ed25519`, add the public key under Repository -> Settings -> Deploy keys) and `git clone git@github.com:<you>/<repo>.git /opt/vindera`.
+- **Private Git repository** (recommended): merge `launch-hardening` into `main` and push `main`, create a read-only deploy key on the server (`ssh-keygen -t ed25519`, add the public key under Repository -> Settings -> Deploy keys, write access left off) and `git clone git@github.com:ridvanyigit/vindera-workspace.git /opt/vindera`. Updates are then `git pull` (section 15).
 - **Copy from your Mac**: `rsync -a --exclude node_modules --exclude .next --exclude .venv --exclude '.env*' --exclude backups ./ vindera@<server>:/opt/vindera/` (run from the workspace root; the excludes keep your local secret files at home).
 
 After the code is in `/opt/vindera` (create the folder first with `sudo mkdir -p /opt/vindera && sudo chown vindera:vindera /opt/vindera`):
@@ -101,7 +101,7 @@ Fill in every line (the comments in the file explain each one). Generate the ran
 | Variable | Where the value comes from |
 |---|---|
 | `API_DOMAIN`, `N8N_DOMAIN`, `ACME_EMAIL` | your domain; your e-mail |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard -> Project Settings -> API. **Use a freshly rotated service_role key** (docs/MANUEL-ADIMLAR.md M3) |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase Dashboard -> Project Settings -> API. **Use a freshly rotated service_role key** (docs/MANUEL-ADIMLAR.md step 5) |
 | `CORS_ALLOWED_ORIGINS` | the exact frontend origin(s), e.g. `https://www.<domain>` (comma-separated, no localhost) |
 | `AUTOMATION_SHARED_SECRET`, `METRICS_TOKEN`, `N8N_ENCRYPTION_KEY`, `GRAFANA_ADMIN_PASSWORD` | `openssl rand -hex 32` each. **Keep a copy of `N8N_ENCRYPTION_KEY` in your password manager**: without it n8n's stored credentials cannot be read after a rebuild |
 | `OPENAI_API_KEY`, `KEEPA_API_KEY`, `PUSHOVER_*`, `SENTRY_DSN` | your accounts; leave empty to switch a feature off (a scan then fails visibly, it never invents data) |
@@ -150,7 +150,7 @@ docker compose --env-file .env.prod exec prometheus wget -qO- 'http://localhost:
 3. Deploy. Then Settings -> Domains: add `www.<domain>` (and the bare domain, redirecting) and create the DNS records Vercel shows.
 4. The values are read at build time: change one, then redeploy.
 5. Now that the frontend address is final, make sure `CORS_ALLOWED_ORIGINS` in `.env.prod` is exactly that origin, and apply it: `docker compose --env-file .env.prod up -d backend`.
-6. Supabase Dashboard -> Authentication -> URL Configuration: Site URL = `https://www.<domain>`, and add it to the redirect URLs (docs/MANUEL-ADIMLAR.md M2).
+6. Supabase Dashboard -> Authentication -> URL Configuration: Site URL = `https://www.<domain>`, and add it to the redirect URLs (docs/MANUEL-ADIMLAR.md step 10).
 
 ## 10. Database migrations
 
@@ -165,7 +165,7 @@ The 13 launch-hardening migrations are already on the hosted project (done by yo
    select id, email from auth.users where email = 'YOUR-EMAIL';
    select * from public.admin_users;     -- exactly one row: you
    ```
-3. Turn off public sign-ups (Authentication -> Sign In / Providers) and enrol a TOTP authenticator for the account (docs/MANUEL-ADIMLAR.md M2, M9).
+3. Public sign-ups are already off (docs/MANUEL-ADIMLAR.md step 2). The app has **no MFA for the admin login** yet (it would need enrolment and challenge screens plus an assurance-level check in the backend; backlog): protect the account with a long, unique password, and enable two-factor on the accounts around it (Supabase, GitHub, Vercel, Hetzner, domain registrar, e-mail).
 4. Open `https://www.<domain>/admin/login`, sign in, and check that the dashboard loads without red error banners.
 
 ## 12. n8n (daily scan)
