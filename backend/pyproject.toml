@@ -14,5 +14,6 @@ dependencies = [
     "python-dotenv>=1.2.3",
     "slowapi>=0.1.10",
     "supabase>=2.31.0",
+    "tzdata>=2026.4",
     "uvicorn[standard]>=0.52.4",
 ]

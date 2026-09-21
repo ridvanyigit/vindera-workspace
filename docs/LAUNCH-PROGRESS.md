@@ -65,21 +65,21 @@ A future session can resume from this file alone: find the first unchecked task 
 
 ### Phase 4 - Lifecycle, accounting and reports
 
-- [ ] 4.1 State machine
-- [ ] 4.2 Status endpoint refactor
-- [ ] 4.3 `POST /deals/{id}/sale`
-- [ ] 4.4 `POST /deals/{id}/return`
-- [ ] 4.5 Soft delete
-- [ ] 4.6 Dead stock + return-window alerts
-- [ ] 4.7 Reports API
-- [ ] 4.8 CSV export
-- [ ] 4.9 Reports page rewrite
-- [ ] 4.10 Dashboard aggregates
-- [ ] 4.11 Bought / Sold / Returned modals
-- [ ] 4.12 Return-by badge
-- [ ] 4.13 No silent failures
-- [ ] 4.14 Manual entry
-- [ ] 4.15 Product Master
+- [x] 4.1 State machine
+- [x] 4.2 Status endpoint refactor
+- [x] 4.3 `POST /deals/{id}/sale`
+- [x] 4.4 `POST /deals/{id}/return`
+- [x] 4.5 Soft delete
+- [x] 4.6 Dead stock + return-window alerts
+- [x] 4.7 Reports API
+- [x] 4.8 CSV export
+- [x] 4.9 Reports page rewrite
+- [x] 4.10 Dashboard aggregates
+- [x] 4.11 Bought / Sold / Returned modals
+- [x] 4.12 Return-by badge
+- [x] 4.13 No silent failures
+- [x] 4.14 Manual entry
+- [x] 4.15 Product Master
 
 ### Phase 5 - Storefront, invoices and SEO
 
@@ -161,7 +161,7 @@ What was verified, all against the LOCAL Supabase only (`supabase start`, `--loc
 Decisions and deviations:
 
 - Statuses: unknown legacy values make the migration stop with a clear message rather than being guessed. `status` is now NOT NULL with default `pending`.
-- Duplicate open scan rows are soft-deleted (`deleted_at`), never hard-deleted. Until Phase 4.5 makes every read path exclude `deleted_at`, those hidden rows still show up in the UI, so the migrations must not be pushed before Phase 4.
+- Duplicate open scan rows are soft-deleted (`deleted_at`), never hard-deleted. Every read path excludes `deleted_at` since Phase 4.5, so the migrations may be pushed once the owner has taken a backup (Phase 5 still has to fix invoice viewing).
 - Beyond the plan, small and in the spirit of rule 4 (write-path): `authenticated` lost every table privilege except SELECT plus column-level UPDATE on `opportunities.invoice_url` / `invoice_path` (`090900`); the initial schema had granted TRUNCATE and friends, which RLS does not stop. Also a DB-level guard: sold units and units with sale events cannot be hard-deleted or soft-deleted (`090300`), and `sale_events` is append-only (UPDATE / DELETE / TRUNCATE raise).
 - Also added early so a later migration is not needed: `opportunities.return_alert_notified_at` and `last_alerted_at` (4.6, 3.2.12), `scan_jobs.retry_after` (3.2.6), `business_settings.listing_payment_text` (3.7; default is the existing wording), `price_history` unique index `(product_id, recorded_at)` (3.2.11), `effective_purchase_price(o)` / `effective_total_cost(o)` SQL functions (also usable as PostgREST computed columns).
 - `business_settings` defaults are placeholder assumptions, marked as such in the migration and in `MANUEL-ADIMLAR.md` M5.
@@ -198,6 +198,25 @@ Decisions and deviations:
 - `CLAUDE.md` still describes the old mock BuyBox and the hardcoded n8n list; it is rewritten in Phase 7.4 / 9.1.
 - n8n: JSON re-serialised (indentation changed, so the diff is noisy); it now fetches the watchlist. Owner must re-import it (`MANUEL-ADIMLAR.md` M11).
 
+### Phase 4
+
+Files: backend `services/lifecycle.py` (state machine), `services/db_util.py` (`call_rpc` maps SQLSTATE 22023/P0002/55000/23505 to 422/404/409/409, `fetch_all` pages past the 1000-row cap), `services/inventory_alerts.py` (dead stock + return deadlines, moved out of `deals.py`), `api/endpoints/reports.py` (`GET /reports/summary`, `GET /reports/export.csv`), `deals.py` (status refactor, `POST /{id}/sale`, `POST /{id}/return`, soft delete, manual entry through the RPCs), `profit_calculator.actual_profit`; migration `20260921091200_report_summary.sql` (`report_summary(year)`); `tzdata` added to the backend dependencies (Europe/Vienna on slim images). Frontend: `components/{Toast,ModalShell,BoughtModal,SaleModal,ReturnModal}.tsx`, `lib/{fetchAll,lifecycle,useBusinessConfig,reportTypes}.ts`, `profit.ts` (+ `actualProfit`), rewritten Reports page, patched Workspace / Manual Entry / Product Master. Turkish docs: `docs/MANUAL-TEST-SCRIPT.md` (first version), `MANUEL-ADIMLAR.md` M16.
+
+Verified (local Supabase, auth overridden, no external services; 79 checks): state machine (legal and illegal moves, unknown id, race-safe compare-and-set), bought record + return-by + estimate recompute, sale (profit computed in the backend, client value ignored, second sale 409), return (refund event, quarantine, target price kept, sale history kept), re-list and re-sell, soft delete (sold or with sale history 409, hidden from every read path and the storefront, product row kept), report against a hand calculation (revenue / COGS / shipping / fees / gross / before-tax / ROI / VAT % / cash view), previous year empty, CSV (BOM, `;`, decimal comma, formula guard), manual entry through the RPCs (quantity 3 -> 3 SKUs, duplicate open row and duplicate SKU -> 409 with readable text, PUT keeps purchase fields that were not sent), inventory alerts (age from `received_at`, return-by 3 days, deleted/overdue units ignored, announced once), `fetch_all` past 1000 rows (1006 expenses in the report). Frontend: `tsc`, `npm run build`, lint has no new errors (34 -> 28 on the touched pages, all older); profit/lifecycle helpers checked with a Node script (12 checks).
+NOT verified: the UI was never opened in a browser (modals, toasts, dark mode, Reports page were only type-checked and built); real Supabase auth tokens on the new endpoints (auth is overridden in the test, as in Phase 1 tests); anything on the hosted project.
+
+Decisions and deviations:
+
+- Sale is accepted from `in_inventory` as well as `listed` (goods handed over without an ad); the plan named only `listed -> sold`. `bought -> sold` is refused (the RPC would allow it, the endpoint does not).
+- Status changes are plain updates with a compare-and-set on the old status, not an RPC, so `audit_log.changed_by` is NULL for them (old/new rows and time are still logged). Sale, return and manual entry pass the actor.
+- `actual_profit` counts a cost that was never recorded as zero (same rule as `report_summary`), so a deal's profit and the report agree. Estimates (`net_profit_estimate`) still use the `business_settings` defaults for missing inbound/packaging.
+- Report definitions (also in the migration header): revenue = sale amounts minus refunds by Vienna calendar year; COGS = effective cost of sold units, reversed by a refund; ROI = gross profit / COGS; cash view purchases = effective cost of bought units by purchase date (fallback receipt, then scan date, flagged); VAT % = year revenue / `vat_threshold_eur`. Cash view is a management aid only; how purchases are deducted is for the Steuerberater.
+- Emergency price: recomputed only when cost or target changes, and only lifted (never lowered) to break-even; a manually typed emergency price is respected.
+- Dashboard: revenue, gross profit, ROI and the VAT bar come from `/reports/summary` for the current year; inventory value uses effective cost (planned or paid price + inbound + packaging); category audit is this year's ledger figures. `Drop price 5%` and the 60-day banner now count from receipt/purchase.
+- The workspace invoice upload still writes a public URL (`getPublicUrl`) into a bucket that is private since Phase 2, so opening invoices fails until Phase 5.1 switches to `invoice_path` + signed URLs; only its error handling was fixed here.
+- Manual entry: `actual_profit` is no longer accepted from the client; `quantity` (1-50) creates identical units with suffixed SKUs. The old `Delete` button is now `Remove` and hidden for sold deals.
+- `/dead-stock/scan` (n8n) now runs both alerts; no workflow change needed.
+
 ## Manual steps pending
 
-Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M15. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.
+Collected in `docs/MANUEL-ADIMLAR.md` (Turkish), M1-M16. Launch-blockers so far: M1 backup then `supabase db push`, M2 disable signups, M3 new secrets, M4 n8n credential, M5 `business_settings` numbers, M6 Prometheus token file, M7 storage policy check.

@@ -8,8 +8,10 @@ import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Package, LogOut, RefreshCw, Search, ArrowUpDown, Download, Filter, Sun, Moon } from 'lucide-react';
 import { useDarkMode } from '@/lib/useDarkMode';
-import { differenceInDays } from 'date-fns';
 import { STATUS_OPTIONS } from '@/lib/constants';
+import { fetchAllRows } from '@/lib/fetchAll';
+import { effectiveCost, holdingDays, returnByBadge } from '@/lib/lifecycle';
+import { errorMessage } from '@/lib/apiFetch';
 
 interface Opportunity {
   id: string;
@@ -18,10 +20,21 @@ interface Opportunity {
   buy_price: number;
   target_sell_price: number;
   profit_margin: number;
+  net_profit_estimate: number | null;
+  net_margin_estimate: number | null;
+  purchase_price_actual: number | null;
+  inbound_shipping_cost: number | null;
+  packaging_cost: number | null;
+  purchased_at: string | null;
+  received_at: string | null;
+  return_by: string | null;
   deal_score: number;
   created_at: string;
   products: { title: string; asin: string; category: string };
 }
+
+/** Rows per page of the table (all rows are loaded, only this many are drawn). */
+const PAGE_SIZE = 100;
 
 type Column = 'sku' | 'product' | 'status' | 'buy' | 'sell' | 'margin' | 'score' | 'age';
 
@@ -42,6 +55,8 @@ export default function ProductMaster() {
   const { dark, toggle: toggleDark } = useDarkMode();
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [widths, setWidths] = useState(initialWidths);
@@ -58,17 +73,26 @@ export default function ProductMaster() {
     });
   }, [router]);
 
+  /** Every live (not soft-deleted) deal, read in pages so nothing is cut off at 1000 rows. */
   const fetchOpportunities = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('opportunities')
-      .select(`
-        id, sku, status, buy_price, target_sell_price, profit_margin,
-        deal_score, created_at, products (title, asin, category)
-      `)
-      .order('created_at', { ascending: false });
-
-    if (!error && data) setOpportunities(data as unknown as Opportunity[]);
+    try {
+      const rows = await fetchAllRows<Opportunity>((from, to) => supabase
+        .from('opportunities')
+        .select(`
+          id, sku, status, buy_price, target_sell_price, profit_margin, net_profit_estimate, net_margin_estimate,
+          purchase_price_actual, inbound_shipping_cost, packaging_cost, purchased_at, received_at, return_by,
+          deal_score, created_at, products (title, asin, category)
+        `)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{ data: Opportunity[] | null; error: { message: string } | null }>);
+      setOpportunities(rows);
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(errorMessage(error, 'Could not load the products.'));
+    }
     setLoading(false);
   };
 
@@ -115,6 +139,10 @@ export default function ProductMaster() {
     );
   });
 
+  const pageCount = Math.max(1, Math.ceil(filteredOpportunities.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleOpportunities = filteredOpportunities.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
+
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-amber-50 text-amber-700 border-amber-200';
@@ -130,19 +158,26 @@ export default function ProductMaster() {
   };
 
   const exportCSV = () => {
-    const headers = ['SKU', 'Product', 'ASIN', 'Category', 'Status', 'Buy Price', 'Target Sell', 'ROI / Margin', 'AI Score', 'Age'];
+    const headers = [
+      'SKU', 'Product', 'ASIN', 'Category', 'Status', 'Planned Buy Price', 'Price Paid', 'Inbound Shipping', 'Packaging',
+      'Effective Cost', 'Target Sell', 'Net Profit Estimate', 'Net Margin %', 'AI Score', 'Purchased', 'Return By', 'Age (Days)',
+    ];
     const rows = filteredOpportunities.map(item => [
       item.sku, item.products?.title, item.products?.asin, item.products?.category,
-      item.status, item.buy_price, item.target_sell_price, item.profit_margin,
-      item.deal_score, differenceInDays(new Date(), new Date(item.created_at)),
+      item.status, item.buy_price, item.purchase_price_actual, item.inbound_shipping_cost, item.packaging_cost,
+      effectiveCost(item).toFixed(2), item.target_sell_price, item.net_profit_estimate, item.net_margin_estimate ?? item.profit_margin,
+      item.deal_score, item.purchased_at?.slice(0, 10), item.return_by, holdingDays(item),
     ]);
 
-    const csv = [
-      headers.join(','),
-      ...rows.map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')),
-    ].join('\n');
+    // A cell starting with = + - @ would be run as a formula by a spreadsheet: neutralise it.
+    const cell = (value: unknown) => {
+      const text = String(value ?? '');
+      const safe = /^[=+\-@]/.test(text) && Number.isNaN(Number(text)) ? `'${text}` : text;
+      return `"${safe.replace(/"/g, '""')}"`;
+    };
+    const csv = [headers.join(','), ...rows.map(row => row.map(cell).join(','))].join('\n');
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -233,6 +268,12 @@ export default function ProductMaster() {
       </nav>
 
       <main className="flex-1 overflow-auto p-6">
+        {loadError && (
+          <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            {loadError}
+            <button onClick={fetchOpportunities} className="ml-3 font-semibold underline">Retry</button>
+          </div>
+        )}
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h1 className="type-page-title text-gray-900">Products</h1>
@@ -244,7 +285,7 @@ export default function ProductMaster() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
+                onChange={e => { setSearchTerm(e.target.value); setPage(0); }}
                 placeholder="Search SKU, ASIN or product..."
                 className="h-9 w-72 rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-[13px] text-gray-700 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
               />
@@ -252,7 +293,7 @@ export default function ProductMaster() {
 
             <select
               value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
+              onChange={e => { setStatusFilter(e.target.value); setPage(0); }}
               aria-label="Filter by status"
               className="h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
             >
@@ -297,9 +338,9 @@ export default function ProductMaster() {
                 <Header column="sku">SKU <ArrowUpDown className="h-3 w-3 text-gray-400" /></Header>
                 <Header column="product">Product Details</Header>
                 <Header column="status">Status <Filter className="h-3 w-3 text-gray-400" /></Header>
-                <Header column="buy">Buy Price</Header>
+                <Header column="buy">Cost</Header>
                 <Header column="sell">Target Sell</Header>
-                <Header column="margin">ROI / Margin</Header>
+                <Header column="margin">Net Profit / Margin</Header>
                 <Header column="score">AI Score</Header>
                 <Header column="age" last>Age (Days)</Header>
               </tr>
@@ -319,8 +360,11 @@ export default function ProductMaster() {
                   </td>
                 </tr>
               ) : (
-                filteredOpportunities.map(item => {
-                  const age = differenceInDays(new Date(), new Date(item.created_at));
+                visibleOpportunities.map(item => {
+                  const age = holdingDays(item);
+                  const returnBadge = returnByBadge(item);
+                  const cost = effectiveCost(item);
+                  const netProfit = item.net_profit_estimate;
 
                   return (
                     <tr
@@ -352,12 +396,18 @@ export default function ProductMaster() {
                         <span className={`inline-flex rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] ${getStatusStyle(item.status)}`}>
                           {item.status?.replace('_', ' ')}
                         </span>
+                        {returnBadge && (
+                          <div title="Amazon return deadline" className={`mt-1 text-[9px] font-semibold uppercase tracking-[0.06em] ${returnBadge.tone === 'red' ? 'text-red-600' : 'text-amber-700'}`}>{returnBadge.label}</div>
+                        )}
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle tabular-nums" style={{ width: widths.buy, minWidth: widths.buy }}>
                         <span className="text-[13px] font-semibold text-gray-700">
-                          €{Number(item.buy_price || 0).toFixed(2)}
+                          €{cost.toFixed(2)}
                         </span>
+                        {item.purchase_price_actual != null && Number(item.purchase_price_actual) !== Number(item.buy_price) && (
+                          <div className="text-[10px] text-gray-400" title="Planned buy price at scan time">planned €{Number(item.buy_price).toFixed(2)}</div>
+                        )}
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle tabular-nums" style={{ width: widths.sell, minWidth: widths.sell }}>
@@ -367,9 +417,10 @@ export default function ProductMaster() {
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle" style={{ width: widths.margin, minWidth: widths.margin }}>
-                        <span className="text-[13px] font-semibold tabular-nums text-emerald-600">
-                          {Number(item.profit_margin || 0).toFixed(1)}%
+                        <span className={`text-[13px] font-semibold tabular-nums ${Number(netProfit ?? 0) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {netProfit == null ? '—' : `€${Number(netProfit).toFixed(2)}`}
                         </span>
+                        <div className="text-[11px] tabular-nums text-gray-400">{Number(item.net_margin_estimate ?? item.profit_margin ?? 0).toFixed(1)}%</div>
                       </td>
 
                       <td className="border-r border-gray-100 px-4 py-4 text-center align-middle" style={{ width: widths.score, minWidth: widths.score }}>
@@ -389,6 +440,16 @@ export default function ProductMaster() {
             </tbody>
           </table>
         </div>
+
+        {pageCount > 1 && (
+          <div className="mt-3 flex items-center justify-between text-[13px] text-gray-500">
+            <span className="tabular-nums">Page {currentPage + 1} of {pageCount}</span>
+            <div className="flex gap-2">
+              <button onClick={() => setPage(currentPage - 1)} disabled={currentPage === 0} className="h-8 rounded-lg border border-gray-200 bg-white px-3 font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40">Previous</button>
+              <button onClick={() => setPage(currentPage + 1)} disabled={currentPage >= pageCount - 1} className="h-8 rounded-lg border border-gray-200 bg-white px-3 font-medium text-gray-600 transition hover:bg-gray-50 disabled:opacity-40">Next</button>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

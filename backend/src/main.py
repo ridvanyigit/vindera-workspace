@@ -13,7 +13,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from src.api.endpoints import chat, deals, expenses
+from src.api.endpoints import chat, deals, expenses, reports
 from src.core.auth import assert_routes_protected, require_metrics_token
 from src.core.config import settings
 from src.core.database import supabase
@@ -83,6 +83,7 @@ app.include_router(deals.router, prefix=API_PREFIX)
 app.include_router(deals.automation_router, prefix=API_PREFIX)
 app.include_router(chat.router, prefix=API_PREFIX)
 app.include_router(expenses.router, prefix=API_PREFIX)
+app.include_router(reports.router, prefix=API_PREFIX)
 
 # Refuse to start if any /api/v1 route was added without authentication.
 assert_routes_protected(app, API_PREFIX)

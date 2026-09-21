@@ -131,6 +131,36 @@ def calculate(
     )
 
 
+@dataclass(frozen=True)
+class ActualProfit:
+    total_cost: Decimal
+    net_profit: Decimal
+    net_margin_pct: Decimal | None
+
+
+def actual_profit(
+    *,
+    sale_amount: "Decimal | int | float | str",
+    purchase_price: "Decimal | int | float | str",
+    inbound_shipping: "Decimal | int | float | str | None" = None,
+    packaging: "Decimal | int | float | str | None" = None,
+    shipping_cost: "Decimal | int | float | str | None" = None,
+    platform_fees: "Decimal | int | float | str | None" = None,
+) -> ActualProfit:
+    """Profit of a unit that was really sold, from what was really recorded.
+
+    Nothing is estimated: a cost that was never recorded counts as zero, exactly
+    like the accounting report (`report_summary`), so the per-deal figure and the
+    report always agree. The estimated return reserve is not part of it (a real
+    refund is its own ledger event). `net_margin_pct` is None when the recorded
+    cost is zero.
+    """
+    total_cost = money(purchase_price) + money(inbound_shipping or 0) + money(packaging or 0)
+    net = money(sale_amount) - total_cost - money(shipping_cost or 0) - money(platform_fees or 0)
+    margin = (net / total_cost * HUNDRED).quantize(CENT, rounding=ROUND_HALF_UP) if total_cost > 0 else None
+    return ActualProfit(total_cost=total_cost, net_profit=net, net_margin_pct=margin)
+
+
 def break_even_price(
     *, total_cost: Decimal, outbound_shipping: Decimal, settings: ProfitSettings
 ) -> Decimal | None:

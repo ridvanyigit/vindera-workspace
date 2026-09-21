@@ -88,6 +88,22 @@ class NotificationService:
             self._tokens_alert_day = today
         return sent
 
+    async def _send_digest(self, title: str, header: str, lines: list[str]) -> bool:
+        """One push listing `lines` under `header`, cut to Pushover's message limit."""
+        kept: list[str] = []
+        length = len(header)
+        for line in lines:
+            # Pushover rejects messages over 1024 chars; keep room for the "+N more" line.
+            if length + len(line) + 1 > 950:
+                break
+            kept.append(line)
+            length += len(line) + 1
+
+        message = header + "\n".join(kept)
+        if len(kept) < len(lines):
+            message += f"\n+{len(lines) - len(kept)} more"
+        return await self._send({"title": title, "message": message, "priority": 0})
+
     async def send_dead_stock_alert(self, items: list[dict], threshold_days: int) -> bool:
         """Send one digest push for items that have tied up capital too long.
 
@@ -104,23 +120,31 @@ class NotificationService:
             return False
 
         header = f"{len(items)} item{'s' if len(items) != 1 else ''} tied up capital for more than {threshold_days} days:\n"
-        lines: list[str] = []
-        length = len(header)
-        for item in items:
-            line = f"• {item['title'][:60]} · €{item['buy_price']} · {item['age_days']}d"
-            # Pushover rejects messages over 1024 chars; keep room for the "+N more" line.
-            if length + len(line) + 1 > 950:
-                break
-            lines.append(line)
-            length += len(line) + 1
-
-        message = header + "\n".join(lines)
-        if len(lines) < len(items):
-            message += f"\n+{len(items) - len(lines)} more"
-
-        sent = await self._send({"title": "Vindera Dead Stock", "message": message, "priority": 0})
+        lines = [f"• {item['title'][:60]} · €{item['buy_price']} · {item['age_days']}d" for item in items]
+        sent = await self._send_digest("Vindera Dead Stock", header, lines)
         if sent:
             logger.info("Dead-stock notification sent")
+        return sent
+
+    async def send_return_deadline_alert(self, items: list[dict]) -> bool:
+        """One digest push for units whose Amazon return window closes soon.
+
+        Each item needs `title`, `return_by` (ISO date) and `days_left`.
+        """
+        if not items:
+            return False
+
+        if not self.configured:
+            logger.info("Pushover credentials missing; skipping return-deadline notification")
+            return False
+
+        header = "Unsold items can still go back to Amazon, but not for long:\n"
+        lines = [
+            f"• {item['title'][:60]} · back by {item['return_by']} ({item['days_left']}d)" for item in items
+        ]
+        sent = await self._send_digest("Vindera Return Deadline", header, lines)
+        if sent:
+            logger.info("Return-deadline notification sent")
         return sent
 
 

@@ -95,3 +95,48 @@ export async function apiFetch<T = unknown>(path: string, init: ApiFetchInit = {
 
   return body as T;
 }
+
+/** Readable text for anything a caught `apiFetch` call can throw. */
+export function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/** Downloads a backend file (for example a CSV) through the authenticated client. */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), {
+      headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : undefined,
+    });
+  } catch {
+    throw new ApiError(0, 'Could not reach the server. Check your connection and that the backend is running.');
+  }
+
+  if (res.status === 401) {
+    await supabase.auth.signOut();
+    if (typeof window !== 'undefined') window.location.replace('/admin/login');
+    throw new ApiError(401, 'Your session has expired. Please sign in again.');
+  }
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    throw new ApiError(res.status, describeError(body, res.status));
+  }
+
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}

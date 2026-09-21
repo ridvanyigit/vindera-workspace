@@ -128,3 +128,51 @@ export function calculateProfit(input: ProfitInput, settings: ProfitSettings = D
     passesGuardrails: passes,
   };
 }
+
+export interface ActualProfitInput {
+  saleAmount: number;
+  purchasePrice: number;
+  /** Costs that were never recorded count as zero, exactly like the backend's `actual_profit`. */
+  inboundShipping?: number | null;
+  packaging?: number | null;
+  shippingCost?: number | null;
+  platformFees?: number | null;
+}
+
+export interface ActualProfitResult {
+  totalCost: number;
+  netProfit: number;
+  /** null when the recorded cost is zero. */
+  netMarginPct: number | null;
+}
+
+/** Profit of a unit that was really sold. Preview only: the backend computes and stores the real figure. */
+export function actualProfit(input: ActualProfitInput): ActualProfitResult {
+  const totalCost = toCents(input.purchasePrice) + toCents(input.inboundShipping ?? 0) + toCents(input.packaging ?? 0);
+  const net = toCents(input.saleAmount) - totalCost - toCents(input.shippingCost ?? 0) - toCents(input.platformFees ?? 0);
+  return {
+    totalCost: totalCost / 100,
+    netProfit: net / 100,
+    netMarginPct: totalCost > 0 ? divRound(net * 10000, totalCost) / 100 : null,
+  };
+}
+
+/** Maps a `business_settings` row (snake_case, as PostgREST returns it) to `ProfitSettings`. */
+export function profitSettingsFromRow(row: Record<string, unknown>): ProfitSettings {
+  const num = (key: string, fallback: number): number => {
+    const value = row[key];
+    return typeof value === 'number' ? value : value != null && value !== '' ? Number(value) : fallback;
+  };
+  const d = DEFAULT_PROFIT_SETTINGS;
+  return {
+    outboundShippingEur: num('outbound_shipping_eur', d.outboundShippingEur),
+    packagingEur: num('packaging_eur', d.packagingEur),
+    inboundShippingEur: num('inbound_shipping_eur', d.inboundShippingEur),
+    platformFeePct: num('platform_fee_pct', d.platformFeePct),
+    platformFeeFixedEur: num('platform_fee_fixed_eur', d.platformFeeFixedEur),
+    paymentFeePct: num('payment_fee_pct', d.paymentFeePct),
+    returnReservePct: num('return_reserve_pct', d.returnReservePct),
+    minNetMarginPct: num('min_net_margin_pct', d.minNetMarginPct),
+    minNetProfitEur: num('min_net_profit_eur', d.minNetProfitEur),
+  };
+}

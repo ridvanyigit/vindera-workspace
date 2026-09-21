@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, errorMessage } from '@/lib/apiFetch';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { Package, Euro, RefreshCw, ShoppingCart, CheckCircle, ArrowRight, LineChart as ChartIcon, Copy, Check, LogOut, SearchCode, Filter, ShieldCheck, ShieldAlert, Truck, ChevronRight, Activity, PieChart, Radar, Flame, Barcode, MapPin, AlertTriangle, ClipboardCheck, X, FileText, UploadCloud, XCircle, RotateCcw, CalendarClock, CalendarDays, TrendingDown, BarChart2, BookOpen, Pencil, ExternalLink, Link2, Sun, Moon } from 'lucide-react';
@@ -24,6 +24,14 @@ import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels';
 import { useDarkMode } from '@/lib/useDarkMode';
 import { differenceInDays } from 'date-fns';
 import { TARGET_CATEGORIES } from '@/lib/constants';
+import { fetchAllRows } from '@/lib/fetchAll';
+import { HELD_STATUSES, effectiveCost, holdingDays, returnByBadge } from '@/lib/lifecycle';
+import { useBusinessConfig } from '@/lib/useBusinessConfig';
+import type { ReportSummary } from '@/lib/reportTypes';
+import { ToastStack, useToasts } from '@/components/Toast';
+import BoughtModal from '@/components/BoughtModal';
+import SaleModal from '@/components/SaleModal';
+import ReturnModal from '@/components/ReturnModal';
 
 interface PriceHistory { price_amazon: number; recorded_at: string; }
 interface GeneratedListing { generated_title: string; generated_description: string; }
@@ -36,23 +44,16 @@ interface Opportunity {
   sku?: string; emergency_sell_price?: number; warehouse_location?: string; product_condition?: string; days_in_inventory?: number;
   is_quarantine?: boolean; score_breakdown?: ScoreBreakdown; willhaben_realistic_price?: number; purchase_thesis?: string;
   invoice_url?: string; willhaben_url?: string; created_at: string; sold_at?: string;
+  net_profit_estimate?: number | null; net_margin_estimate?: number | null;
+  // Purchase record — filled in by "Mark as Bought"; the effective cost is the actual price when recorded.
+  purchase_price_actual?: number | null; purchased_at?: string | null; received_at?: string | null; return_by?: string | null;
+  inbound_shipping_cost?: number | null; packaging_cost?: number | null;
   // Sale outcome — filled in via the "Item Sold!" confirmation modal, feeds the future ML model.
   actual_sell_price?: number; actual_profit?: number; shipping_and_prep_cost?: number; platform_fees?: number;
   customer_inquiries_count?: number; customer_messages_summary?: string; sold_during_event?: string; time_to_sell_days?: number;
   products: { title: string; asin: string; category: string; image_url: string | null; price_history: PriceHistory[]; };
   generated_listings: GeneratedListing[];
 }
-
-/** Predefined options for the "Sold during event?" dropdown, mirrors events_calendar seed data. */
-const SALE_EVENT_OPTIONS = ['Black Friday', 'Christmas', 'Halloween', 'Winter Sales (WSV)', "Valentine's Day", 'Easter', 'Cyber Monday', 'Other'];
-
-const EMPTY_SALE_FORM = {
-  actual_sell_price: '', shipping_and_prep_cost: '', platform_fees: '',
-  customer_inquiries_count: '', customer_messages_summary: '', sold_during_event: '',
-};
-
-const SALE_INPUT_CLASS =
-  'h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-[14px] text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -73,8 +74,12 @@ export default function Dashboard() {
   const allChecked = checks.model && checks.packaging && checks.accessories && checks.power;
 
   const [saleModalDeal, setSaleModalDeal] = useState<Opportunity | null>(null);
-  const [saleForm, setSaleForm] = useState(EMPTY_SALE_FORM);
-  const [confirmingSale, setConfirmingSale] = useState(false);
+  const [boughtModalDeal, setBoughtModalDeal] = useState<Opportunity | null>(null);
+  const [returnModalDeal, setReturnModalDeal] = useState<Opportunity | null>(null);
+  const [report, setReport] = useState<ReportSummary | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const toasts = useToasts();
+  const config = useBusinessConfig();
 
   const [willhabenUrlDraft, setWillhabenUrlDraft] = useState('');
   const [savingWillhabenUrl, setSavingWillhabenUrl] = useState(false);
@@ -103,30 +108,40 @@ export default function Dashboard() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/admin/login'); return; }
       if (!(await checkIsAdmin())) { router.push('/'); return; }
-      setSession(session); fetchOpportunities(); fetchEvents();
+      setSession(session); fetchOpportunities(); fetchEvents(); fetchReport();
     });
     const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session) router.push('/admin/login');
       else setSession(session);
     });
     const channel = supabase.channel('opportunities_changes').on('postgres_changes', { event: '*', schema: 'public', table: 'opportunities' }, () => {
-      fetchOpportunities();
+      fetchOpportunities(); fetchReport();
     }).subscribe();
     return () => { authSub.unsubscribe(); supabase.removeChannel(channel); };
   }, [router]);
 
+  /** Every live (not soft-deleted) opportunity, read in pages so nothing is cut off at 1000 rows. */
   const fetchOpportunities = async () => {
-    const { data, error } = await supabase.from('opportunities').select(`
-      id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
-      deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, willhaben_url, created_at, sold_at,
-      actual_sell_price, actual_profit, shipping_and_prep_cost, platform_fees, customer_inquiries_count, customer_messages_summary, sold_during_event, time_to_sell_days,
-      products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
-      generated_listings ( generated_title, generated_description )
-    `).order('created_at', { ascending: false });
-    if (!error && data) {
-      setOpportunities(data as any);
-      if (data.length > 0 && !selectedDeal) setSelectedDeal(data[0] as any);
-    }
+    try {
+      const data = await fetchAllRows<Opportunity>((from, to) => supabase.from('opportunities').select(`
+        id, buy_price, target_sell_price, profit_margin, ai_decision, status, buybox_seller, buybox_is_fba,
+        deal_score, holding_period_months, seasonality_analysis, sku, emergency_sell_price, warehouse_location, product_condition, days_in_inventory, is_quarantine, score_breakdown, willhaben_realistic_price, purchase_thesis, invoice_url, willhaben_url, created_at, sold_at,
+        net_profit_estimate, net_margin_estimate, purchase_price_actual, purchased_at, received_at, return_by, inbound_shipping_cost, packaging_cost,
+        actual_sell_price, actual_profit, shipping_and_prep_cost, platform_fees, customer_inquiries_count, customer_messages_summary, sold_during_event, time_to_sell_days,
+        products ( title, asin, category, image_url, price_history ( price_amazon, recorded_at ) ),
+        generated_listings ( generated_title, generated_description )
+      `).is('deleted_at', null).order('created_at', { ascending: false }).order('id').range(from, to) as unknown as PromiseLike<{ data: Opportunity[] | null; error: { message: string } | null }>);
+      setOpportunities(data);
+      setSelectedDeal(current => current ? data.find(d => d.id === current.id) ?? data[0] ?? null : data[0] ?? null);
+    } catch (error) { toasts.error(`Could not load the deals: ${errorMessage(error, 'unknown error')}`); }
+  };
+
+  /** Calendar-year figures from the ledger (revenue, profit, VAT-threshold progress). */
+  const fetchReport = async () => {
+    try {
+      setReport(await apiFetch<ReportSummary>('/reports/summary'));
+      setReportError(null);
+    } catch (error) { setReportError(errorMessage(error, 'Could not load the figures.')); }
   };
 
   const fetchEvents = async () => {
@@ -135,69 +150,35 @@ export default function Dashboard() {
     if (!error && data) setUpcomingEvents(data);
   };
 
-  /** Advances an opportunity's status and optionally patches lifecycle fields. */
-  const updateStatus = async (id: string, newStatus: string, condition?: string, isQuarantine?: boolean, targetSellPrice?: number, thesisUpdate?: string) => {
+  /** Patches a deal (status change and/or fields). True on success; failures show a toast and change nothing. */
+  const updateDeal = async (id: string, payload: Record<string, unknown>, successMessage?: string): Promise<boolean> => {
     try {
-      const payload: any = { status: newStatus };
-      if (condition) payload.product_condition = condition;
-      if (isQuarantine !== undefined) payload.is_quarantine = isQuarantine;
-      if (targetSellPrice !== undefined) payload.target_sell_price = targetSellPrice;
-      if (thesisUpdate !== undefined) payload.purchase_thesis = thesisUpdate;
-
       await apiFetch(`/deals/${id}/status`, { method: 'PATCH', json: payload });
+      if (successMessage) toasts.success(successMessage);
       fetchOpportunities();
-    } catch (error) { alert(error instanceof Error ? error.message : 'Could not update the deal.'); }
+      return true;
+    } catch (error) {
+      toasts.error(errorMessage(error, 'Could not update the deal.'));
+      return false;
+    }
   };
 
-  const handleInventorySubmit = (action: 'approve' | 'quarantine') => {
+  const handleInventorySubmit = async (action: 'approve' | 'quarantine') => {
     if (!inventoryModalDeal) return;
-    if (action === 'approve') updateStatus(inventoryModalDeal.id, 'in_inventory', 'NEW', false);
-    else updateStatus(inventoryModalDeal.id, 'in_inventory', 'REVIEW NEEDED', true);
+    const payload = action === 'approve'
+      ? { status: 'in_inventory', product_condition: 'NEW', is_quarantine: false }
+      : { status: 'in_inventory', product_condition: 'REVIEW NEEDED', is_quarantine: true };
+    if (!(await updateDeal(inventoryModalDeal.id, payload))) return;
     setInventoryModalDeal(null);
     setChecks({ model: false, packaging: false, accessories: false, power: false });
-  };
-
-  /** Confirms a sale: computes actual_profit client-side and patches the full outcome to the backend. */
-  const handleConfirmSale = async () => {
-    if (!saleModalDeal) return;
-    const actualSellPrice = Number(saleForm.actual_sell_price) || 0;
-    const shipping = Number(saleForm.shipping_and_prep_cost) || 0;
-    const fees = Number(saleForm.platform_fees) || 0;
-    const inquiries = Number(saleForm.customer_inquiries_count) || 0;
-    const actualProfit = actualSellPrice - Number(saleModalDeal.buy_price) - shipping - fees;
-
-    setConfirmingSale(true);
-    try {
-      await apiFetch(`/deals/${saleModalDeal.id}/status`, {
-        method: 'PATCH',
-        json: {
-          status: 'sold',
-          actual_sell_price: actualSellPrice,
-          actual_profit: Number(actualProfit.toFixed(2)),
-          shipping_and_prep_cost: shipping,
-          platform_fees: fees,
-          customer_inquiries_count: inquiries,
-          customer_messages_summary: saleForm.customer_messages_summary.trim() || undefined,
-          sold_during_event: saleForm.sold_during_event || undefined,
-        },
-      });
-      fetchOpportunities();
-      setSaleModalDeal(null);
-      setSaleForm(EMPTY_SALE_FORM);
-    } catch (error) { alert(error instanceof Error ? error.message : 'Could not record the sale.'); } finally { setConfirmingSale(false); }
   };
 
   /** Saves the live Willhaben listing link the public storefront's "Buy" button redirects to. */
   const saveWillhabenUrl = async () => {
     if (!selectedDeal) return;
     setSavingWillhabenUrl(true);
-    try {
-      await apiFetch(`/deals/${selectedDeal.id}/status`, {
-        method: 'PATCH',
-        json: { status: selectedDeal.status, willhaben_url: willhabenUrlDraft.trim() },
-      });
-      fetchOpportunities();
-    } catch (error) { alert(error instanceof Error ? error.message : 'Could not save the Willhaben link.'); } finally { setSavingWillhabenUrl(false); }
+    await updateDeal(selectedDeal.id, { willhaben_url: willhabenUrlDraft.trim() || null }, 'Willhaben link saved.');
+    setSavingWillhabenUrl(false);
   };
 
   const handleInvoiceUpload = async (event: React.ChangeEvent<HTMLInputElement>, dealId: string) => {
@@ -210,16 +191,17 @@ export default function Dashboard() {
       const { error } = await supabase.storage.from('invoices').upload(fileName, file);
       if (error) throw error;
       const { data: publicUrlData } = supabase.storage.from('invoices').getPublicUrl(fileName);
-      await supabase.from('opportunities').update({ invoice_url: publicUrlData.publicUrl }).eq('id', dealId);
-      alert('Invoice uploaded successfully!');
+      const { error: updateError } = await supabase.from('opportunities').update({ invoice_url: publicUrlData.publicUrl }).eq('id', dealId);
+      if (updateError) throw updateError;
+      toasts.success('Invoice uploaded.');
       fetchOpportunities();
-    } catch (error: any) { alert('Error uploading invoice: ' + error.message); } finally { setUploadingInvoice(false); }
+    } catch (error) { toasts.error(`Could not upload the invoice: ${errorMessage(error, 'unknown error')}`); } finally { setUploadingInvoice(false); }
   };
 
   const copyToClipboard = (text: string, id: string) => { navigator.clipboard.writeText(text); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000); };
 
   const filteredDeals = opportunities.filter(opp => {
-    const tabMatch = activeTab === 'pending' ? opp.status === 'pending' : activeTab === 'inventory' ? ['bought', 'in_inventory', 'listed'].includes(opp.status) : activeTab === 'rejected' ? opp.status === 'rejected' : opp.status === 'sold';
+    const tabMatch = activeTab === 'pending' ? opp.status === 'pending' : activeTab === 'inventory' ? HELD_STATUSES.includes(opp.status) : activeTab === 'rejected' ? opp.status === 'rejected' : opp.status === 'sold';
     return tabMatch && (selectedCategory === 'All' || opp.products?.category === selectedCategory);
   });
 
@@ -256,36 +238,35 @@ export default function Dashboard() {
   if (!session) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><RefreshCw className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
   const soldDeals = opportunities.filter(o => o.status === 'sold');
-  const inventoryDeals = opportunities.filter(o => ['bought', 'in_inventory', 'listed'].includes(o.status));
-  const revenue = soldDeals.reduce((s, o) => s + Number(o.target_sell_price), 0);
-  const grossProfit = soldDeals.reduce((s, o) => s + Number(o.target_sell_price) - Number(o.buy_price), 0);
-  const inventoryValue = inventoryDeals.reduce((s, o) => s + Number(o.buy_price), 0);
-  const totalInvestedSold = soldDeals.reduce((s, o) => s + Number(o.buy_price), 0);
-  const averageRoi = totalInvestedSold > 0 ? (grossProfit / totalInvestedSold) * 100 : 0;
-  
-  const soldItemsWithDates = soldDeals.filter(d => d.sold_at && d.created_at);
-  const totalDaysToSell = soldItemsWithDates.reduce((sum, d) => sum + differenceInDays(new Date(d.sold_at!), new Date(d.created_at)), 0);
-  const averageDaysToSell = soldItemsWithDates.length > 0 ? Math.round(totalDaysToSell / soldItemsWithDates.length) : 0;
+  const inventoryDeals = opportunities.filter(o => HELD_STATUSES.includes(o.status));
+
+  // Money made comes from the ledger (calendar year, refunds netted); only what is
+  // still in stock is summed here, at its effective cost.
+  const revenue = Number(report?.management.revenue ?? 0);
+  const grossProfit = Number(report?.management.gross_profit ?? 0);
+  const averageRoi = Number(report?.management.roi_pct ?? 0);
+  const inventoryValue = inventoryDeals.reduce((s, o) => s + effectiveCost(o), 0);
+
+  const soldWithDays = soldDeals.filter(d => d.time_to_sell_days != null);
+  const averageDaysToSell = soldWithDays.length > 0 ? Math.round(soldWithDays.reduce((sum, d) => sum + Number(d.time_to_sell_days), 0) / soldWithDays.length) : 0;
 
   const stressTestLiquidationValue = inventoryDeals.reduce((s, o) => s + Number(o.emergency_sell_price || o.target_sell_price * 0.85), 0);
   const stressTestNet = stressTestLiquidationValue - inventoryValue;
 
-  const TAX_LIMIT = 55000;
-  const taxLimitProgress = Math.min((revenue / TAX_LIMIT) * 100, 100);
+  const TAX_LIMIT = Number(report?.vat.threshold ?? 55000);
+  const taxLimitPct = Number(report?.vat.pct ?? 0);
+  const taxWarnPct = Number(report?.vat.warn_pct ?? 80);
+  const taxLimitProgress = Math.min(taxLimitPct, 100);
 
-  // Category performance, used by the Quarterly Category Audit modal.
-  const categoryAuditStats = Array.from(new Set(soldDeals.map(d => d.products?.category))).map(category => {
-    const catDeals = soldDeals.filter(d => d.products?.category === category);
-    const catRevenue = catDeals.reduce((sum, d) => sum + Number(d.target_sell_price), 0);
-    const catCost = catDeals.reduce((sum, d) => sum + Number(d.buy_price), 0);
-    const catProfit = catRevenue - catCost;
-    const catRoi = catCost > 0 ? (catProfit / catCost) * 100 : 0;
-    const catDaysWithDates = catDeals.filter(d => d.sold_at && d.created_at);
-    const catDays = catDaysWithDates.length > 0 ? Math.round(catDaysWithDates.reduce((sum, d) => sum + differenceInDays(new Date(d.sold_at!), new Date(d.created_at)), 0) / catDaysWithDates.length) : 0;
-    return { category: category || 'Unknown', count: catDeals.length, profit: catProfit, roi: catRoi, days: catDays };
+  // Category performance for the audit modal: this year's ledger figures per category.
+  const categoryAuditStats = (report?.management.by_category ?? []).map(cat => {
+    const daysDeals = soldWithDays.filter(d => (d.products?.category || 'Other') === cat.category);
+    const days = daysDeals.length > 0 ? Math.round(daysDeals.reduce((sum, d) => sum + Number(d.time_to_sell_days), 0) / daysDeals.length) : 0;
+    const roi = Number(cat.cogs) > 0 ? (Number(cat.gross_profit) / Number(cat.cogs)) * 100 : 0;
+    return { category: cat.category, count: cat.units, profit: Number(cat.gross_profit), roi, days };
   }).sort((a, b) => b.profit - a.profit);
 
-  const selectedDealAge = selectedDeal?.created_at ? differenceInDays(new Date(), new Date(selectedDeal.created_at)) : 0;
+  const selectedDealAge = selectedDeal ? holdingDays(selectedDeal) : 0;
 
   const ResizeHandle = ({ onDoubleClick }: { onDoubleClick?: () => void }) => (
     <Separator onDoubleClick={onDoubleClick} title="Double click to reset layout" className="relative flex w-2 items-center justify-center bg-gray-100 hover:bg-indigo-200 cursor-col-resize transition-colors group select-none">
@@ -359,8 +340,9 @@ export default function Dashboard() {
 
                 <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
                   {filteredDeals.length === 0 ? <p className="text-[13px] text-center text-gray-400 mt-4">No deals found.</p> : filteredDeals.map(opp => {
-                    const ageInDays = opp.created_at ? differenceInDays(new Date(), new Date(opp.created_at)) : 0;
-                    const isInventory = ['bought', 'in_inventory', 'listed'].includes(opp.status);
+                    const ageInDays = holdingDays(opp);
+                    const isInventory = HELD_STATUSES.includes(opp.status);
+                    const returnBadge = returnByBadge(opp);
                     
                     return (
                     <button key={opp.id} onClick={() => setSelectedDeal(opp)} className={`w-full text-left p-3 rounded-lg border transition-all flex items-center justify-between group ${selectedDeal?.id === opp.id ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-transparent hover:border-gray-200 shadow-sm'}`}>
@@ -369,6 +351,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-2 mt-0.5">
                           <p className="text-[10px] font-mono text-gray-500">{opp.products?.asin}</p>
                           {isInventory && <span className={`text-[8px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-[0.06em] ${ageInDays > 60 ? 'bg-red-100 text-red-700' : ageInDays > 30 ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{ageInDays} Days</span>}
+                          {returnBadge && <span title="Amazon return deadline" className={`text-[8px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-[0.06em] ${returnBadge.tone === 'red' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{returnBadge.label}</span>}
                         </div>
                       </div>
                       <ChevronRight className={`h-4 w-4 shrink-0 ${selectedDeal?.id === opp.id ? 'text-indigo-500' : 'text-gray-300 group-hover:text-gray-400'}`} />
@@ -388,11 +371,12 @@ export default function Dashboard() {
                 </div>
                 <div className="flex-1 p-4 flex flex-col gap-3 overflow-y-auto">
                   <div className="mb-2">
-                    <div className="flex justify-between items-center text-[10px] text-gray-500 font-semibold uppercase tracking-[0.06em] mb-1"><span>Revenue</span><span className="tabular-nums">€{revenue.toFixed(2)} / €55k Limit</span></div>
-                    <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${taxLimitProgress > 80 ? 'bg-red-500' : taxLimitProgress > 50 ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div></div>
+                    <div className="flex justify-between items-center text-[10px] text-gray-500 font-semibold uppercase tracking-[0.06em] mb-1"><span>Revenue {report?.year ?? ''}</span><span className="tabular-nums">€{revenue.toFixed(2)} / €{(TAX_LIMIT / 1000).toFixed(0)}k Limit</span></div>
+                    <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${taxLimitPct >= 95 ? 'bg-red-500' : taxLimitPct >= taxWarnPct ? 'bg-amber-400' : 'bg-indigo-500'}`} style={{ width: `${taxLimitProgress}%` }}></div></div>
+                    {reportError && <p role="alert" className="mt-1 text-[11px] text-red-600">{reportError}</p>}
                   </div>
                   
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-[13px] text-gray-500">Gross Profit</span><span className="text-[13px] font-semibold tabular-nums text-green-600">+€{grossProfit.toFixed(2)}</span></div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-[13px] text-gray-500" title="Revenue minus cost, shipping and fees of the units sold this calendar year">Gross Profit</span><span className="text-[13px] font-semibold tabular-nums text-green-600">+€{grossProfit.toFixed(2)}</span></div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-[13px] text-gray-500">Average ROI</span><span className="text-[13px] font-semibold tabular-nums text-indigo-600">{averageRoi.toFixed(1)}%</span></div>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2">
                     <span className="text-[13px] text-gray-500">Avg. Days to Sell</span>
@@ -489,7 +473,7 @@ export default function Dashboard() {
                       {selectedDeal.buybox_seller === 'Amazon' ? <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-3 py-1 rounded-md text-xs font-bold uppercase border border-emerald-200"><ShieldCheck className="h-4 w-4" /> Sold by Amazon</span> :
                       selectedDeal.buybox_is_fba ? <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 px-3 py-1 rounded-md text-xs font-bold uppercase border border-blue-200"><Truck className="h-4 w-4" /> Prime (FBA) - {selectedDeal.buybox_seller}</span> :
                       <span className="inline-flex items-center gap-1 bg-red-50 text-red-700 px-3 py-1 rounded-md text-xs font-bold uppercase border border-red-200"><ShieldAlert className="h-4 w-4" /> High Risk (FBM) - {selectedDeal.buybox_seller}</span>}
-                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold uppercase ${selectedDeal.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}><Euro className="h-4 w-4" /> {selectedDeal.profit_margin}% AI Margin</span>
+                      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-md text-xs font-bold uppercase ${selectedDeal.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}><Euro className="h-4 w-4" /> {Number(selectedDeal.net_margin_estimate ?? selectedDeal.profit_margin)}% Net Margin{selectedDeal.net_profit_estimate != null && ` · €${Number(selectedDeal.net_profit_estimate).toFixed(2)}`}</span>
                       
                       {/* Capital Exposure Warning */}
                       {inventoryValue > 0 && (selectedDeal.buy_price / inventoryValue) > 0.15 && ['pending', 'rejected'].includes(selectedDeal.status) && (
@@ -551,7 +535,7 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    {['bought', 'in_inventory', 'listed'].includes(selectedDeal.status) && selectedDealAge > 60 && (
+                    {HELD_STATUSES.includes(selectedDeal.status) && selectedDealAge > 60 && (
                       <div className="bg-red-50 border border-red-200 p-4 rounded-xl mb-6 flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
                         <div>
@@ -564,20 +548,36 @@ export default function Dashboard() {
                       </div>
                     )}
 
+                    {(() => {
+                      const badge = returnByBadge(selectedDeal);
+                      if (!badge) return null;
+                      return (
+                        <div className={`p-4 rounded-xl mb-6 flex items-start gap-3 border ${badge.tone === 'red' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+                          <CalendarClock className={`h-5 w-5 shrink-0 mt-0.5 ${badge.tone === 'red' ? 'text-red-600' : 'text-amber-700'}`} />
+                          <div>
+                            <h4 className={`type-section-title ${badge.tone === 'red' ? 'text-red-800' : 'text-amber-800'}`}>Amazon return deadline: {selectedDeal.return_by}</h4>
+                            <p className={`type-body mt-1 ${badge.tone === 'red' ? 'text-red-700' : 'text-amber-900'}`}>
+                              {badge.tone === 'red' ? 'The return window has closed.' : 'Unsold near the return deadline: consider returning it to Amazon.'}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     <div className="mt-auto">
                       <h3 className="type-label text-gray-400 mb-3">Action Pipeline</h3>
                       <div className="flex flex-wrap gap-3">
-                        {['pending', 'rejected'].includes(selectedDeal.status) && <><a href={`https://amazon.de/dp/${selectedDeal.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-3 rounded-xl text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-5 w-5" /> Buy on Amazon</a><button onClick={() => updateStatus(selectedDeal.id, 'bought')} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-5 w-5" /></button></>}
+                        {['pending', 'rejected'].includes(selectedDeal.status) && <><a href={`https://amazon.de/dp/${selectedDeal.products?.asin}`} target="_blank" rel="noreferrer" className="flex-1 bg-gray-900 text-white text-center py-3 rounded-xl text-sm font-medium hover:bg-gray-800 flex justify-center items-center gap-2"><ShoppingCart className="h-5 w-5" /> Buy on Amazon</a><button onClick={() => setBoughtModalDeal(selectedDeal)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2">Mark as Bought <ArrowRight className="h-5 w-5" /></button></>}
                         {selectedDeal.status === 'bought' && <button onClick={() => setInventoryModalDeal(selectedDeal)} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-indigo-700 flex justify-center items-center gap-2"><ClipboardCheck className="h-5 w-5" /> Receive & Check Quality</button>}
-                        {selectedDeal.status === 'in_inventory' && !selectedDeal.is_quarantine && <button onClick={() => updateStatus(selectedDeal.id, 'listed')} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>}
-                        {selectedDeal.status === 'in_inventory' && selectedDeal.is_quarantine && <div className="flex-1 bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><ShieldAlert className="h-5 w-5" /> In Quarantine (Review Needed)<button onClick={() => updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', false)} className="ml-2 underline text-xs hover:text-red-900">Resolve</button></div>}
+                        {selectedDeal.status === 'in_inventory' && !selectedDeal.is_quarantine && <button onClick={() => updateDeal(selectedDeal.id, { status: 'listed' })} className="flex-1 bg-purple-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-purple-700 flex justify-center items-center gap-2">Listed on Willhaben</button>}
+                        {selectedDeal.status === 'in_inventory' && selectedDeal.is_quarantine && <div className="flex-1 bg-red-50 text-red-700 border border-red-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><ShieldAlert className="h-5 w-5" /> In Quarantine (Review Needed)<button onClick={() => updateDeal(selectedDeal.id, { product_condition: 'OPEN BOX', is_quarantine: false }, 'Quarantine resolved.')} className="ml-2 underline text-xs hover:text-red-900">Resolve</button></div>}
                         
                         {/* Dynamic pricing ladder once the item is listed */}
                         {selectedDeal.status === 'listed' && (
                           <>
-                            <button onClick={() => { setSaleModalDeal(selectedDeal); setSaleForm({ ...EMPTY_SALE_FORM, actual_sell_price: String(selectedDeal.target_sell_price) }); }} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold!</button>
+                            <button onClick={() => setSaleModalDeal(selectedDeal)} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-bold hover:bg-green-700 flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Item Sold!</button>
                             {selectedDealAge > 14 && (
-                              <button onClick={() => updateStatus(selectedDeal.id, 'listed', undefined, undefined, Number((selectedDeal.target_sell_price * 0.95).toFixed(2)))} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="Item listed for >14 days. Drop target price by 5%.">
+                              <button onClick={() => updateDeal(selectedDeal.id, { target_sell_price: Number((selectedDeal.target_sell_price * 0.95).toFixed(2)) }, 'Target price lowered by 5%.')} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="Item listed for >14 days. Drop target price by 5%.">
                                 <TrendingDown className="h-5 w-5" /> Drop Price 5%
                               </button>
                             )}
@@ -587,7 +587,7 @@ export default function Dashboard() {
                         {selectedDeal.status === 'sold' && (
                           <>
                             <div className="flex-1 bg-green-50 text-green-700 border border-green-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2"><CheckCircle className="h-5 w-5" /> Deal Successfully Closed</div>
-                            <button onClick={() => { const newDegradedPrice = Number((selectedDeal.target_sell_price * 0.90).toFixed(2)); updateStatus(selectedDeal.id, 'in_inventory', 'OPEN BOX', true, newDegradedPrice); }} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="Customer Returned this item. Will put it back to quarantine and lower target price by 10%."><RotateCcw className="h-5 w-5" /> Returned</button>
+                            <button onClick={() => setReturnModalDeal(selectedDeal)} className="flex-none px-4 bg-amber-100 text-amber-700 border border-amber-300 rounded-xl text-sm font-bold hover:bg-amber-200 flex justify-center items-center gap-2" title="The customer sent this item back. Books the refund and puts it back into quarantine (the target price stays as it is)."><RotateCcw className="h-5 w-5" /> Returned</button>
                           </>
                         )}
                         
@@ -595,7 +595,7 @@ export default function Dashboard() {
                         {selectedDeal.status === 'rejected' && (
                           <button onClick={() => {
                             const lesson = window.prompt("Log your lesson learned for this missed/rejected opportunity:");
-                            if (lesson) updateStatus(selectedDeal.id, 'rejected', undefined, undefined, undefined, `LESSON LEARNED: ${lesson} (Original AI Note: ${selectedDeal.purchase_thesis || 'None'})`);
+                            if (lesson) updateDeal(selectedDeal.id, { purchase_thesis: `LESSON LEARNED: ${lesson} (Original AI Note: ${selectedDeal.purchase_thesis || 'None'})` }, 'Lesson saved.');
                           }} className="w-full mt-2 bg-white border border-amber-300 text-amber-700 py-3 rounded-xl text-sm font-bold hover:bg-amber-50 flex justify-center items-center gap-2">
                             <BookOpen className="h-5 w-5" /> Log Post-Mortem Lesson
                           </button>
@@ -691,7 +691,7 @@ export default function Dashboard() {
                             <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-semibold tabular-nums border border-gray-200 shrink-0">{opp.deal_score || 0}%</span>}
                         </div>
                         <div className="w-full bg-gray-100 rounded-full h-1.5 mb-2"><div className={`h-1.5 rounded-full ${opp.deal_score && opp.deal_score >= 80 ? 'bg-red-500' : opp.deal_score && opp.deal_score >= 50 ? 'bg-amber-400' : 'bg-green-500'}`} style={{ width: `${opp.deal_score || 0}%` }}></div></div>
-                        <div className="flex justify-between items-center text-[9px] text-gray-500 uppercase tracking-[0.06em] font-semibold"><span>Hold: {opp.holding_period_months} Mo.</span><span>Margin: {opp.profit_margin}%</span></div>
+                        <div className="flex justify-between items-center text-[9px] text-gray-500 uppercase tracking-[0.06em] font-semibold"><span>Hold: {opp.holding_period_months} Mo.</span><span>Net margin: {Number(opp.net_margin_estimate ?? opp.profit_margin)}%</span></div>
                       </div>
                     ))}
                 </div>
@@ -726,67 +726,29 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* MODAL — Sale confirmation (captures the real outcome for ML training) */}
+      {/* MODALS — purchase record, sale (ledger) and customer return */}
+      {boughtModalDeal && (
+        <BoughtModal
+          deal={{ id: boughtModalDeal.id, title: boughtModalDeal.products?.title, buy_price: Number(boughtModalDeal.buy_price), target_sell_price: Number(boughtModalDeal.target_sell_price) }}
+          config={config}
+          onClose={() => setBoughtModalDeal(null)}
+          onDone={() => { setBoughtModalDeal(null); toasts.success('Purchase recorded.'); fetchOpportunities(); fetchReport(); }}
+        />
+      )}
       {saleModalDeal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[90vh]">
-            <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center shrink-0">
-              <h3 className="type-section-title text-gray-800 flex items-center gap-2"><CheckCircle className="h-5 w-5 text-green-600"/> Confirm Sale</h3>
-              <button onClick={() => { setSaleModalDeal(null); setSaleForm(EMPTY_SALE_FORM); }} className="text-gray-400 hover:text-gray-700 transition"><X className="h-5 w-5"/></button>
-            </div>
-            <div className="p-5 flex flex-col gap-4 overflow-y-auto">
-              <p className="type-body text-gray-600">Record what actually happened selling <strong>{saleModalDeal.products?.title}</strong>. This becomes training data for the future pricing model.</p>
-
-              <label className="flex flex-col gap-1.5">
-                <span className="type-label text-gray-500">Actual Sell Price (€) <span className="text-red-500">*</span></span>
-                <input type="number" step="0.01" min="0" inputMode="decimal" value={saleForm.actual_sell_price} onChange={e => setSaleForm({ ...saleForm, actual_sell_price: e.target.value })} placeholder={String(saleModalDeal.target_sell_price)} className={`${SALE_INPUT_CLASS} tabular-nums`} />
-              </label>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1.5">
-                  <span className="type-label text-gray-500">Shipping & Prep (€)</span>
-                  <input type="number" step="0.01" min="0" inputMode="decimal" value={saleForm.shipping_and_prep_cost} onChange={e => setSaleForm({ ...saleForm, shipping_and_prep_cost: e.target.value })} placeholder="0.00" className={`${SALE_INPUT_CLASS} tabular-nums`} />
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="type-label text-gray-500">Platform Fees (€)</span>
-                  <input type="number" step="0.01" min="0" inputMode="decimal" value={saleForm.platform_fees} onChange={e => setSaleForm({ ...saleForm, platform_fees: e.target.value })} placeholder="0.00" className={`${SALE_INPUT_CLASS} tabular-nums`} />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1.5">
-                  <span className="type-label text-gray-500">Customer Inquiries</span>
-                  <input type="number" step="1" min="0" inputMode="numeric" value={saleForm.customer_inquiries_count} onChange={e => setSaleForm({ ...saleForm, customer_inquiries_count: e.target.value })} placeholder="0" className={`${SALE_INPUT_CLASS} tabular-nums`} />
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="type-label text-gray-500">Sold during event?</span>
-                  <select value={saleForm.sold_during_event} onChange={e => setSaleForm({ ...saleForm, sold_during_event: e.target.value })} className={`${SALE_INPUT_CLASS} cursor-pointer`}>
-                    <option value="">None</option>
-                    {SALE_EVENT_OPTIONS.map(name => <option key={name} value={name}>{name}</option>)}
-                  </select>
-                </label>
-              </div>
-
-              <label className="flex flex-col gap-1.5">
-                <span className="type-label text-gray-500">Notes / Messages Summary</span>
-                <textarea rows={3} value={saleForm.customer_messages_summary} onChange={e => setSaleForm({ ...saleForm, customer_messages_summary: e.target.value })} placeholder="What buyers asked about or objected to..." className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[14px] leading-relaxed text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50" />
-              </label>
-
-              {Number(saleForm.actual_sell_price) > 0 && (
-                <div className="flex justify-between items-center bg-emerald-50 border border-emerald-100 p-3 rounded-lg">
-                  <span className="text-[13px] font-semibold text-emerald-800">Net Profit</span>
-                  <span className="text-[15px] font-bold tabular-nums text-emerald-700">
-                    €{(Number(saleForm.actual_sell_price) - Number(saleModalDeal.buy_price) - (Number(saleForm.shipping_and_prep_cost) || 0) - (Number(saleForm.platform_fees) || 0)).toFixed(2)}
-                  </span>
-                </div>
-              )}
-            </div>
-            <div className="p-5 pt-0 flex gap-3 shrink-0">
-              <button onClick={() => { setSaleModalDeal(null); setSaleForm(EMPTY_SALE_FORM); }} disabled={confirmingSale} className="flex-1 py-2.5 border border-gray-200 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-50 transition disabled:opacity-50">Cancel</button>
-              <button onClick={handleConfirmSale} disabled={!(Number(saleForm.actual_sell_price) > 0) || confirmingSale} className="flex-1 py-2.5 bg-green-600 text-white rounded-lg text-sm font-bold hover:bg-green-700 disabled:bg-green-300 transition">{confirmingSale ? 'Saving...' : 'Confirm Sale'}</button>
-            </div>
-          </div>
-        </div>
+        <SaleModal
+          deal={{ ...saleModalDeal, title: saleModalDeal.products?.title, buy_price: Number(saleModalDeal.buy_price), target_sell_price: Number(saleModalDeal.target_sell_price) }}
+          config={config}
+          onClose={() => setSaleModalDeal(null)}
+          onDone={() => { setSaleModalDeal(null); fetchOpportunities(); fetchReport(); }}
+        />
+      )}
+      {returnModalDeal && (
+        <ReturnModal
+          deal={{ id: returnModalDeal.id, title: returnModalDeal.products?.title }}
+          onClose={() => setReturnModalDeal(null)}
+          onDone={() => { setReturnModalDeal(null); toasts.success('Return recorded. The unit is back in inventory, in quarantine.'); fetchOpportunities(); fetchReport(); }}
+        />
       )}
 
       {/* MODAL — Austria market calendar (holidays, school terms, shopping days, events) */}
@@ -826,6 +788,8 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      <ToastStack toasts={toasts.toasts} dismiss={toasts.dismiss} />
     </div>
   );
 }

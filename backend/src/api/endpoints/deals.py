@@ -1,20 +1,25 @@
 """Deal orchestration endpoints.
 
-The scan pipeline itself lives in `services/scan_pipeline.py`; this module holds
-the HTTP endpoints, the dead-stock check and the opportunity lifecycle updates.
+The scan pipeline itself lives in `services/scan_pipeline.py`, the daily
+inventory checks in `services/inventory_alerts.py`, the allowed status changes in
+`services/lifecycle.py` and the money math in `services/profit_calculator.py`.
+This module holds the HTTP endpoints: scan triggers, the opportunity lifecycle
+(status, sale, return, soft delete) and manual entry.
+
+Multi-table writes (manual entry, sale, return) go through the atomic RPC
+functions of the database, so they either happen completely or not at all.
 Endpoints that call the (synchronous) Supabase client are plain `def`, so FastAPI
 runs them in its thread pool instead of blocking the event loop.
 """
 
-import asyncio
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from src.core.auth import require_admin, require_admin_or_automation
+from src.core.auth import AuthPrincipal, require_admin, require_admin_or_automation
 from src.core.categories import FALLBACK_CATEGORY
 from src.core.database import supabase
 from src.core.rate_limit import SCAN_LIMIT, limiter
@@ -29,9 +34,18 @@ from src.core.validation import (
     Score0to10,
     WillhabenUrl,
 )
-from src.services.business_settings import load_business_settings
-from src.services.notification_service import notification_service
-from src.services.profit_calculator import ProfitResult, as_float, calculate, min_emergency_price, storable_margin
+from src.services.business_settings import BusinessSettings, load_business_settings
+from src.services.db_util import call_rpc
+from src.services.inventory_alerts import run_inventory_alerts
+from src.services.lifecycle import IllegalTransition, can_record_sale, check_transition, return_by_date
+from src.services.profit_calculator import (
+    ProfitResult,
+    actual_profit,
+    as_float,
+    calculate,
+    min_emergency_price,
+    storable_margin,
+)
 from src.services.scan_pipeline import create_scan_job, run_deal_scan_pipeline
 
 logger = logging.getLogger(__name__)
@@ -45,12 +59,6 @@ automation_router = APIRouter(
     prefix="/deals", tags=["Deals Automation"], dependencies=[Depends(require_admin_or_automation)]
 )
 
-# Dead stock: an open item older than this many days has tied up capital too
-# long. Mirrors the "Dead Stock Alert" banner in frontend/src/app/admin/page.tsx
-# (age = full days since `created_at`, alert when > 60).
-DEAD_STOCK_DAYS = 60
-DEAD_STOCK_STATUSES = ("bought", "in_inventory", "listed")
-
 DEFAULT_WAREHOUSE_LOCATION = "A01"
 AMAZON_LOCALE = "DE"
 
@@ -59,20 +67,50 @@ SCAN_LIST_LIMIT = 50
 
 # --- Helpers ----------------------------------------------------------------
 
-def _days_since_start(row: dict, now: datetime) -> int | None:
-    """Full days from the start of holding a unit: listing, else purchase, else scan date."""
-    for key in ("listed_at", "purchased_at", "created_at"):
-        if row.get(key):
-            started = datetime.fromisoformat(row[key].replace("Z", "+00:00"))
-            return max((now - started).days, 0)
-    return None
+def _aware(value: datetime | None) -> datetime | None:
+    """Timestamps sent without a zone are taken as UTC; nothing naive reaches the database."""
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
-def _manual_profit(buy_price: float, target_sell_price: float) -> tuple[ProfitResult, float]:
-    """Net profit for a hand-entered deal from the single profit engine, plus the emergency price."""
+def _business_settings() -> BusinessSettings:
+    try:
+        return load_business_settings()
+    except Exception:
+        logger.exception("Could not load business_settings")
+        raise HTTPException(status_code=503, detail="Could not load the business settings.")
+
+
+def _get_open_row(opportunity_id: str) -> dict:
+    """The (not soft-deleted) opportunity row, or 404."""
+    try:
+        res = supabase.table("opportunities").select("*").eq("id", opportunity_id).is_("deleted_at", "null").execute()
+    except Exception:
+        logger.exception("Could not load opportunity %s", opportunity_id)
+        raise HTTPException(status_code=503, detail="The database is unavailable.")
+    if not res.data:
+        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
+    return res.data[0]
+
+
+def _effective_price(row: dict) -> float:
+    """What the unit really cost: the recorded purchase price, else the planned buy price."""
+    actual = row.get("purchase_price_actual")
+    return actual if actual is not None else row["buy_price"]
+
+
+def _estimate(
+    *, sell_price: float, purchase_price: float, inbound: float | None, packaging: float | None
+) -> tuple[ProfitResult, float | None]:
+    """Net estimate from the single profit engine, plus the default emergency price (None: no break-even)."""
     try:
         result = calculate(
-            sell_price=target_sell_price, purchase_price=buy_price, settings=load_business_settings().profit
+            sell_price=sell_price,
+            purchase_price=purchase_price,
+            settings=_business_settings().profit,
+            inbound_shipping=inbound,
+            packaging=packaging,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -86,87 +124,49 @@ class ScanRequest(BaseModel):
 
 
 class StatusUpdateRequest(BaseModel):
-    status: OpportunityStatus
+    """Move a deal along its lifecycle and/or patch optional fields.
+
+    `status` may be omitted to only patch fields. Fields listed as clearable are
+    written whenever they are sent, including as null; the others ignore null.
+    """
+
+    status: OpportunityStatus | None = None
+
+    # What "Mark as Bought" records (status -> bought needs the price).
+    purchase_price_actual: PositiveMoney | None = None
+    purchased_at: datetime | None = None
+    order_ref: str | None = Field(default=None, max_length=100)
+    inbound_shipping_cost: NonNegativeMoney | None = None
+    packaging_cost: NonNegativeMoney | None = None
+
     product_condition: ProductCondition | None = None
     is_quarantine: bool | None = None
     target_sell_price: PositiveMoney | None = None
     purchase_thesis: str | None = Field(default=None, max_length=2000)
 
-    # Sale outcome (ML training data) — sent when status moves to 'sold'.
-    actual_sell_price: NonNegativeMoney | None = None
-    actual_profit: float | None = Field(default=None, ge=-100_000, le=100_000)
-    shipping_and_prep_cost: NonNegativeMoney | None = None
-    platform_fees: NonNegativeMoney | None = None
+    # Public storefront: the live Willhaben listing the "Buy" button opens.
+    willhaben_url: WillhabenUrl = None
+
+
+class SaleRequest(BaseModel):
+    amount: PositiveMoney
+    shipping_cost: NonNegativeMoney = 0
+    platform_fees: NonNegativeMoney = 0
+    occurred_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+    # Sale outcome (ML training data).
     customer_inquiries_count: int | None = Field(default=None, ge=0, le=10_000)
     customer_messages_summary: str | None = Field(default=None, max_length=2000)
     sold_during_event: str | None = Field(default=None, max_length=100)
 
-    # Public storefront: the live Willhaben listing the "Buy" button opens.
-    # Blank clears it (see `update_opportunity_status`).
-    willhaben_url: WillhabenUrl = None
 
-
-async def run_dead_stock_scan():
-    """Push one digest for items that newly crossed the dead-stock threshold.
-
-    `dead_stock_notified_at` is stamped only after Pushover accepts the message,
-    so an item is announced once, and retried on the next run if the push
-    could not be delivered.
-    """
-    logger.info("Starting dead-stock scan")
-    now = datetime.now(timezone.utc)
-    cutoff = (now - timedelta(days=DEAD_STOCK_DAYS)).isoformat()
-
-    try:
-        res = await asyncio.to_thread(
-            lambda: supabase.table("opportunities")
-            .select("id, buy_price, created_at, products(title)")
-            .in_("status", list(DEAD_STOCK_STATUSES))
-            .is_("dead_stock_notified_at", "null")
-            .lt("created_at", cutoff)
-            .execute()
-        )
-    except Exception:
-        logger.exception("Dead-stock query failed")
-        return
-
-    items = []
-    for row in res.data or []:
-        created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
-        age_days = (now - created_at).days
-        # The query returns items at least 60 days old; the UI banner needs more than 60 full days.
-        if age_days <= DEAD_STOCK_DAYS:
-            continue
-        items.append({
-            "id": row["id"],
-            "title": (row.get("products") or {}).get("title") or "Untitled item",
-            "buy_price": row["buy_price"],
-            "age_days": age_days,
-        })
-
-    if not items:
-        logger.info("Dead-stock scan finished (nothing new)")
-        return
-
-    items.sort(key=lambda item: item["age_days"], reverse=True)
-
-    delivered = await notification_service.send_dead_stock_alert(items, DEAD_STOCK_DAYS)
-    if not delivered:
-        logger.warning("Dead-stock push not delivered; items stay un-notified and will be retried")
-        return
-
-    try:
-        await asyncio.to_thread(
-            lambda: supabase.table("opportunities")
-            .update({"dead_stock_notified_at": now.isoformat()})
-            .in_("id", [item["id"] for item in items])
-            .execute()
-        )
-    except Exception:
-        logger.exception("Could not stamp dead_stock_notified_at (items will be re-announced)")
-        return
-
-    logger.info("Dead-stock scan finished (%d item(s) announced)", len(items))
+class ReturnRequest(BaseModel):
+    # Default: refund everything the customer still has paid.
+    refund_amount: NonNegativeMoney | None = None
+    return_shipping_cost: NonNegativeMoney = 0
+    occurred_at: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
 
 
 # --- Endpoints ------------------------------------------------------------
@@ -224,81 +224,238 @@ def list_scan_jobs():
     return {"jobs": res.data or []}
 
 
+
 @automation_router.post("/dead-stock/scan", status_code=202)
 async def scan_dead_stock(background_tasks: BackgroundTasks):
-    """Queue a dead-stock check.
+    """Queue the daily inventory checks (dead stock and Amazon return deadlines).
 
-    Returns immediately; the scan runs in the background. Called daily by the
-    n8n workflow. Safe to call repeatedly: an item is only ever announced once
-    (`dead_stock_notified_at`).
+    Returns immediately; the checks run in the background. Called daily by the
+    n8n workflow. Safe to call repeatedly: a unit is only ever announced once
+    per kind of alert.
     """
-    background_tasks.add_task(run_dead_stock_scan)
-    return {"status": "accepted", "message": "Dead-stock scan started in the background."}
+    background_tasks.add_task(run_inventory_alerts)
+    return {"status": "accepted", "message": "Inventory checks started in the background."}
+
+
+# --- Lifecycle ----------------------------------------------------------------
+
+# Written when sent, including as null (the UI clears a field by sending it empty).
+_CLEARABLE_FIELDS = ("order_ref", "inbound_shipping_cost", "packaging_cost", "purchase_thesis", "willhaben_url")
+# Null means "not sent" for these: the columns cannot be emptied.
+_KEEP_WHEN_NULL_FIELDS = ("purchase_price_actual", "product_condition", "is_quarantine", "target_sell_price")
+# Changing any of them changes the profit estimate.
+_ESTIMATE_INPUTS = ("purchase_price_actual", "inbound_shipping_cost", "packaging_cost", "target_sell_price")
 
 
 @router.patch("/{opportunity_id}/status")
 def update_opportunity_status(opportunity_id: uuid.UUID, request: StatusUpdateRequest):
     """Advance an opportunity through its lifecycle and patch optional fields.
 
-    When the status moves to 'sold', also stamps `time_to_sell_days` (measured
-    from `listed_at`, else `purchased_at`, else `created_at`) so the sale outcome
-    fields form a complete row for future ML training, alongside whatever
-    actual_* fields the sale-confirm modal sent. Phase 4 moves the sale itself to
-    `POST /deals/{id}/sale`.
+    The change must be allowed by `services/lifecycle.py` (otherwise 409).
+    Moving to `bought` requires `purchase_price_actual` and records the purchase
+    date and the Amazon return-by date; `in_inventory` stamps `received_at`;
+    `listed` stamps `listed_at`. A sale is not a status change: use
+    `POST /deals/{id}/sale`. The profit estimate is recomputed whenever a cost or
+    the target price changes.
     """
     opportunity_id = str(opportunity_id)
-    payload: dict = {"status": request.status}
-
-    if request.status == "sold":
-        now = datetime.now(timezone.utc)
-        payload["sold_at"] = now.isoformat()
-
-        basis_res = (
-            supabase.table("opportunities")
-            .select("listed_at, purchased_at, created_at")
-            .eq("id", opportunity_id)
-            .execute()
-        )
-        days = _days_since_start(basis_res.data[0], now) if basis_res.data else None
-        if days is not None:
-            payload["time_to_sell_days"] = days
-
-    optional_fields = {
-        "product_condition": request.product_condition,
-        "is_quarantine": request.is_quarantine,
-        "target_sell_price": request.target_sell_price,
-        "purchase_thesis": request.purchase_thesis,
-        "actual_sell_price": request.actual_sell_price,
-        "actual_profit": request.actual_profit,
-        "shipping_and_prep_cost": request.shipping_and_prep_cost,
-        "platform_fees": request.platform_fees,
-        "customer_inquiries_count": request.customer_inquiries_count,
-        "customer_messages_summary": request.customer_messages_summary,
-        "sold_during_event": request.sold_during_event,
-    }
-    payload.update({key: value for key, value in optional_fields.items() if value is not None})
-
-    # The Willhaben link is the one field the UI needs to clear again, so it is
-    # written whenever it was sent, including as null.
-    if "willhaben_url" in request.model_fields_set:
-        payload["willhaben_url"] = request.willhaben_url
+    row = _get_open_row(opportunity_id)
+    current = row["status"]
+    target = request.status or current
 
     try:
-        res = supabase.table("opportunities").update(payload).eq("id", opportunity_id).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        check_transition(current, target)
+    except IllegalTransition as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    fields = request.model_fields_set
+    now = datetime.now(timezone.utc)
+    changes: dict = {}
+
+    if target != current:
+        changes["status"] = target
+        if target == "bought":
+            if request.purchase_price_actual is None:
+                raise HTTPException(status_code=422, detail="purchase_price_actual is required to mark a deal as bought.")
+            if request.purchased_at is None:
+                changes["purchased_at"] = now.isoformat()
+                changes["return_by"] = return_by_date(now, _business_settings().return_window_days).isoformat()
+        elif target == "in_inventory" and not row.get("received_at"):
+            changes["received_at"] = now.isoformat()
+        elif target == "listed":
+            changes["listed_at"] = now.isoformat()
+
+    for name in _CLEARABLE_FIELDS:
+        if name in fields:
+            value = getattr(request, name)
+            changes[name] = (value.strip() or None) if isinstance(value, str) and name == "order_ref" else value
+    for name in _KEEP_WHEN_NULL_FIELDS:
+        if getattr(request, name) is not None:
+            changes[name] = getattr(request, name)
+
+    purchased_at = _aware(request.purchased_at)
+    if purchased_at is not None:
+        changes["purchased_at"] = purchased_at.isoformat()
+        changes["return_by"] = return_by_date(purchased_at, _business_settings().return_window_days).isoformat()
+
+    if any(name in changes for name in _ESTIMATE_INPUTS):
+        merged = {**row, **changes}
+        if merged.get("target_sell_price"):
+            estimate, _ = _estimate(
+                sell_price=merged["target_sell_price"],
+                purchase_price=_effective_price(merged),
+                inbound=merged.get("inbound_shipping_cost"),
+                packaging=merged.get("packaging_cost"),
+            )
+            margin = storable_margin(estimate.net_margin_pct)
+            changes.update(
+                net_profit_estimate=as_float(estimate.net_profit), net_margin_estimate=margin, profit_margin=margin
+            )
+            # The emergency price may never sit below break-even (below cost).
+            if estimate.break_even_price is not None:
+                floor = as_float(min_emergency_price(estimate.sell_price, estimate.break_even_price))
+                if row.get("emergency_sell_price") is None or row["emergency_sell_price"] < as_float(
+                    estimate.break_even_price
+                ):
+                    changes["emergency_sell_price"] = floor
+
+    if not changes:
+        return {"status": "success", "data": row}
+
+    # Compare-and-set on the status the transition was checked against, so two
+    # requests racing each other cannot both apply.
+    try:
+        res = (
+            supabase.table("opportunities")
+            .update(changes)
+            .eq("id", opportunity_id)
+            .eq("status", current)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+    except Exception:
+        logger.exception("Status update of %s failed", opportunity_id)
+        raise HTTPException(status_code=500, detail="The database rejected the change.")
 
     if not res.data:
-        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
+        raise HTTPException(status_code=409, detail="The deal was changed in the meantime. Reload and try again.")
 
     return {"status": "success", "data": res.data[0]}
 
 
+@router.post("/{opportunity_id}/sale")
+def record_sale(opportunity_id: uuid.UUID, request: SaleRequest, principal: AuthPrincipal = Depends(require_admin)):
+    """Record the sale of one unit (ledger event) and mark it sold.
+
+    The profit is computed here from the recorded purchase cost and the shipping
+    and fees entered with the sale; a profit sent by a client is not accepted.
+    """
+    opportunity_id = str(opportunity_id)
+    row = _get_open_row(opportunity_id)
+    if not can_record_sale(row["status"]):
+        raise HTTPException(status_code=409, detail=f'A deal in status "{row["status"]}" cannot be sold.')
+
+    outcome = actual_profit(
+        sale_amount=request.amount,
+        purchase_price=_effective_price(row),
+        inbound_shipping=row.get("inbound_shipping_cost"),
+        packaging=row.get("packaging_cost"),
+        shipping_cost=request.shipping_cost,
+        platform_fees=request.platform_fees,
+    )
+    occurred_at = _aware(request.occurred_at)
+    payload = {
+        "amount": request.amount,
+        "shipping_cost": request.shipping_cost,
+        "platform_fees": request.platform_fees,
+        "occurred_at": occurred_at.isoformat() if occurred_at else None,
+        "note": request.note,
+        "actual_profit": as_float(outcome.net_profit),
+        "customer_inquiries_count": request.customer_inquiries_count,
+        "customer_messages_summary": request.customer_messages_summary,
+        "sold_during_event": request.sold_during_event,
+        "actor": principal.user_id,
+    }
+    result = call_rpc("record_sale", {"p_id": opportunity_id, "payload": {k: v for k, v in payload.items() if v is not None}})
+
+    logger.info("Sale recorded for opportunity %s", opportunity_id)
+    return {
+        "status": "success",
+        **result,
+        "actual_profit": as_float(outcome.net_profit),
+        "net_margin_pct": as_float(outcome.net_margin_pct),
+        "total_cost": as_float(outcome.total_cost),
+    }
+
+
+@router.post("/{opportunity_id}/return")
+def record_return(opportunity_id: uuid.UUID, request: ReturnRequest, principal: AuthPrincipal = Depends(require_admin)):
+    """A customer sent a sold unit back: write the refund and put the unit back into stock.
+
+    The sale stays in the ledger and the target price is kept. The unit returns
+    to `in_inventory` in quarantine ("REVIEW NEEDED") until it is checked and
+    re-priced on purpose.
+    """
+    opportunity_id = str(opportunity_id)
+    occurred_at = _aware(request.occurred_at)
+    payload = {
+        "refund_amount": request.refund_amount,
+        "return_shipping_cost": request.return_shipping_cost,
+        "occurred_at": occurred_at.isoformat() if occurred_at else None,
+        "note": request.note,
+        "actor": principal.user_id,
+    }
+    result = call_rpc("record_return", {"p_id": opportunity_id, "payload": {k: v for k, v in payload.items() if v is not None}})
+
+    logger.info("Return recorded for opportunity %s", opportunity_id)
+    return {"status": "success", **result}
+
+
+@router.delete("/{opportunity_id}")
+def delete_opportunity(opportunity_id: uuid.UUID):
+    """Soft-delete an opportunity (`deleted_at`); nothing is removed from the database.
+
+    Refused (409) for a unit that has been sold or has any sale event: those are
+    bookkeeping records that must be kept. Use `written_off` for such a unit once
+    it is back in stock. The product row is never deleted.
+    """
+    opportunity_id = str(opportunity_id)
+    row = _get_open_row(opportunity_id)
+
+    try:
+        events = supabase.table("sale_events").select("id").eq("opportunity_id", opportunity_id).limit(1).execute()
+    except Exception:
+        logger.exception("Could not check sale events of %s", opportunity_id)
+        raise HTTPException(status_code=503, detail="The database is unavailable.")
+    if row["status"] == "sold" or events.data:
+        raise HTTPException(
+            status_code=409,
+            detail="This deal has a recorded sale and is kept for bookkeeping. If it is back in stock, mark it as written off instead.",
+        )
+
+    try:
+        res = (
+            supabase.table("opportunities")
+            .update({"deleted_at": datetime.now(timezone.utc).isoformat()})
+            .eq("id", opportunity_id)
+            .is_("deleted_at", "null")
+            .execute()
+        )
+    except Exception:
+        logger.exception("Soft delete of %s failed", opportunity_id)
+        raise HTTPException(status_code=500, detail="The database rejected the change.")
+    if not res.data:
+        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
+
+    logger.info("Opportunity %s deleted (soft)", opportunity_id)
+    return {"status": "success", "deleted_id": opportunity_id}
+
+
 # --- Manual entry ---------------------------------------------------------
 # The frontend cannot write directly: RLS grants `authenticated` SELECT only
-# (plus UPDATE on opportunities for invoice attachment). Manual deals are
-# therefore persisted here, through the service role, mirroring exactly what
-# `run_deal_scan_pipeline` writes — minus Keepa and OpenAI.
+# (plus UPDATE of the invoice columns on opportunities). Manual deals are
+# therefore persisted here, through the atomic RPC functions, mirroring exactly
+# what the scan pipeline writes, minus Keepa and OpenAI.
 
 class ManualScoreBreakdown(BaseModel):
     discount: Score0to10 = 5
@@ -339,6 +496,17 @@ class ManualDealRequest(BaseModel):
     warehouse_location: str = Field(default=DEFAULT_WAREHOUSE_LOCATION, min_length=1, max_length=20)
     is_quarantine: bool = False
     sku: str | None = Field(default=None, max_length=50)
+    # Create only: that many identical units, each with its own SKU.
+    quantity: int = Field(default=1, ge=1, le=50)
+
+    # Purchase record. On update, only the fields that are sent are changed.
+    purchase_price_actual: PositiveMoney | None = None
+    purchased_at: datetime | None = None
+    order_ref: str | None = Field(default=None, max_length=100)
+    inbound_shipping_cost: NonNegativeMoney | None = None
+    packaging_cost: NonNegativeMoney | None = None
+    received_at: datetime | None = None
+    listed_at: datetime | None = None
 
     # Market context
     buybox_seller: str = Field(default="Manual", min_length=1, max_length=100)
@@ -356,9 +524,9 @@ class ManualDealRequest(BaseModel):
     listing_title: str = Field(min_length=1, max_length=200)
     listing_description: str = Field(min_length=1, max_length=8000)
 
-    # Sale outcome (ML training data) — only meaningful when status == 'sold'.
+    # Sale outcome (ML training data) - only meaningful when status == 'sold'.
+    # The profit is computed here; a client-supplied profit is not accepted.
     actual_sell_price: NonNegativeMoney | None = None
-    actual_profit: float | None = Field(default=None, ge=-100_000, le=100_000)
     shipping_and_prep_cost: NonNegativeMoney | None = None
     platform_fees: NonNegativeMoney | None = None
     customer_inquiries_count: int | None = Field(default=None, ge=0, le=10_000)
@@ -367,266 +535,117 @@ class ManualDealRequest(BaseModel):
     time_to_sell_days: int | None = Field(default=None, ge=0, le=3650)
 
 
-def _sale_outcome_fields(request: "ManualDealRequest") -> dict:
-    """Extract the ML-training sale outcome fields that were actually filled in."""
-    fields = {
-        "actual_sell_price": request.actual_sell_price,
-        "actual_profit": request.actual_profit,
-        "shipping_and_prep_cost": request.shipping_and_prep_cost,
-        "platform_fees": request.platform_fees,
-        "customer_inquiries_count": request.customer_inquiries_count,
-        "customer_messages_summary": request.customer_messages_summary,
-        "sold_during_event": request.sold_during_event,
-        "time_to_sell_days": request.time_to_sell_days,
-    }
-    return {key: value for key, value in fields.items() if value is not None}
+# Columns written only when the client actually sent them (`update_manual_deal`
+# keeps the stored value for an absent key).
+_PURCHASE_FIELDS = (
+    "purchase_price_actual",
+    "purchased_at",
+    "order_ref",
+    "inbound_shipping_cost",
+    "packaging_cost",
+    "received_at",
+    "listed_at",
+)
+
+
+def _manual_payload(request: ManualDealRequest, principal: AuthPrincipal, existing: dict | None = None) -> dict:
+    """RPC payload for a manual deal, with every derived figure computed by the backend.
+
+    `existing` is the stored row on update: purchase values the form did not send
+    are taken from it, so the profit estimate matches what is really stored.
+    """
+    fields = request.model_fields_set
+    data = request.model_dump(mode="json", exclude={"quantity"} if existing else set())
+    for name in _PURCHASE_FIELDS:
+        if name not in fields:
+            data.pop(name)
+
+    def value(name: str):
+        if name in fields:
+            return getattr(request, name)
+        return existing.get(name) if existing else None
+
+    purchase_price = value("purchase_price_actual") or request.buy_price
+    inbound, packaging = value("inbound_shipping_cost"), value("packaging_cost")
+
+    estimate, default_emergency = _estimate(
+        sell_price=request.target_sell_price, purchase_price=purchase_price, inbound=inbound, packaging=packaging
+    )
+    margin = storable_margin(estimate.net_margin_pct)
+    data.update(
+        profit_margin=margin,
+        net_profit_estimate=as_float(estimate.net_profit),
+        net_margin_estimate=margin,
+        emergency_sell_price=request.emergency_sell_price or default_emergency,
+    )
+
+    purchased_at = _aware(request.purchased_at)
+    if "purchased_at" in fields:
+        data["purchased_at"] = purchased_at.isoformat() if purchased_at else None
+        data["return_by"] = (
+            return_by_date(purchased_at, _business_settings().return_window_days).isoformat() if purchased_at else None
+        )
+    for name in ("received_at", "listed_at"):
+        if name in data and data[name] is not None:
+            data[name] = _aware(getattr(request, name)).isoformat()
+
+    if request.status == "sold" and request.actual_sell_price is not None:
+        outcome = actual_profit(
+            sale_amount=request.actual_sell_price,
+            purchase_price=purchase_price,
+            inbound_shipping=inbound,
+            packaging=packaging,
+            shipping_cost=request.shipping_and_prep_cost,
+            platform_fees=request.platform_fees,
+        )
+        data["actual_profit"] = as_float(outcome.net_profit)
+
+    if principal.user_id:
+        data["actor"] = principal.user_id
+    return data
 
 
 @router.post("/manual", status_code=201)
-def create_manual_deal(request: ManualDealRequest):
-    """Create a complete opportunity from hand-entered data.
+def create_manual_deal(request: ManualDealRequest, principal: AuthPrincipal = Depends(require_admin)):
+    """Create one or more complete opportunities from hand-entered data.
 
-    Writes `products` -> `opportunities` -> `generated_listings` in one call so
-    the workspace, product master and reports all render the deal exactly as if
-    the scan pipeline had produced it. No Keepa or OpenAI calls are made.
+    One RPC call writes `products` -> `opportunities` -> `generated_listings`
+    (and the ledger entry for a deal entered as sold) in one transaction, so the
+    workspace, product master and reports render the deal exactly as if the scan
+    pipeline had produced it. No Keepa or OpenAI calls are made.
     """
-    asin = request.asin
+    payload = _manual_payload(request, principal)
+    result = call_rpc("create_manual_deal", {"payload": payload})
 
-    # Recomputed server-side by the profit engine so the stored figures always match the prices.
-    profit, default_emergency = _manual_profit(request.buy_price, request.target_sell_price)
-    profit_margin = storable_margin(profit.net_margin_pct)
-    emergency_price = request.emergency_sell_price or default_emergency
-    sku = (request.sku or "").strip() or f"GEN-{str(uuid.uuid4())[:6].upper()}"
-
-    try:
-        product_payload = {
-            "asin": asin,
-            "amazon_locale": AMAZON_LOCALE,
-            "title": request.title.strip(),
-            "category": request.category,
-        }
-        if request.image_url:
-            product_payload["image_url"] = request.image_url
-        product_payload["gallery_image_urls"] = [u for u in request.gallery_image_urls if u]
-
-        product_res = supabase.table("products").upsert(
-            product_payload, on_conflict="asin,amazon_locale"
-        ).execute()
-        product_id = product_res.data[0]["id"]
-
-        # Two honest data points, when supplied: Amazon's price today and its
-        # 90-day average dated 90 days back. Nothing is invented in between, and
-        # the workspace chart prefers these over its sample curve.
-        if request.amazon_price_today and request.amazon_price_90d_avg:
-            now = datetime.now(timezone.utc)
-            supabase.table("price_history").insert([
-                {
-                    "product_id": product_id,
-                    "price_amazon": request.amazon_price_90d_avg,
-                    "recorded_at": (now - timedelta(days=90)).isoformat(),
-                },
-                {
-                    "product_id": product_id,
-                    "price_amazon": request.amazon_price_today,
-                    "recorded_at": now.isoformat(),
-                    "is_deal": request.amazon_price_today < request.amazon_price_90d_avg,
-                },
-            ]).execute()
-
-        opp_payload = {
-            "product_id": product_id,
-            "buy_price": request.buy_price,
-            "target_sell_price": request.target_sell_price,
-            "emergency_sell_price": emergency_price,
-            "willhaben_realistic_price": request.willhaben_realistic_price or request.target_sell_price,
-            "willhaben_url": request.willhaben_url,
-            "profit_margin": profit_margin,
-            "net_profit_estimate": as_float(profit.net_profit),
-            "net_margin_estimate": profit_margin,
-            "ai_decision": request.ai_decision or "Manually entered deal. No automated analysis was performed.",
-            "status": request.status,
-            "buybox_seller": request.buybox_seller,
-            "buybox_is_fba": request.buybox_is_fba,
-            "deal_score": request.deal_score,
-            "holding_period_months": request.holding_period_months,
-            "seasonality_analysis": request.seasonality_analysis,
-            "sku": sku,
-            "warehouse_location": request.warehouse_location,
-            "product_condition": request.product_condition,
-            "is_quarantine": request.is_quarantine,
-            "score_breakdown": request.score_breakdown.model_dump(),
-            "purchase_thesis": request.purchase_thesis,
-        }
-
-        if request.status == "sold":
-            opp_payload["sold_at"] = datetime.now(timezone.utc).isoformat()
-            opp_payload.update(_sale_outcome_fields(request))
-
-        opp_res = supabase.table("opportunities").insert(opp_payload).execute()
-        opportunity_id = opp_res.data[0]["id"]
-
-        supabase.table("generated_listings").insert({
-            "opportunity_id": opportunity_id,
-            "target_platform": "Willhaben",
-            "language": "de",
-            "generated_title": request.listing_title.strip(),
-            "generated_description": request.listing_description.strip(),
-        }).execute()
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Manual deal creation failed")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    logger.info("Manual deal saved for ASIN %s (SKU %s, status %s)", asin, sku, request.status)
+    logger.info("Manual deal saved for ASIN %s (%d unit(s), status %s)", request.asin, request.quantity, request.status)
     return {
         "status": "success",
-        "opportunity_id": opportunity_id,
-        "product_id": product_id,
-        "sku": sku,
-        "profit_margin": profit_margin,
+        **result,
+        "opportunity_id": result["opportunity_ids"][0],
+        "sku": result["skus"][0],
+        "profit_margin": payload["profit_margin"],
+        "net_profit_estimate": payload["net_profit_estimate"],
     }
 
 
 @router.put("/{opportunity_id}/manual")
-def update_manual_deal(opportunity_id: uuid.UUID, request: ManualDealRequest):
-    """Replace every editable field of an existing opportunity.
+def update_manual_deal(
+    opportunity_id: uuid.UUID, request: ManualDealRequest, principal: AuthPrincipal = Depends(require_admin)
+):
+    """Replace every editable field of an existing opportunity (PUT semantics).
 
     Updates the linked `products` row, the `opportunities` row and its
-    `generated_listings` row in one call. `sold_at` is stamped when the deal
-    moves into `sold` and cleared when it moves back out.
+    `generated_listings` row in one transaction. A sold deal cannot be moved back
+    or have its recorded sale amounts changed here (use the return endpoint).
 
     Price history is only touched when BOTH Amazon reference prices are
     supplied: in that case the product's existing history is replaced by the
     two new data points. Leave them empty to keep the stored history intact.
     """
-    asin = request.asin
+    opportunity_id = str(opportunity_id)
+    existing = _get_open_row(opportunity_id)
+    payload = _manual_payload(request, principal, existing)
+    result = call_rpc("update_manual_deal", {"p_id": opportunity_id, "payload": payload})
 
-    existing_res = supabase.table("opportunities").select(
-        "id, product_id, sold_at"
-    ).eq("id", opportunity_id).execute()
-
-    if not existing_res.data:
-        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
-
-    existing = existing_res.data[0]
-    product_id = existing["product_id"]
-
-    profit, default_emergency = _manual_profit(request.buy_price, request.target_sell_price)
-    profit_margin = storable_margin(profit.net_margin_pct)
-    emergency_price = request.emergency_sell_price or default_emergency
-    sku = (request.sku or "").strip() or f"GEN-{str(uuid.uuid4())[:6].upper()}"
-
-    try:
-        product_payload = {
-            "asin": asin,
-            "amazon_locale": AMAZON_LOCALE,
-            "title": request.title.strip(),
-            "category": request.category,
-            "image_url": request.image_url,
-            "gallery_image_urls": [u for u in request.gallery_image_urls if u],
-        }
-        supabase.table("products").update(product_payload).eq("id", product_id).execute()
-
-        if request.amazon_price_today and request.amazon_price_90d_avg:
-            now = datetime.now(timezone.utc)
-            supabase.table("price_history").delete().eq("product_id", product_id).execute()
-            supabase.table("price_history").insert([
-                {
-                    "product_id": product_id,
-                    "price_amazon": request.amazon_price_90d_avg,
-                    "recorded_at": (now - timedelta(days=90)).isoformat(),
-                },
-                {
-                    "product_id": product_id,
-                    "price_amazon": request.amazon_price_today,
-                    "recorded_at": now.isoformat(),
-                    "is_deal": request.amazon_price_today < request.amazon_price_90d_avg,
-                },
-            ]).execute()
-
-        opp_payload = {
-            "buy_price": request.buy_price,
-            "target_sell_price": request.target_sell_price,
-            "emergency_sell_price": emergency_price,
-            "willhaben_realistic_price": request.willhaben_realistic_price or request.target_sell_price,
-            "willhaben_url": request.willhaben_url,
-            "profit_margin": profit_margin,
-            "net_profit_estimate": as_float(profit.net_profit),
-            "net_margin_estimate": profit_margin,
-            "ai_decision": request.ai_decision or "Manually entered deal. No automated analysis was performed.",
-            "status": request.status,
-            "buybox_seller": request.buybox_seller,
-            "buybox_is_fba": request.buybox_is_fba,
-            "deal_score": request.deal_score,
-            "holding_period_months": request.holding_period_months,
-            "seasonality_analysis": request.seasonality_analysis,
-            "sku": sku,
-            "warehouse_location": request.warehouse_location,
-            "product_condition": request.product_condition,
-            "is_quarantine": request.is_quarantine,
-            "score_breakdown": request.score_breakdown.model_dump(),
-            "purchase_thesis": request.purchase_thesis,
-        }
-
-        if request.status == "sold":
-            opp_payload["sold_at"] = existing.get("sold_at") or datetime.now(timezone.utc).isoformat()
-            opp_payload.update(_sale_outcome_fields(request))
-        else:
-            opp_payload["sold_at"] = None
-
-        supabase.table("opportunities").update(opp_payload).eq("id", opportunity_id).execute()
-
-        listing_payload = {
-            "generated_title": request.listing_title.strip(),
-            "generated_description": request.listing_description.strip(),
-        }
-        listing_res = supabase.table("generated_listings").select("id").eq(
-            "opportunity_id", opportunity_id
-        ).execute()
-
-        if listing_res.data:
-            supabase.table("generated_listings").update(listing_payload).eq(
-                "id", listing_res.data[0]["id"]
-            ).execute()
-        else:
-            supabase.table("generated_listings").insert({
-                **listing_payload,
-                "opportunity_id": opportunity_id,
-                "target_platform": "Willhaben",
-                "language": "de",
-            }).execute()
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Manual deal update failed")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    logger.info("Manual deal updated for ASIN %s (SKU %s, status %s)", asin, sku, request.status)
-    return {
-        "status": "success",
-        "opportunity_id": opportunity_id,
-        "product_id": product_id,
-        "sku": sku,
-        "profit_margin": profit_margin,
-    }
-
-
-@router.delete("/{opportunity_id}")
-def delete_opportunity(opportunity_id: uuid.UUID):
-    """Delete one opportunity and its generated listing (cascade).
-
-    The `products` row is intentionally kept: it carries the price history and
-    can be reused if the same ASIN is entered again. Products with no remaining
-    opportunities are invisible in the UI.
-    """
-    try:
-        res = supabase.table("opportunities").delete().eq("id", opportunity_id).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    if not res.data:
-        raise HTTPException(status_code=404, detail=f"Opportunity {opportunity_id} not found.")
-
-    logger.info("Opportunity %s deleted", opportunity_id)
-    return {"status": "success", "deleted_id": opportunity_id}
+    logger.info("Manual deal updated for ASIN %s (status %s)", request.asin, request.status)
+    return {"status": "success", **result, "profit_margin": payload["profit_margin"]}

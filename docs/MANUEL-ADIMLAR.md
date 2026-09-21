@@ -1,7 +1,7 @@
 # VINDERA — Senin Yapman Gereken Adımlar
 
 > Bu dosya, yazılımın kendi başına yapamayacağı işleri toplar (paneller, hesaplar, para, yasal/vergi konuları).
-> Şu an **Faz 0–3 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
+> Şu an **Faz 0–4 sonrası hali**. Faz 9'da tam, adım adım, tıklama düzeyinde bir rehbere dönüşecek.
 > Her madde: **Öncelik** · **Ne yapılacak** · **Nasıl doğrularsın**.
 
 Öncelik etiketleri:
@@ -13,12 +13,13 @@
 
 ### M1. Önce yedek al, sonra veritabanı değişikliklerini (migration) uygula
 
-**Neden:** Faz 2'de 12 yeni migration yazıldı (`supabase/migrations/20260921…`). Bunlar canlı veritabanını değiştirir (kısıtlar, yeni tablolar, eski çift kayıtların temizlenmesi). Ben (Claude) bunları senin onayın olmadan uzak veritabanına **uygulamadım ve uygulamayacağım**.
+**Neden:** Faz 2 ve Faz 4'te 13 yeni migration yazıldı (`supabase/migrations/20260921…`; sonuncusu Faz 4'teki `report_summary` raporlama fonksiyonu). Bunlar canlı veritabanını değiştirir (kısıtlar, yeni tablolar, eski çift kayıtların temizlenmesi). Ben (Claude) bunları senin onayın olmadan uzak veritabanına **uygulamadım ve uygulamayacağım**.
 
 **Ne zaman:** En erken, yeni backend ve yeni frontend'i canlıya aldığın gün. Migration'ları tek başına şimdi uygularsan **şu anki (main) uygulama** şu noktalarda bozulur:
 - Tarama, aynı ürün için ikinci kayıt eklemeye çalışınca hata verir (artık üründe tek açık kayıt olabilir).
 - Faturaların eski herkese açık linkleri çalışmaz (`invoices` klasörü private oluyor).
 - Ürün silme (chatbot `/delete`, silme düğmesi) satılmış ürünlerde engellenir.
+- Eski (main) Reports sayfası satış tutarlarını hâlâ `target_sell_price`'tan hesaplar; yeni rapor fonksiyonu yalnızca yeni frontend ile kullanılır.
 
 **Adımlar (Terminal, proje klasöründe):**
 
@@ -34,7 +35,7 @@
    ```
 3. Fatura dosyaları yedeğe **dahil değil**. Dashboard → Storage → `invoices` klasöründeki dosyaları indir (varsa).
 4. Ücretli planda ayrıca Dashboard → Database → Backups bölümünden bir yedek olduğunu gör. Ücretsiz planda indirilebilir otomatik yedek yoktur; bu yüzden 2. adım şart.
-5. Hangi migration'ların bekleyeceğine bak (Local dolu, Remote boş olan 12 satır olmalı):
+5. Hangi migration'ların bekleyeceğine bak (Local dolu, Remote boş olan 13 satır olmalı):
    ```bash
    supabase migration list --linked
    ```
@@ -139,6 +140,19 @@ Faz 3'ten beri sahte veri yok: anahtar yoksa ya da Keepa/OpenAI hata verirse tar
 - Anahtarlar `.env` içinde: `KEEPA_API_KEY`, `OPENAI_API_KEY` (asla sohbete yapıştırma).
 - OpenAI'da aylık harcama limiti koy (platform.openai.com → Billing → Limits).
 - Kâr hesabı `business_settings` sayılarına bağlı (M5). Sayılar yer tutucuyken "kâr" rakamları gerçek değildir.
+
+### M16. Alış / satış / iade akışı ve muhasebe raporu (Faz 4)
+
+**Öncelik:** Soon. Yeni akış, ilk gerçek alışverişinden önce bir kez uçtan uca denenmeli (`docs/MANUAL-TEST-SCRIPT.md`).
+
+- **Mark as Bought** artık gerçekte ödediğin fiyatı, alış tarihini, sipariş numarasını, gelen kargoyu ve ambalajı kaydeder. Amazon iade son günü (`return_by`) alış tarihi + `return_window_days` olarak hesaplanır. Rakamlar bunlara göre değişir; taramadaki fiyat sadece plandır.
+- **Item Sold!** satışı deftere (`sale_events`) yazar. Kârı sunucu hesaplar (senin girdiğin kargo ve ücretler dahil); ekranda gördüğün önizleme sadece ön izlemedir.
+- **Returned** müşteri iadesidir: iade defterde eksi kayıt olur, ürün karantinada stoğa döner, hedef fiyat **değişmez** (yeniden fiyatlamayı sen bilinçli yaparsın).
+- **Remove** (Manual Entry'deki eski "Delete"): kayıt silinmez, gizlenir. Satılmış veya satış geçmişi olan ürün kaldırılamaz (muhasebe kaydı, yaklaşık 7 yıl saklanmalı). Stokta kalan ama işe yaramayan ürün için durumu **Written Off** yap.
+- **Daha önce alınmış ürünler:** Bu yeni alanlar boş kalır. Raporun "Cash (E/A)" görünümünde bu ürünler için "alış tarihi yok, makbuz/tarama tarihi kullanıldı" uyarısı çıkar; Manual Entry → "Purchase Record" bölümünden gerçek fiyat ve tarihi gir.
+- **Günlük kontrol (n8n):** Aynı günlük çağrı artık iki bildirim türü gönderir: 60 günden uzun bekleyen ürünler ve Amazon iade süresi 5 gün içinde dolacak, henüz satılmamış ürünler. Her ürün için her türden bir kez bildirilir.
+- **Steuerberater'a sor:** Cash (E/A) görünümü yalnızca yönetim amaçlı bir gösterimdir. Alışların (stoktaki ürünler dahil) hangi yıla ve nasıl gider yazılacağını, Kleinunternehmer sınırında hangi tutarın (iade düşülmüş ciro) esas alınacağını ve CSV dışa aktarımının (Reports → Export CSV) onun için yeterli olup olmadığını sor.
+- **Kâr hesabı** gerçek `business_settings` değerlerine bağlı (M5); yer tutucu sayılarla rapor ve önizlemeler gerçeği yansıtmaz.
 
 ---
 

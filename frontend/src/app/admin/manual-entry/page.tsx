@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, errorMessage } from '@/lib/apiFetch';
 import { checkIsAdmin } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import {
@@ -26,6 +26,9 @@ import {
 } from 'lucide-react';
 import { useDarkMode } from '@/lib/useDarkMode';
 import { PRODUCT_CATEGORIES, STATUS_OPTIONS, CONDITION_OPTIONS, SCORE_CRITERIA } from '@/lib/constants';
+import { actualProfit, calculateProfit } from '@/lib/profit';
+import { returnByDate } from '@/lib/lifecycle';
+import { useBusinessConfig } from '@/lib/useBusinessConfig';
 
 interface ScoreBreakdown {
   discount: number; demand: number; competition: number; capital_efficiency: number;
@@ -50,6 +53,14 @@ interface FormState {
   warehouse_location: string;
   is_quarantine: boolean;
   sku: string;
+  // Create only: that many identical units, each with its own SKU.
+  quantity: string;
+  // Purchase record (what was really paid). Blank = not recorded yet.
+  purchase_price_actual: string;
+  purchased_at: string;
+  order_ref: string;
+  inbound_shipping_cost: string;
+  packaging_cost: string;
   buybox_seller: string;
   buybox_is_fba: boolean;
   deal_score: string;
@@ -94,6 +105,12 @@ const EMPTY_FORM: FormState = {
   warehouse_location: 'A01',
   is_quarantine: false,
   sku: '',
+  quantity: '1',
+  purchase_price_actual: '',
+  purchased_at: '',
+  order_ref: '',
+  inbound_shipping_cost: '',
+  packaging_cost: '',
   buybox_seller: 'Manual',
   buybox_is_fba: false,
   deal_score: '85',
@@ -165,6 +182,9 @@ export default function ManualEntry() {
   const { dark, toggle: toggleDark } = useDarkMode();
   const [ready, setReady] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Status the deal had when it was loaded: a sold deal cannot be removed.
+  const [loadedStatus, setLoadedStatus] = useState<string | null>(null);
+  const config = useBusinessConfig();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [scores, setScores] = useState<ScoreBreakdown>(EMPTY_SCORES);
   const [saving, setSaving] = useState(false);
@@ -201,12 +221,14 @@ export default function ManualEntry() {
           deal_score, holding_period_months, seasonality_analysis, sku, warehouse_location,
           product_condition, is_quarantine, score_breakdown, purchase_thesis, ai_decision,
           status, buybox_seller, buybox_is_fba,
+          purchase_price_actual, purchased_at, order_ref, inbound_shipping_cost, packaging_cost,
           actual_sell_price, shipping_and_prep_cost, platform_fees, customer_inquiries_count,
           customer_messages_summary, sold_during_event,
           products ( asin, title, category, image_url, gallery_image_urls ),
           generated_listings ( generated_title, generated_description )
         `)
         .eq('id', id)
+        .is('deleted_at', null)
         .single();
 
       if (loadError || !data) {
@@ -221,6 +243,7 @@ export default function ManualEntry() {
       const listing = deal.generated_listings?.[0] || {};
 
       setEditingId(id);
+      setLoadedStatus(deal.status || 'pending');
       setForm({
         asin: product.asin || '',
         title: product.title || '',
@@ -240,6 +263,12 @@ export default function ManualEntry() {
         warehouse_location: deal.warehouse_location || 'A01',
         is_quarantine: Boolean(deal.is_quarantine),
         sku: deal.sku || generateSku(),
+        quantity: '1',
+        purchase_price_actual: deal.purchase_price_actual != null ? String(deal.purchase_price_actual) : '',
+        purchased_at: deal.purchased_at ? String(deal.purchased_at).slice(0, 10) : '',
+        order_ref: deal.order_ref || '',
+        inbound_shipping_cost: deal.inbound_shipping_cost != null ? String(deal.inbound_shipping_cost) : '',
+        packaging_cost: deal.packaging_cost != null ? String(deal.packaging_cost) : '',
         buybox_seller: deal.buybox_seller || 'Manual',
         buybox_is_fba: Boolean(deal.buybox_is_fba),
         deal_score: String(deal.deal_score ?? 85),
@@ -266,11 +295,21 @@ export default function ManualEntry() {
   };
 
   // --- Live preview -------------------------------------------------------
+  // Net figures from the same formulas the backend stores (lib/profit.ts). What was
+  // really paid counts as cost when it is filled in; costs left blank use the defaults.
   const buyPrice = Number(form.buy_price) || 0;
   const targetPrice = Number(form.target_sell_price) || 0;
-  const grossProfit = targetPrice - buyPrice;
-  const profitMargin = buyPrice > 0 ? (grossProfit / buyPrice) * 100 : 0;
-  const autoEmergencyPrice = targetPrice > 0 ? targetPrice * 0.85 : 0;
+  const paidPrice = Number(form.purchase_price_actual) || buyPrice;
+  const optionalNumber = (value: string) => (value.trim() === '' ? undefined : Number(value) || 0);
+  const preview = buyPrice > 0 && targetPrice > 0
+    ? calculateProfit(
+        { sellPrice: targetPrice, purchasePrice: paidPrice, inboundShipping: optionalNumber(form.inbound_shipping_cost), packaging: optionalNumber(form.packaging_cost) },
+        config.profit,
+      )
+    : null;
+  const netProfit = preview?.netProfit ?? 0;
+  const netMargin = preview?.netMarginPct ?? 0;
+  const autoEmergencyPrice = preview?.emergencyPrice ?? 0;
 
   const amazonToday = Number(form.amazon_price_today) || 0;
   const amazon90Avg = Number(form.amazon_price_90d_avg) || 0;
@@ -278,8 +317,8 @@ export default function ManualEntry() {
     ? ((amazon90Avg - amazonToday) / amazon90Avg) * 100
     : null;
 
-  // Mirrors the backend No-Buy Guardrails so the verdict is visible before saving.
-  const passesGuardrails = profitMargin >= 25 && grossProfit >= 15;
+  // Mirrors the backend No-Buy Guardrails (net figures, thresholds from business_settings).
+  const passesGuardrails = preview?.passesGuardrails ?? false;
 
   const resetForm = () => {
     setForm({ ...EMPTY_FORM, sku: generateSku() });
@@ -295,6 +334,11 @@ export default function ManualEntry() {
     if (targetPrice <= 0) return 'Target sell price must be greater than zero.';
     if (!form.listing_title.trim()) return 'The Willhaben listing title is required.';
     if (!form.listing_description.trim()) return 'The Willhaben listing description is required.';
+    if (!editingId) {
+      const quantity = Number(form.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1 || quantity > 50) return 'Units must be a whole number between 1 and 50.';
+      if (quantity > 1 && form.status === 'sold') return 'Several units cannot be created directly as sold. Create them in stock and record each sale.';
+    }
     return null;
   };
 
@@ -311,6 +355,20 @@ export default function ManualEntry() {
     }
 
     setSaving(true);
+
+    // The backend computes the profit itself; nothing profit-related is sent from here.
+    const purchaseFields = () => {
+      const fields = {
+        purchase_price_actual: optionalNumber(form.purchase_price_actual) || null,
+        // Noon local time keeps the calendar day stable across time zones.
+        purchased_at: form.purchased_at ? new Date(`${form.purchased_at}T12:00:00`).toISOString() : null,
+        order_ref: form.order_ref.trim() || null,
+        inbound_shipping_cost: optionalNumber(form.inbound_shipping_cost) ?? null,
+        packaging_cost: optionalNumber(form.packaging_cost) ?? null,
+      };
+      if (editingId) return fields;
+      return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null));
+    };
 
     const body = {
       asin: form.asin.trim().toUpperCase(),
@@ -330,6 +388,9 @@ export default function ManualEntry() {
       warehouse_location: form.warehouse_location.trim() || 'A01',
       is_quarantine: form.is_quarantine,
       sku: form.sku.trim() || null,
+      ...(editingId ? {} : { quantity: Number(form.quantity) || 1 }),
+      // On edit every purchase field is sent (blank clears it); on create only what was filled in.
+      ...purchaseFields(),
       buybox_seller: form.buybox_seller.trim() || 'Manual',
       buybox_is_fba: form.buybox_is_fba,
       deal_score: Number(form.deal_score) || 0,
@@ -342,9 +403,6 @@ export default function ManualEntry() {
       listing_description: form.listing_description.trim(),
       ...(form.status === 'sold' ? {
         actual_sell_price: form.actual_sell_price ? Number(form.actual_sell_price) : null,
-        actual_profit: form.actual_sell_price
-          ? Number((Number(form.actual_sell_price) - buyPrice - (Number(form.shipping_and_prep_cost) || 0) - (Number(form.platform_fees) || 0)).toFixed(2))
-          : null,
         shipping_and_prep_cost: form.shipping_and_prep_cost ? Number(form.shipping_and_prep_cost) : null,
         platform_fees: form.platform_fees ? Number(form.platform_fees) : null,
         customer_inquiries_count: form.customer_inquiries_count ? Number(form.customer_inquiries_count) : null,
@@ -354,20 +412,21 @@ export default function ManualEntry() {
     };
 
     try {
-      const payload = await apiFetch<{ sku: string; profit_margin: number }>(
+      const payload = await apiFetch<{ sku: string; skus?: string[]; profit_margin: number; net_profit_estimate?: number }>(
         editingId ? `/deals/${editingId}/manual` : '/deals/manual',
         { method: editingId ? 'PUT' : 'POST', json: body },
       );
 
       if (editingId) {
-        setSuccess(`Deal updated! SKU ${payload.sku} — margin recalculated to ${payload.profit_margin}%.`);
+        setSuccess(`Deal updated! SKU ${payload.sku} — net margin recalculated to ${payload.profit_margin}%.`);
       } else {
-        setSuccess(`Deal successfully saved! SKU ${payload.sku} — check your Workspace.`);
+        const units = payload.skus && payload.skus.length > 1 ? `${payload.skus.length} units saved (SKUs ${payload.skus.join(', ')})` : `Deal successfully saved! SKU ${payload.sku}`;
+        setSuccess(`${units} — check your Workspace.`);
         resetForm();
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (err: any) {
-      setError(err?.message || 'Could not reach the backend. Is it running on port 8000?');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not reach the backend. Is it running on port 8000?'));
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setSaving(false);
@@ -378,13 +437,10 @@ export default function ManualEntry() {
     if (!editingId) return;
 
     // Vindera has no Willhaben API access, so this can only ever be a manual
-    // nudge — not an automatic cross-delete. Willhaben->Vindera deletion sync
-    // isn't offered at all: there is no reliable way to detect a listing was
-    // removed there short of scraping, which is fragile and not something
-    // this app does.
+    // nudge, not an automatic cross-delete of the ad.
     const confirmMessage = form.willhaben_url
-      ? `Delete "${form.title}" permanently? The product's price history is kept, everything else about this deal is removed.\n\nThis item is still live on Willhaben — after you confirm, its listing page will open in a new tab so you can remove it there too.`
-      : `Delete "${form.title}" permanently? The product's price history is kept, everything else about this deal is removed.`;
+      ? `Remove "${form.title}" from Vindera?\n\nIt is hidden, not erased: the record stays in the database for the audit trail, but it disappears from the workspace, reports and the storefront. A deal that has a recorded sale cannot be removed.\n\nThis item is still live on Willhaben: after you confirm, its listing page opens in a new tab so you can remove it there too.`
+      : `Remove "${form.title}" from Vindera?\n\nIt is hidden, not erased: the record stays in the database for the audit trail, but it disappears from the workspace, reports and the storefront. A deal that has a recorded sale cannot be removed.`;
     if (!window.confirm(confirmMessage)) return;
 
     setDeleting(true);
@@ -394,8 +450,8 @@ export default function ManualEntry() {
       await apiFetch(`/deals/${editingId}`, { method: 'DELETE' });
       if (form.willhaben_url) window.open(form.willhaben_url, '_blank', 'noopener,noreferrer');
       router.push('/admin');
-    } catch (err: any) {
-      setError(err?.message || 'Could not delete the deal.');
+    } catch (err) {
+      setError(errorMessage(err, 'Could not delete the deal.'));
       setDeleting(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -667,19 +723,23 @@ export default function ManualEntry() {
               </Field>
             </div>
 
-            {buyPrice > 0 && targetPrice > 0 && (
+            {preview && (
               <div className={`mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border p-4 ${
                 passesGuardrails ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
               }`}>
                 <div className="flex items-center gap-2">
-                  <span className="type-label text-gray-500">Gross Profit</span>
-                  <span className={`text-[15px] font-semibold tabular-nums ${grossProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                    {grossProfit >= 0 ? '+' : '−'}€{Math.abs(grossProfit).toFixed(2)}
+                  <span className="type-label text-gray-500">Net Profit</span>
+                  <span className={`text-[15px] font-semibold tabular-nums ${netProfit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                    {netProfit >= 0 ? '+' : '−'}€{Math.abs(netProfit).toFixed(2)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="type-label text-gray-500">Margin</span>
-                  <span className="text-[15px] font-semibold tabular-nums text-gray-900">{profitMargin.toFixed(1)}%</span>
+                  <span className="type-label text-gray-500">Net Margin</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-gray-900">{netMargin.toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center gap-2" title="The sell price at which this deal makes exactly zero.">
+                  <span className="type-label text-gray-500">Break-even</span>
+                  <span className="text-[15px] font-semibold tabular-nums text-gray-900">{preview.breakEvenPrice === null ? '–' : `€${preview.breakEvenPrice.toFixed(2)}`}</span>
                 </div>
                 {discountPct !== null && (
                   <div className="flex items-center gap-2">
@@ -691,7 +751,7 @@ export default function ManualEntry() {
                 )}
                 <div className="flex-1" />
                 <span
-                  title="The scan pipeline rejects deals below 25% margin or under €15 raw profit. This preview applies the same rule — nothing is blocked, you can still save it."
+                  title={`After shipping, packaging, fees and the return reserve from your business settings${config.loaded ? '' : ' (placeholder values until they load)'}. The No-Buy rule needs a net margin of at least ${config.profit.minNetMarginPct}% and a net profit of at least €${config.profit.minNetProfitEur}. Nothing is blocked, you can still save it.`}
                   className={`cursor-help rounded-md border bg-white px-2.5 py-1 type-label ${
                     passesGuardrails ? 'border-emerald-300 text-emerald-700' : 'border-amber-300 text-amber-700'
                   }`}
@@ -865,6 +925,39 @@ export default function ManualEntry() {
             </div>
           </Section>
 
+          {/* Purchase record — what was really paid; feeds cost, profit and the Amazon return deadline */}
+          <Section
+            icon={<ShoppingCart className="h-5 w-5" />}
+            title="Purchase Record"
+            description="What you really paid and when. Leave blank if you have not bought it yet; the planned buy price is used until you do."
+          >
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              <Field label="Price Actually Paid (€)" hint="The amount on the Amazon invoice, per unit. Blank: the planned buy price counts.">
+                <input type="number" step="0.01" min="0" inputMode="decimal" value={form.purchase_price_actual} onChange={e => set('purchase_price_actual', e.target.value)} placeholder="Same as buy price" className={`${INPUT_CLASS} tabular-nums`} />
+              </Field>
+              <Field label="Purchase Date" hint="The day you ordered. It also sets the Amazon return-by date.">
+                <input type="date" value={form.purchased_at} onChange={e => set('purchased_at', e.target.value)} className={INPUT_CLASS} />
+              </Field>
+              <Field label="Inbound Shipping (€)" hint="Shipping you paid to get the item to you (often 0 with Prime). Blank: your default from the business settings is used for the estimate.">
+                <input type="number" step="0.01" min="0" inputMode="decimal" value={form.inbound_shipping_cost} onChange={e => set('inbound_shipping_cost', e.target.value)} placeholder={`Default ${config.profit.inboundShippingEur.toFixed(2)}`} className={`${INPUT_CLASS} tabular-nums`} />
+              </Field>
+              <Field label="Packaging (€)" hint="Cost of the packing material for selling this item. Blank: your default from the business settings is used for the estimate.">
+                <input type="number" step="0.01" min="0" inputMode="decimal" value={form.packaging_cost} onChange={e => set('packaging_cost', e.target.value)} placeholder={`Default ${config.profit.packagingEur.toFixed(2)}`} className={`${INPUT_CLASS} tabular-nums`} />
+              </Field>
+              <Field label="Order Reference" hint="The Amazon order number, so you can find the invoice later.">
+                <input value={form.order_ref} maxLength={100} onChange={e => set('order_ref', e.target.value)} placeholder="305-1234567-1234567" className={`${INPUT_CLASS} font-mono`} />
+              </Field>
+              {!editingId && (
+                <Field label="Units" hint="Bought several identical items? Creates that many separate units (1 to 50). Each gets its own SKU, the number is appended to the SKU above.">
+                  <input type="number" min="1" max="50" step="1" value={form.quantity} onChange={e => set('quantity', e.target.value)} className={`${INPUT_CLASS} tabular-nums`} />
+                </Field>
+              )}
+            </div>
+            {form.purchased_at && (
+              <p className="mt-4 text-[13px] text-gray-500">Amazon return-by: <strong className="tabular-nums text-gray-700">{returnByDate(form.purchased_at, config.returnWindowDays)}</strong> ({config.returnWindowDays} days)</p>
+            )}
+          </Section>
+
           {/* Sale outcome — only relevant once the deal is actually sold */}
           {form.status === 'sold' && (
             <Section
@@ -955,7 +1048,14 @@ export default function ManualEntry() {
                 <div className="mt-5 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                   <span className="type-label text-gray-500">Net Profit</span>
                   <span className="text-[15px] font-semibold tabular-nums text-emerald-700">
-                    €{(Number(form.actual_sell_price) - buyPrice - (Number(form.shipping_and_prep_cost) || 0) - (Number(form.platform_fees) || 0)).toFixed(2)}
+                    €{actualProfit({
+                      saleAmount: Number(form.actual_sell_price),
+                      purchasePrice: paidPrice,
+                      inboundShipping: Number(form.inbound_shipping_cost) || 0,
+                      packaging: Number(form.packaging_cost) || 0,
+                      shippingCost: Number(form.shipping_and_prep_cost) || 0,
+                      platformFees: Number(form.platform_fees) || 0,
+                    }).netProfit.toFixed(2)}
                   </span>
                 </div>
               )}
@@ -1069,7 +1169,7 @@ export default function ManualEntry() {
               Fields marked <span className="text-red-500">*</span> are required. Everything else has a sensible default.
             </p>
             <div className="flex gap-3">
-              {editingId && (
+              {editingId && loadedStatus !== 'sold' && (
                 <button
                   type="button"
                   onClick={handleDelete}
@@ -1077,7 +1177,7 @@ export default function ManualEntry() {
                   className="flex h-10 items-center gap-2 rounded-lg border border-red-200 bg-white px-4 text-[14px] font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
                 >
                   {deleting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  {deleting ? 'Deleting...' : 'Delete'}
+                  {deleting ? 'Removing...' : 'Remove'}
                 </button>
               )}
               <button

@@ -115,6 +115,7 @@ class ChatbotAgent:
         res = (
             supabase.table("opportunities")
             .select("status, products(title, asin)")
+            .is_("deleted_at", "null")
             .order("created_at", desc=True)
             .limit(INVENTORY_LIMIT)
             .execute()
