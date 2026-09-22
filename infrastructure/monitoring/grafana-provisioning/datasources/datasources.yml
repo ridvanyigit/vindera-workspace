@@ -1,0 +1,33 @@
+# Provisioned data sources: Grafana (re)creates these from this file on every
+# container start, so a lost/rebuilt container or a wiped Grafana volume comes
+# back with the exact same data sources (same uid, so dashboards keep working).
+#
+# Secrets are never written here: they come from environment variables that
+# docker-compose.yml passes into the container from infrastructure/monitoring/.env
+# (POSTGRES_PASSWORD). Grafana expands $VARIABLE references in provisioning files.
+apiVersion: 1
+
+datasources:
+  - name: prometheus
+    uid: cfyrvb1efjpq8a
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: vindera-postgres
+    uid: bfyyiwh1pi0hsd
+    type: postgres
+    access: proxy
+    url: $VINDERA_DB_HOST:$VINDERA_DB_PORT
+    user: $VINDERA_DB_USER
+    database: postgres
+    editable: false
+    jsonData:
+      database: postgres
+      sslmode: disable
+      postgresVersion: 1500
+      timescaledb: false
+    secureJsonData:
+      password: $VINDERA_DB_PASSWORD

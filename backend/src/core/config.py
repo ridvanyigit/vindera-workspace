@@ -98,7 +98,9 @@ class Settings(BaseSettings):
                 problems.append(f"{name} must be set to a random value of at least {_MIN_SECRET_LENGTH} characters")
 
         for origin in self.cors_allowed_origins:
-            if any(host in origin.lower() for host in _LOCAL_HOSTS):
+            if origin == "*":
+                problems.append("CORS_ALLOWED_ORIGINS must not contain a wildcard (*)")
+            elif any(host in origin.lower() for host in _LOCAL_HOSTS):
                 problems.append(f"CORS_ALLOWED_ORIGINS contains a local origin ({origin})")
 
         if not self.cors_allowed_origins:

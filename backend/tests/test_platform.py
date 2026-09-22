@@ -48,6 +48,8 @@ def test_a_complete_production_configuration_is_accepted():
         (dict(SUPABASE_SERVICE_ROLE_KEY="your_supabase_service_role_key_here"), "SUPABASE_SERVICE_ROLE_KEY"),
         (dict(CORS_ALLOWED_ORIGINS="https://vindera.example,http://localhost:3000"), "local origin"),
         (dict(CORS_ALLOWED_ORIGINS="http://127.0.0.1:3000"), "local origin"),
+        (dict(CORS_ALLOWED_ORIGINS="*"), "wildcard"),
+        (dict(CORS_ALLOWED_ORIGINS="https://vindera.example,*"), "wildcard"),
         (dict(CORS_ALLOWED_ORIGINS=""), "CORS_ALLOWED_ORIGINS"),
         (dict(ALLOW_MOCK_DATA=True), "ALLOW_MOCK_DATA must be false"),
     ],

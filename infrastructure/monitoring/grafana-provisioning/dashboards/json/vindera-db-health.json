@@ -1,0 +1,227 @@
+{
+  "id": null,
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT pg_database_size(current_database()) AS \"Boyut\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Veritabanı Boyutu",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 5,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"Bağlantı\" FROM pg_stat_activity WHERE datname = current_database()",
+          "refId": "A"
+        }
+      ],
+      "title": "Aktif Bağlantı",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 10,
+        "y": 0
+      },
+      "id": 3,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT round(sum(blks_hit) * 100.0 / nullif(sum(blks_hit + blks_read), 0), 2) AS \"Cache Hit %\" FROM pg_stat_database WHERE datname = current_database()",
+          "refId": "A"
+        }
+      ],
+      "title": "Cache Hit Oranı",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
+      "id": 4,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(round(extract(epoch FROM max(now() - query_start))), 0) AS \"Saniye\" FROM pg_stat_activity WHERE datname = current_database() AND state = 'active' AND pid <> pg_backend_pid()",
+          "refId": "A"
+        }
+      ],
+      "title": "En Uzun Süren Aktif Sorgu",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 5,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT relname AS \"Tablo\", n_live_tup AS \"Satır\", pg_size_pretty(pg_total_relation_size(relid)) AS \"Boyut\" FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10",
+          "refId": "A"
+        }
+      ],
+      "title": "En Büyük Tablolar",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "id": 6,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT 'products' AS \"Tablo\", count(*) AS \"Adet\" FROM products UNION ALL SELECT 'opportunities', count(*) FROM opportunities WHERE deleted_at IS NULL UNION ALL SELECT 'sale_events', count(*) FROM sale_events UNION ALL SELECT 'scan_jobs', count(*) FROM scan_jobs UNION ALL SELECT 'generated_listings', count(*) FROM generated_listings UNION ALL SELECT 'audit_log', count(*) FROM audit_log",
+          "refId": "A"
+        }
+      ],
+      "title": "Kayıt Sayıları (iş tabloları)",
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "vindera",
+    "veritabani",
+    "supabase"
+  ],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Vindera — Veritabanı Sağlığı",
+  "uid": "vindera-db-health"
+}

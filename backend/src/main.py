@@ -1,7 +1,7 @@
 """FastAPI application entrypoint.
 
 Run with:
-    cd backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    cd backend && uv run uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src
 """
 
 import asyncio
@@ -13,7 +13,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 
 from src.api.endpoints import chat, deals, expenses, health, reports
 from src.core.auth import assert_routes_protected, require_metrics_token
@@ -21,7 +20,7 @@ from src.core.config import settings
 from src.core.database import supabase
 from src.core.logging_config import configure_logging
 from src.core.middleware import RequestContextMiddleware, UnhandledErrorMiddleware
-from src.core.rate_limit import limiter
+from src.core.rate_limit import ApplicationRateLimitMiddleware, limiter
 from src.core.sentry import init_sentry
 from src.services.scan_pipeline import fail_interrupted_scan_jobs
 
@@ -77,10 +76,11 @@ Instrumentator().instrument(app).expose(
 app.add_middleware(UnhandledErrorMiddleware)
 
 # Rate limiting: default and application budgets apply through the middleware;
-# the stricter per-route limits are declared on the handlers.
+# the stricter per-route limits are declared on the handlers. Not slowapi's stock
+# SlowAPIMiddleware: see the docstring on ApplicationRateLimitMiddleware for why.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(ApplicationRateLimitMiddleware)
 
 # Origins are explicit because credentials are allowed; a wildcard would be
 # rejected by browsers and would expose the API to any site.

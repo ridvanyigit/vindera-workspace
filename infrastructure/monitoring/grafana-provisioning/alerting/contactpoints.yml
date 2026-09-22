@@ -1,0 +1,35 @@
+# Provisioned Pushover contact points. Secrets come from environment
+# variables (infrastructure/monitoring/.env -> PUSHOVER_API_TOKEN /
+# PUSHOVER_USER_KEY), never written here in plain text.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: Ridvan Pushover
+    receivers:
+      - uid: ffyy3d71n69dsd
+        type: pushover
+        settings:
+          apiToken: $PUSHOVER_API_TOKEN
+          userKey: $PUSHOVER_USER_KEY
+          priority: "1"
+          message: |-
+            {{ .CommonLabels.alertname }} - {{ .Status }}
+            {{ range .Alerts }}{{ .ValueString }}
+            {{ end }}
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: Ridvan Pushover (Normal)
+    receivers:
+      - uid: efyyj12dt1u68a
+        type: pushover
+        settings:
+          apiToken: $PUSHOVER_API_TOKEN
+          userKey: $PUSHOVER_USER_KEY
+          priority: "0"
+          message: |-
+            {{ .CommonLabels.alertname }} - {{ .Status }}
+            {{ range .Alerts }}{{ .ValueString }}
+            {{ end }}
+        disableResolveMessage: false

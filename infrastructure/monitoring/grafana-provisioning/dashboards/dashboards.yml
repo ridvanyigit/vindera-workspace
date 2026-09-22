@@ -1,0 +1,18 @@
+# Tells Grafana to load every *.json file in ./json as a dashboard on every
+# container start. updateIntervalSeconds also re-reads them while running, so
+# editing a JSON file here and restarting Grafana (or waiting 30s) is enough
+# to update a dashboard - no UI click-through needed.
+apiVersion: 1
+
+providers:
+  - name: vindera
+    orgId: 1
+    folder: Vindera
+    folderUid: dfyy3lexfoni8e
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
+      foldersFromFilesStructure: false

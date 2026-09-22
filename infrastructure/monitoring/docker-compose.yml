@@ -32,8 +32,20 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_ANALYTICS_REPORTING_ENABLED=false
       - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      # Read by grafana-provisioning/datasources/datasources.yml and
+      # grafana-provisioning/alerting/*.yml ($VAR expansion) so dashboards,
+      # data sources and alerts survive a deleted container or a wiped
+      # grafana_data volume: they are recreated from the files in
+      # grafana-provisioning/ on every start, not stored only in the volume.
+      - VINDERA_DB_HOST=${VINDERA_DB_HOST:-host.docker.internal}
+      - VINDERA_DB_PORT=${VINDERA_DB_PORT:-54322}
+      - VINDERA_DB_USER=${VINDERA_DB_USER:-postgres}
+      - VINDERA_DB_PASSWORD=${VINDERA_DB_PASSWORD:-postgres}
+      - PUSHOVER_API_TOKEN=${PUSHOVER_API_TOKEN:?Set PUSHOVER_API_TOKEN in infrastructure/monitoring/.env (same value as the root .env)}
+      - PUSHOVER_USER_KEY=${PUSHOVER_USER_KEY:?Set PUSHOVER_USER_KEY in infrastructure/monitoring/.env (same value as the root .env)}
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
     restart: unless-stopped

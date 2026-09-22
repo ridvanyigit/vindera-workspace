@@ -8,7 +8,10 @@ Each service starts independently. Run from the workspace root:
 
 ```bash
 # Backend API (port 8000)
-cd backend && uv run uvicorn src.main:app --reload
+# --reload-dir src keeps the file watcher out of .venv (thousands of files, and
+# any write in there - a background `uv` operation, a macOS security scan - would
+# otherwise trigger a full reload).
+cd backend && uv run uvicorn src.main:app --reload --reload-dir src
 
 # Frontend (port 3000)
 cd frontend && npm run dev

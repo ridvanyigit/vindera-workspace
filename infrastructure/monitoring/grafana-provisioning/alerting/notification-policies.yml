@@ -1,0 +1,20 @@
+# Default = Normal priority (respects the phone's quiet hours, repeats every
+# 3h while still firing). severity=critical alerts skip this and go to the
+# High-priority channel immediately (see contactpoints.yml / rules.yml).
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: Ridvan Pushover (Normal)
+    group_by: ["grafana_folder", "alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 3h
+    routes:
+      - receiver: Ridvan Pushover
+        object_matchers:
+          - [severity, "=", critical]
+        group_wait: 0s
+        group_interval: 1m
+        repeat_interval: 30m
+        continue: false

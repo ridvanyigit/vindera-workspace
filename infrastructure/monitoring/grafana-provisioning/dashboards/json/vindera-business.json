@@ -1,0 +1,572 @@
+{
+  "id": null,
+  "panels": [
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 200,
+      "title": "Bu Yıl Özet",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "currencyEUR"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "id": 20,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT (report_summary(date_part('year', now())::int)->'management'->>'revenue')::numeric AS \"Ciro\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Yıllık Ciro",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "currencyEUR"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "id": 21,
+      "options": {
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT (report_summary(date_part('year', now())::int)->'management'->>'gross_profit')::numeric AS \"Brüt Kâr\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Brüt Kâr",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "currencyEUR"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 22,
+      "options": {
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT (report_summary(date_part('year', now())::int)->'management'->>'profit_before_tax')::numeric AS \"Vergi Öncesi Kâr\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Vergi Öncesi Kâr",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 23,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT (report_summary(date_part('year', now())::int)->'management'->>'roi_pct')::numeric AS \"ROI\"",
+          "refId": "A"
+        }
+      ],
+      "title": "ROI %",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 97
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "id": 24,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT (report_summary(date_part('year', now())::int)->'vat'->>'pct')::numeric AS \"KDV sınırı %\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Küçük İşletme KDV Sınırı Kullanımı",
+      "type": "bargauge"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 201,
+      "title": "Aylık Kırılım ve Kategoriler",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyEUR"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "id": 25,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT to_char(make_date(2000, (m->>'month')::int, 1), 'Mon') AS \"Ay\", (m->>'revenue')::numeric AS \"Ciro\", (m->>'gross_profit')::numeric AS \"Brüt Kâr\" FROM report_summary(date_part('year', now())::int) rs, jsonb_array_elements(rs->'management'->'monthly') m ORDER BY (m->>'month')::int",
+          "refId": "A"
+        }
+      ],
+      "title": "Aylık Ciro / Brüt Kâr (bu yıl)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Ciro"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Brüt Kâr"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyEUR"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "id": 26,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT c->>'category' AS \"Kategori\", (c->>'revenue')::numeric AS \"Ciro\", (c->>'gross_profit')::numeric AS \"Brüt Kâr\", (c->>'units')::int AS \"Adet\" FROM report_summary(date_part('year', now())::int) rs, jsonb_array_elements(rs->'management'->'by_category') c ORDER BY 2 DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Kategori Performansı (bu yıl)",
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 202,
+      "title": "Envanter (Canlı)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 0,
+        "y": 17
+      },
+      "id": 27,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"Bekleyen\" FROM opportunities WHERE status = 'pending' AND deleted_at IS NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Bekleyen (Pending) Fırsat",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 4,
+        "x": 4,
+        "y": 17
+      },
+      "id": 28,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"Birim\" FROM opportunities WHERE status IN ('bought','in_inventory','listed') AND deleted_at IS NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Envanterdeki Birim (bought+in_inventory+listed)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "currencyEUR"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 8,
+        "y": 17
+      },
+      "id": 29,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(effective_total_cost(o)), 0) AS \"Envanter Değeri\" FROM opportunities o WHERE o.status IN ('bought','in_inventory','listed') AND o.deleted_at IS NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Envanter Değeri (maliyet)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "unit": "currencyEUR"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 5,
+        "x": 13,
+        "y": 17
+      },
+      "id": 30,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(target_sell_price), 0) AS \"Potansiyel\" FROM opportunities WHERE status = 'listed' AND deleted_at IS NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Listelenenlerin Potansiyel Satış Değeri",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 18,
+        "y": 17
+      },
+      "id": 31,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT status AS \"Durum\", count(*) AS \"Adet\" FROM opportunities WHERE deleted_at IS NULL AND status NOT IN ('sold','written_off','rejected') GROUP BY status",
+          "refId": "A"
+        }
+      ],
+      "title": "Durum Dağılımı (tüm açık birimler)",
+      "type": "piechart"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 203,
+      "title": "Dikkat Gerektirenler",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "id": 32,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT p.title AS \"Ürün\", o.sku AS \"SKU\", o.return_by AS \"İade Tarihi\", (o.return_by - current_date) AS \"Kalan Gün\" FROM opportunities o JOIN products p ON p.id = o.product_id WHERE o.deleted_at IS NULL AND o.status IN ('bought','in_inventory','listed') AND o.return_by IS NOT NULL AND o.return_by <= current_date + 5 ORDER BY o.return_by ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "İade Süresi Yaklaşan Birimler (≤5 gün)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "id": 33,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT p.title AS \"Ürün\", o.sku AS \"SKU\", date_part('day', now() - o.received_at)::int AS \"Gün\" FROM opportunities o JOIN products p ON p.id = o.product_id WHERE o.deleted_at IS NULL AND o.status IN ('bought','in_inventory','listed') AND o.received_at IS NOT NULL AND o.received_at < now() - interval '60 days' ORDER BY o.received_at ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "Durgun Stok (60+ gün, satılmamış)",
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "id": 204,
+      "title": "Tarama (Scan) Faaliyeti",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 32
+      },
+      "id": 34,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT count(*) AS \"ASIN\" FROM watchlist_asins",
+          "refId": "A"
+        }
+      ],
+      "title": "Watchlist Boyutu",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "bfyyiwh1pi0hsd"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 20,
+        "x": 4,
+        "y": 32
+      },
+      "id": 35,
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "SELECT created_at AS \"Zaman\", asin AS \"ASIN\", status AS \"Durum\", COALESCE(error, '') AS \"Hata\" FROM scan_jobs ORDER BY created_at DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Son 20 Scan İşi",
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": [
+    "vindera",
+    "iş",
+    "arbitraj"
+  ],
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Vindera — İş Metrikleri",
+  "uid": "vindera-business"
+}

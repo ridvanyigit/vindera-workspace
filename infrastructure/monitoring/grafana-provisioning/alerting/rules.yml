@@ -1,0 +1,181 @@
+# Provisioned alert rules: kept here so a lost Grafana volume comes back
+# with the exact same 3 alerts. Grafana re-reads this file on restart.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: vindera-backend
+  folder: Vindera
+  folderUid: dfyy3lexfoni8e
+  interval: 1m
+  rules:
+  - uid: afyy3o2lo6fi8c
+    title: Backend Ayakta Degil
+    condition: C
+    data:
+    - refId: A
+      queryType: ''
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: cfyrvb1efjpq8a
+      model:
+        editorMode: builder
+        expr: up{job="vindera_fastapi"}
+        instant: true
+        intervalMs: 1000
+        legendFormat: __auto
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: C
+      queryType: expression
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 1
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: NoData
+    execErrState: Error
+    for: 2m
+    labels:
+      severity: critical
+    annotations: {}
+    isPaused: false
+    notification_settings:
+      receiver: Ridvan Pushover
+  - uid: ffyy3xuiu6n0ga
+    title: Keepa Token Azaldi
+    condition: C
+    data:
+    - refId: A
+      queryType: ''
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: cfyrvb1efjpq8a
+      model:
+        editorMode: builder
+        expr: vindera_keepa_tokens_left
+        instant: true
+        intervalMs: 1000
+        legendFormat: __auto
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: C
+      queryType: expression
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 20
+            type: lt
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: warning
+    annotations: {}
+    isPaused: false
+    notification_settings:
+      receiver: Ridvan Pushover
+  - uid: bfyy43l4rc54wc
+    title: Scan Islemleri Basarisiz
+    condition: C
+    data:
+    - refId: A
+      queryType: ''
+      relativeTimeRange:
+        from: 600
+        to: 0
+      datasourceUid: cfyrvb1efjpq8a
+      model:
+        editorMode: code
+        expr: increase(vindera_scan_jobs_total{status="failed"}[1h])
+        instant: true
+        intervalMs: 1000
+        legendFormat: __auto
+        maxDataPoints: 43200
+        range: false
+        refId: A
+    - refId: C
+      queryType: expression
+      relativeTimeRange:
+        from: 0
+        to: 0
+      datasourceUid: __expr__
+      model:
+        conditions:
+        - evaluator:
+            params:
+            - 3
+            type: gte
+          operator:
+            type: and
+          query:
+            params:
+            - C
+          reducer:
+            params: []
+            type: last
+          type: query
+        datasource:
+          type: __expr__
+          uid: __expr__
+        expression: A
+        intervalMs: 1000
+        maxDataPoints: 43200
+        refId: C
+        type: threshold
+    noDataState: OK
+    execErrState: Error
+    for: 1m
+    labels:
+      severity: warning
+    annotations: {}
+    isPaused: false
+    notification_settings:
+      receiver: Ridvan Pushover
