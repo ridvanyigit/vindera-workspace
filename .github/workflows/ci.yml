@@ -110,7 +110,7 @@ jobs:
 
       - name: Validate the local monitoring compose file
         run: |
-          echo 'GRAFANA_ADMIN_PASSWORD=ci-placeholder' > "$RUNNER_TEMP/monitoring.env"
+          sed 's/=$/=ci-placeholder/' infrastructure/monitoring/.env.example > "$RUNNER_TEMP/monitoring.env"
           docker compose --env-file "$RUNNER_TEMP/monitoring.env" -f infrastructure/monitoring/docker-compose.yml config -q
 
       - name: Validate the Caddyfile
