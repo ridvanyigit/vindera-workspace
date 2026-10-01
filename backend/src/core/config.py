@@ -24,6 +24,22 @@ class Settings(BaseSettings):
     PUSHOVER_USER_KEY: SecretStr | None = None
     PUSHOVER_API_TOKEN: SecretStr | None = None
 
+    # --- LLMOps sandbox (learn/llmops; optional, unset by default) -------
+    # Module 1: Langfuse tracing. Unset means init_langfuse() is a no-op.
+    LANGFUSE_PUBLIC_KEY: SecretStr | None = None
+    LANGFUSE_SECRET_KEY: SecretStr | None = None
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+
+    # Module 4: point every OpenAI call at a local LiteLLM gateway instead of
+    # api.openai.com. Unset means the OpenAI SDK's own default is used.
+    OPENAI_BASE_URL: str | None = None
+
+    # Module 9: an optional, local, free "second opinion" model (Ollama). Never
+    # affects the saved deal even when enabled; see agents/second_opinion.py.
+    ENABLE_SECOND_OPINION_MODEL: bool = False
+    SECOND_OPINION_BASE_URL: str = "http://localhost:11434/v1"
+    SECOND_OPINION_MODEL: str = "gemma3:1b"
+
     # --- Application ----------------------------------------------------
     # A Literal on purpose: a typo such as "prod" must fail at startup instead
     # of silently running with development behaviour.

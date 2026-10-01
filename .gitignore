@@ -31,3 +31,19 @@ env/
 # IDEs and Editors
 .idea/
 .vscode/
+
+# DeepEval local state (Module 2: LLM evaluation)
+backend/.deepeval/
+.deepeval-cache.json
+
+# MLflow local tracking store (Module 5: experiment tracking)
+backend/mlruns/
+backend/mlartifacts/
+backend/mlflow.db
+
+# Terraform (Module 7: never commit state or real variable values;
+# .terraform.lock.hcl IS committed on purpose - it pins provider versions)
+infrastructure/terraform/.terraform/
+infrastructure/terraform/*.tfstate
+infrastructure/terraform/*.tfstate.*
+infrastructure/terraform/terraform.tfvars

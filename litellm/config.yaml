@@ -1,0 +1,13 @@
+# LiteLLM proxy config (learn/llmops Module 4).
+# One deployment, using the real OPENAI_API_KEY from the workspace root .env
+# (passed through by docker-compose.yml's env_file, never written here).
+
+model_list:
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+general_settings:
+  # No virtual keys: this proxy is local/single-user for this learning sandbox.
+  master_key: null

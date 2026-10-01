@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.service.port }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-config
+            - secretRef:
+                name: {{ .Release.Name }}-secrets
+          # Added after a real incident: without this, the app's own cold import
+          # chain (the openai SDK's hundreds of type definitions) sometimes took
+          # longer than livenessProbe's own grace period, and Kubernetes killed a
+          # perfectly healthy, just-slow-to-boot pod (RESTARTS: 2, observed).
+          # Nothing below is evaluated until this one succeeds once.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.port }}
+            periodSeconds: 5
+            failureThreshold: 24 # up to 120s to finish booting
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.service.port }}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.service.port }}
+            periodSeconds: 10

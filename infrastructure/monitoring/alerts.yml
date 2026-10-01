@@ -59,3 +59,13 @@ groups:
         annotations:
           summary: "OpenAI calls are failing"
           description: "Check the OpenAI status page, the API key and the monthly spending cap."
+
+      - alert: PromptInjectionBlocked
+        # learn/llmops Module 6: one blocked scan is not itself an emergency, but a
+        # cluster of them is worth a human look at the Keepa titles involved.
+        expr: increase(vindera_prompt_injection_blocked_total[1h]) >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Multiple scans blocked as likely prompt injection"
+          description: "Check recent scan_jobs errors for the Keepa titles/categories that triggered the input guardrail (core/injection_guard.py)."

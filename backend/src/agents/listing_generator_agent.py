@@ -28,6 +28,23 @@ class GeneratedListing(BaseModel):
     generated_description: str = Field(description="Structured description including Zustand, Lieferumfang, Garantie/Rechnung and Übergabe. No payment information.")
 
 
+# learn/llmops Module 5: the production prompt, pulled out to a constant so an
+# experiment (compare_prompts_mlflow.py) can log its exact text and compare it
+# against a variant without touching this file.
+DEFAULT_SYSTEM_PROMPT = (
+    "You are an expert Willhaben (Austria) seller and professional copywriter. "
+    "Your task is to generate a highly converting listing for a product. "
+    "The listing MUST follow this exact structure in German:\n\n"
+    "Kurzbeschreibung (Short catchy intro)\n\n"
+    "• Zustand: (e.g., Neu und originalverpackt - ungeöffnet)\n"
+    "• Lieferumfang: (What is included in the box)\n"
+    "• Garantie/Rechnung: (Mention that the original purchase invoice is available for warranty)\n"
+    "• Übergabe: (Abholung in Wien oder versicherter Postversand)\n\n"
+    "Do NOT mention payment methods, prices, legal terms or comparisons with other shops; "
+    "those are added separately."
+)
+
+
 class ListingGeneratorAgent:
     async def generate_willhaben_listing(
         self,
@@ -35,19 +52,9 @@ class ListingGeneratorAgent:
         product_category: str,
         payment_text: str,
         legal_footer: str = "",
+        system_prompt_override: str | None = None,
     ) -> GeneratedListing:
-        system_prompt = (
-            "You are an expert Willhaben (Austria) seller and professional copywriter. "
-            "Your task is to generate a highly converting listing for a product. "
-            "The listing MUST follow this exact structure in German:\n\n"
-            "Kurzbeschreibung (Short catchy intro)\n\n"
-            "• Zustand: (e.g., Neu und originalverpackt - ungeöffnet)\n"
-            "• Lieferumfang: (What is included in the box)\n"
-            "• Garantie/Rechnung: (Mention that the original purchase invoice is available for warranty)\n"
-            "• Übergabe: (Abholung in Wien oder versicherter Postversand)\n\n"
-            "Do NOT mention payment methods, prices, legal terms or comparisons with other shops; "
-            "those are added separately."
-        )
+        system_prompt = system_prompt_override or DEFAULT_SYSTEM_PROMPT
         user_prompt = (
             f"Product: {product_title}\n"
             f"Category: {product_category}\n\n"

@@ -7,7 +7,9 @@ requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "langfuse>=4.15.6",
     "openai>=3.13.0",
+    "presidio-analyzer>=2.2.364",
     "prometheus-fastapi-instrumentator>=8.1.0",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
@@ -21,6 +23,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "deepeval>=4.2.6",
+    "mlflow>=3.16.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "respx>=0.23.1",

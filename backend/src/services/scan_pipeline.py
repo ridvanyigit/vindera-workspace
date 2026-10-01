@@ -18,11 +18,13 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from src.agents.deal_analyzer_agent import DealAnalysis, deal_analyzer
+from src.agents.deal_analyzer_agent import DealAnalysis, build_analysis, deal_analyzer
 from src.agents.listing_generator_agent import listing_generator
+from src.agents.second_opinion import get_second_opinion
 from src.core.config import settings
 from src.core.database import supabase
-from src.core.metrics import SCAN_JOBS
+from src.core.injection_guard import looks_like_prompt_injection
+from src.core.metrics import PROMPT_INJECTION_BLOCKED, SCAN_JOBS
 from src.services.business_settings import load_business_settings
 from src.services.keepa_service import (
     KeepaFacts,
@@ -235,6 +237,14 @@ async def _scan(asin: str, job_id: str | None) -> None:
         await _fail_job(job_id, "Keepa returned no usable price")
         return
 
+    # learn/llmops Module 6: input guardrail. Keepa's title/category is external,
+    # untrusted text that reaches an agent's prompt below - check it before either
+    # agent ever sees it.
+    if looks_like_prompt_injection(facts.title) or looks_like_prompt_injection(facts.category):
+        PROMPT_INJECTION_BLOCKED.inc()
+        await _fail_job(job_id, "Blocked: Keepa title/category looked like a prompt injection attempt")
+        return
+
     # 2. Numbers. The sell price and the verdict come from code, never from the model.
     business = await asyncio.to_thread(load_business_settings)
     profit_settings = business.profit
@@ -247,6 +257,16 @@ async def _scan(asin: str, job_id: str | None) -> None:
     # 3. AI: qualitative analysis, and listing copy for deals that will be shown.
     events = await asyncio.to_thread(_fetch_upcoming_events, now.date())
     analysis = await deal_analyzer.analyze_deal(facts, events)
+
+    # learn/llmops Module 9: optional, local "second opinion" - logged only, never
+    # persisted and never allowed to change the deal above.
+    second_opinion = await get_second_opinion(facts, events)
+    if second_opinion is not None:
+        second_opinion_score = build_analysis(facts, second_opinion).deal_score
+        logger.info(
+            "Second opinion for %s: deal_score=%d (OpenAI's own score: %d)",
+            asin, second_opinion_score, analysis.deal_score,
+        )
 
     listing = None
     if passed:

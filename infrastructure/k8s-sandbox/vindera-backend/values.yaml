@@ -1,0 +1,25 @@
+# Sandbox values (learn/llmops Module 8). Every value below is a placeholder -
+# this chart is meant to run with a deliberately unreachable Supabase URL, so
+# that /readyz correctly reports 503 while the pod itself stays alive and
+# Ready=False (never killed) - that contrast was the point of the exercise.
+
+image:
+  repository: vindera-backend
+  tag: sandbox
+  pullPolicy: Never # built locally and loaded with `minikube image load`, never pulled from a registry
+
+replicaCount: 2
+
+service:
+  port: 8000
+
+env:
+  ENVIRONMENT: development
+  ALLOW_MOCK_DATA: "true"
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000"
+
+# Deliberately fake: this sandbox proves the liveness/readiness split, not a
+# real integration. A real deployment would come from a Secret, not values.yaml.
+secrets:
+  SUPABASE_URL: "http://sandbox-does-not-resolve.invalid"
+  SUPABASE_SERVICE_ROLE_KEY: "sandbox-placeholder-not-a-real-key"

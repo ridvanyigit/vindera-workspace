@@ -20,16 +20,19 @@ from src.core.config import settings
 from src.core.database import supabase
 from src.core.logging_config import configure_logging
 from src.core.middleware import RequestContextMiddleware, UnhandledErrorMiddleware
+from src.core.observability import init_langfuse
 from src.core.rate_limit import ApplicationRateLimitMiddleware, limiter
 from src.core.sentry import init_sentry
 from src.services.scan_pipeline import fail_interrupted_scan_jobs
 
 API_PREFIX = "/api/v1"
 
-# Logging and Sentry start before the app object exists so that import-time
-# problems are already reported in the right format.
+# Logging, Sentry and (optionally) Langfuse start before the app object exists,
+# and before any agent module is imported, so that the OpenAI SDK patch (if
+# Langfuse is configured) is already in place when the agents create their clients.
 configure_logging()
 init_sentry()
+init_langfuse()
 logger = logging.getLogger("vindera.app")
 
 

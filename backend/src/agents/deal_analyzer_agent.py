@@ -165,6 +165,7 @@ def build_analysis(facts: KeepaFacts, llm: LlmAnalysis) -> DealAnalysis:
     )
 
 
+# Reused as-is by agents/second_opinion.py (learn/llmops Module 9): keep this signature stable.
 def _describe_facts(facts: KeepaFacts) -> str:
     def known(value: object) -> str:
         return "unknown" if value is None else str(value)

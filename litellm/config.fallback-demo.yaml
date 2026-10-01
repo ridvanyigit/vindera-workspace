@@ -1,0 +1,27 @@
+# Temporary/demo config for the Module 4 fallback experiment - NOT the config
+# docker-compose.yml uses by default. Run separately, on a different port, only
+# to prove router_settings.fallbacks works, then discard:
+#
+#   docker run --rm -p 4001:4000 \
+#     -e OPENAI_API_KEY="$(grep ^OPENAI_API_KEY ../.env | cut -d= -f2- | tr -d '"')" \
+#     -v "$(pwd)/config.fallback-demo.yaml:/app/config.yaml" \
+#     ghcr.io/berriai/litellm:main-stable --config /app/config.yaml --port 4000
+#
+# (docker run --env-file does NOT strip quotes from .env values the way docker
+# compose's env_file does - a quoted OPENAI_API_KEY gets passed literally and
+# OpenAI rejects it; hence the explicit -e above instead.)
+
+model_list:
+  - model_name: gpt-4o-mini-primary
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: "sk-deliberately-invalid-for-the-fallback-demo"
+
+  - model_name: gpt-4o-mini-fallback
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+
+router_settings:
+  fallbacks:
+    - gpt-4o-mini-primary: ["gpt-4o-mini-fallback"]

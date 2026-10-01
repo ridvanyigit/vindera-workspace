@@ -26,3 +26,9 @@ OPENAI_ERRORS = Counter(
     "vindera_openai_errors_total",
     "Failed OpenAI calls (analysis, listing copy, chat).",
 )
+
+# learn/llmops Module 6: input-guardrail hits (a scan blocked before reaching an agent).
+PROMPT_INJECTION_BLOCKED = Counter(
+    "vindera_prompt_injection_blocked_total",
+    "Scans blocked because Keepa's title/category looked like a prompt injection attempt.",
+)

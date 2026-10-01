@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (git-ignored) and fill in real values, OR pass them
+# as TF_VAR_hcloud_token / TF_VAR_ssh_public_key on the command line instead of
+# ever writing a real token to a file.
+
+hcloud_token    = "your_hetzner_cloud_api_token_here"
+ssh_public_key  = "ssh-ed25519 AAAA... your-public-key-here"
+ssh_allowed_ips = ["203.0.113.0/32"] # your own current IP, /32
+location        = "fsn1"             # fsn1 (Falkenstein) or nbg1 (Nuremberg)

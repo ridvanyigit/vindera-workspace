@@ -1,0 +1,30 @@
+# Local Apache Airflow (Module 10 of the LLMOps curriculum).
+#
+# Deliberately the lightest real setup: ONE container running `airflow
+# standalone` (SQLite metadata DB, SequentialExecutor, webserver+scheduler in
+# one process) instead of Airflow's own multi-container docker-compose.yaml
+# (webserver + scheduler + triggerer + worker + Postgres + Redis, which the
+# official docs say wants 4GB+ RAM on its own). This machine's Docker Desktop
+# is capped at ~3.8GB total and already runs Supabase + n8n + monitoring, so
+# the heavier setup was never a realistic option here - not what a real
+# multi-worker Airflow deployment looks like, but enough to write and run a
+# real DAG against the real backend API.
+#
+# n8n's own production stack (../../n8n/) is completely separate and untouched.
+
+services:
+  airflow:
+    image: apache/airflow:3.0.3
+    container_name: vindera_airflow
+    restart: unless-stopped
+    ports:
+      - "8081:8080" # 8080 is already free here, but n8n-adjacent ports stay out of the way
+    environment:
+      - AIRFLOW__CORE__LOAD_EXAMPLES=false
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow_home:/opt/airflow
+    command: standalone
+
+volumes:
+  airflow_home:

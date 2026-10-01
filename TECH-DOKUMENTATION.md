@@ -2,9 +2,11 @@
 
 > **Cross-Border AI Arbitrage Engine** — finds price gaps between Amazon.de and the Austrian second-hand marketplace Willhaben (Keepa data, AI-assisted scoring), tracks every unit from scan to sale or return, and keeps the books (ledger, reports, VAT threshold) for a one-person Austrian *Kleinunternehmer*.
 
-**Document Version:** 4.0 (launch-hardening branch)
-**Last Updated:** 2026-09-21
-**Source:** rewritten from the code after Phases 0-8 of `docs/LAUNCH-PLAN.md`. Where this file and the code disagree, the code wins; `CLAUDE.md` holds the short rules for contributors, `docs/DEPLOY.md` the production runbook.
+**Document Version:** 5.0 (`main`, tag `v3.0.0`)
+**Last Updated:** 2026-09-30
+**Source:** rewritten from the code after Phases 0-8 of `docs/LAUNCH-PLAN.md`, then updated for `v3.0.0`. Where this file and the code disagree, the code wins; `CLAUDE.md` holds the short rules for contributors, `docs/DEPLOY.md` the production runbook, `SETUP.md` the zero-to-running local setup guide.
+
+> ⚠️ **`v3.0.0` is a structural snapshot, not a runnable build.** `backend/.venv`, `backend/uv.lock`, `frontend/node_modules`, `frontend/.next` and `frontend/package-lock.json` were deliberately removed, and every `.env`/`.env.local` file was reset to placeholder values, before this tag was pushed publicly. The **file and folder structure is complete** (every module described in this document exists in the repo, including the optional LLMOps sandbox in §16), but nothing is installed and no real secret is configured. To get a working system again, either follow `SETUP.md` from a clean checkout of this tag (reinstall dependencies, refill `.env`), or check out the last known-working, fully set-up release, `v2.8.0` (`git checkout v2.8.0`) - see the Release Changelog (§17) for exactly what changed since.
 
 ---
 
@@ -24,7 +26,9 @@
 12. [Run, Test and Deploy Commands](#12-run-test-and-deploy-commands)
 13. [Known Limits & Open Items](#13-known-limits--open-items)
 14. [Roadmap](#14-roadmap)
-15. [Release Changelog](#15-release-changelog)
+15. [`v3.0.0`: draft/structural state](#15-v300-draft-structural-state)
+16. [LLMOps / AI Platform Engineering Sandbox](#16-llmops--ai-platform-engineering-sandbox)
+17. [Release Changelog](#17-release-changelog)
 
 ---
 
@@ -92,6 +96,7 @@ Browser ──> Vercel (Next.js frontend) ──> Supabase (Auth, Postgres, Stor
 | Notifications | Pushover |
 | Automation | n8n |
 | Ops | Docker, Caddy 2.10 (automatic HTTPS), Prometheus 3.5, Grafana 12.2, GitHub Actions |
+| LLMOps sandbox (§16, optional) | Langfuse, DeepEval, pgvector, LiteLLM, MLflow, Presidio, Terraform, Kubernetes/Helm/minikube, Ollama, Apache Airflow, OpenTelemetry (concept only) - file/folder structure only, none installed in `v3.0.0` |
 
 ---
 
@@ -99,16 +104,22 @@ Browser ──> Vercel (Next.js frontend) ──> Supabase (Auth, Postgres, Stor
 
 ```
 backend/
-  Dockerfile, .dockerignore, pyproject.toml, uv.lock
+  Dockerfile, .dockerignore, pyproject.toml, uv.lock*
   scripts/smoke_auth.sh            end-to-end auth check of a running backend
+  scripts/backfill_product_embeddings.py   [sandbox, §16] one-off OpenAI embeddings backfill
   src/main.py                      app factory, middleware, router mounting, startup guards
   src/core/                        config, auth, database, validation, rate_limit, middleware,
-                                   logging_config, metrics, sentry, categories
+                                   logging_config, metrics, sentry, categories,
+                                   observability.py [sandbox] Langfuse, pii_guard.py [sandbox] Presidio,
+                                   injection_guard.py [sandbox] prompt-injection regex
   src/api/endpoints/               deals.py, expenses.py, reports.py, chat.py, health.py
   src/services/                    profit_calculator, lifecycle, scan_pipeline, keepa_service,
                                    business_settings, inventory_alerts, notification_service, db_util
-  src/agents/                      deal_analyzer_agent, listing_generator_agent, chatbot_agent
-  tests/                           conftest.py (isolation), fakes.py (in-memory Supabase), test_*.py, data/
+  src/agents/                      deal_analyzer_agent, listing_generator_agent, chatbot_agent,
+                                   second_opinion.py [sandbox, §16] optional local Ollama model
+  evals/                           [sandbox, §16] DeepEval + MLflow scripts, never run by `uv run pytest`
+  tests/                           conftest.py (isolation), fakes.py (in-memory Supabase), test_*.py, data/,
+                                   test_injection_guard.py [sandbox]
 frontend/
   src/app/                         /, /product/[id], /impressum, /datenschutz, robots, sitemap, error pages
   src/app/admin/                   page (workspace), products, manual-entry, reports, login, layout
@@ -116,18 +127,26 @@ frontend/
   src/lib/                         apiFetch, profit (preview port), lifecycle, storefront, invoices, legal, constants, ...
   src/lib/__tests__/               Vitest (profit golden vectors, lifecycle helpers)
 supabase/
-  migrations/                      immutable, timestamped (never edit an applied one)
+  migrations/                      immutable, timestamped (never edit an applied one);
+                                   20260927120000_add_product_embeddings.sql is [sandbox, §16] (pgvector)
   tests/                           phase2_smoke.sql, report_summary_smoke.sql (rolled back)
   scripts/                         cleanup_test_data.sql (manual, NOT a migration)
   seed.sql, config.toml
 n8n/                               docker-compose.yml, Vindera_Daily_Scan.json
+litellm/                           [sandbox, §16] LiteLLM gateway docker-compose.yml + config.yaml
 infrastructure/
   monitoring/                      local Prometheus + Grafana, alerts.yml
   prod/                            docker-compose.yml, Caddyfile, prometheus.yml, .env.prod.example
   backup/                          backup.sh, backup.env.example
+  terraform/                       [sandbox, §16] plan-only Hetzner Cloud IaC, never applied
+  k8s-sandbox/                     [sandbox, §16] Helm chart for a local minikube cluster
+  airflow/                         [sandbox, §16] single-container Airflow + a comparative DAG
 .github/workflows/ci.yml           backend, frontend, database, deploy-config jobs (no secrets)
 docs/                              LAUNCH-PLAN, LAUNCH-PROGRESS, DEPLOY, MANUEL-ADIMLAR (tr), LAUNCH-CHECKLIST.tr, MANUAL-TEST-SCRIPT (tr)
+SETUP.md                           zero-to-running local setup guide, incl. the sandbox recipes (§16 here mirrors its §17)
 ```
+
+\* Not present in the `v3.0.0` tag itself - see §15. Regenerate with `cd backend && uv lock`.
 
 ---
 
@@ -149,6 +168,9 @@ docs/                              LAUNCH-PLAN, LAUNCH-PROGRESS, DEPLOY, MANUEL-
 | `LOG_LEVEL` | no | `INFO` default |
 | `ALLOW_MOCK_DATA` | dev only | `true` allows `[MOCK]` deals without keys; refused in production |
 | `RETURN_WINDOW_DAYS`, `SELL_PRICE_POSITION` | no | Defaults 30 and 0.5 (midpoint of today's and the 90-day price) |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | optional, sandbox (§16) | LLM tracing; unset = `init_langfuse()` is a no-op |
+| `OPENAI_BASE_URL` | optional, sandbox (§16) | Routes OpenAI calls through a local LiteLLM gateway instead of `api.openai.com` |
+| `ENABLE_SECOND_OPINION_MODEL`, `SECOND_OPINION_BASE_URL`, `SECOND_OPINION_MODEL` | optional, sandbox (§16) | Off by default; a local Ollama model's score is logged only, never persisted |
 
 `ENVIRONMENT=production` makes the backend **refuse to start** unless the Supabase URL and key, `AUTOMATION_SHARED_SECRET` and `METRICS_TOKEN` are set (32+ characters), `CORS_ALLOWED_ORIGINS` has no localhost entry and `ALLOW_MOCK_DATA` is false. It also turns off `/docs`, `/redoc` and `/openapi.json`.
 
@@ -432,6 +454,8 @@ Authentication is a n8n **Header Auth** credential named `Vindera Automation Key
 
 ## 12. Run, Test and Deploy Commands
 
+> As of `v3.0.0` (§15), none of the commands below work on a fresh checkout of this tag until dependencies are reinstalled: `cd backend && uv sync` and `cd frontend && npm install` first. Full step-by-step instructions (prerequisites, every env var, first-admin creation): `SETUP.md`.
+
 ```bash
 # Run (from the workspace root)
 cd backend && uv run uvicorn src.main:app --reload         # API      :8000
@@ -471,6 +495,7 @@ CI (`.github/workflows/ci.yml`) runs all of this without any secret: backend tes
 5. **Tests do not cover**: the chatbot's OpenAI tool loop, frontend components (only pure helpers), the workflows on GitHub before their first run. The deployment files were verified locally only, never on a real server.
 6. **Alerts** stay inside Prometheus (no Alertmanager); the "Keepa tokens exhausted" push is deduplicated in memory (a restart can repeat it once).
 7. The German copy in `ListingGeneratorAgent` is intentional (published Willhaben text); do not translate it. Legal wording is the owner's lawyer's job, not software's.
+8. **`v3.0.0` does not run out of the box** - dependencies and secrets were intentionally stripped before making the repository public. See §15.
 
 ---
 
@@ -480,10 +505,55 @@ Post-launch backlog (not started): Keepa Deals/Tracking webhooks for discovery b
 
 ---
 
-## 15. Release Changelog
+## 15. `v3.0.0`: draft/structural state
+
+`v3.0.0` exists to make this repository's **full, complete structure** - every module ever built on it, including the exploratory ones below - publicly visible and readable, without publishing a single real credential or a large, disposable, machine-specific cache. It is **not a working deployment** and was never intended to be one.
+
+**What was deliberately removed before tagging:**
+
+| Removed | Size | Regenerate with |
+|---|---|---|
+| `backend/.venv` | ~27M | `cd backend && uv sync` |
+| `backend/uv.lock` | ~184K | `cd backend && uv lock` |
+| `frontend/node_modules` | ~85M | `cd frontend && npm install` |
+| `frontend/.next` | ~8.6M | `npm run dev` / `npm run build` |
+| `frontend/package-lock.json` | ~284K | `npm install` |
+
+**What was reset to placeholders** (every value like `here_your_openai_api_key`, never a real secret): the root `.env`, `frontend/.env.local`, `infrastructure/monitoring/.env`. `.env.example` (root), `frontend/.env.example` and `infrastructure/monitoring/.env.example` are the templates - copy and fill them in (also see `SETUP.md` §4).
+
+**To get a working system again, pick one:**
+
+1. **Set this tag up from scratch** (recommended if you want the LLMOps sandbox structure too): check out `v3.0.0`, follow `SETUP.md` start to finish - install prerequisites, `uv sync`, `npm install`, `supabase start` + `db reset --local`, fill in every `.env` with your own real keys, create your first admin user.
+2. **Go back to the last fully working, already-configured release** (if you just want the running application, without the sandbox modules): `git checkout v2.8.0`. That tag predates all of §16 below and has none of this stripping - it is the last tag that was a genuinely deployable snapshot on its own branch history.
+
+---
+
+## 16. LLMOps / AI Platform Engineering Sandbox
+
+An 11-module, hands-on LLMOps/AI-Platform-Engineering curriculum was built directly on top of this codebase, one tool at a time, each wired into a real (sandboxed) part of Vindera and verified with real commands. **Every file below exists in the repository as of `v3.0.0`**, but none of the packages, containers, clusters or models it depends on are installed - this section documents structure, not a running feature. The complete, original teaching write-up (every real terminal output, every mistake made and fixed, concept dictionaries) is preserved outside this repo and linked from `SETUP.md` §17, which also has the exact install/run/verify/clean-up commands for each module below.
+
+| Module | Tool(s) | Files in this repo | Wired into |
+|---|---|---|---|
+| 1. LLM Observability | Langfuse | `backend/src/core/observability.py` | `main.py` (`init_langfuse()`), both agents' OpenAI calls (monkey-patched) |
+| 2. LLM Evaluation | DeepEval | `backend/evals/{fixtures,metrics,check_listing_generator,report_to_confident_ai}.py` | Standalone; never run by `uv run pytest` |
+| 3. Vector Database | pgvector | `supabase/migrations/20260927120000_add_product_embeddings.sql`, `backend/scripts/backfill_product_embeddings.py` | `products.embedding` + `match_similar_products()` RPC |
+| 4. LLM Gateway | LiteLLM | `litellm/{docker-compose.yml,config.yaml,config.fallback-demo.yaml}` | `OPENAI_BASE_URL` in `config.py`, both agents |
+| 5. Experiment Tracking | MLflow | `backend/evals/compare_prompts_mlflow.py` | `listing_generator_agent.py`'s `DEFAULT_SYSTEM_PROMPT` / `system_prompt_override` |
+| 6. Guardrails & PII | Presidio | `backend/src/core/pii_guard.py`, `backend/src/core/injection_guard.py`, `backend/tests/test_injection_guard.py` | `scan_pipeline.py` (input guardrail), `evals/metrics.py`'s `NoPIIMetric` (output guardrail), `vindera_prompt_injection_blocked_total` metric + `PromptInjectionBlocked` alert |
+| 7. Infrastructure as Code | Terraform | `infrastructure/terraform/{main.tf,variables.tf,outputs.tf,terraform.tfvars.example}` | Plan-only; matches `docs/DEPLOY.md`'s real server spec |
+| 8. Kubernetes | minikube + Helm | `infrastructure/k8s-sandbox/vindera-backend/` | Sandbox only; production still uses `infrastructure/prod/`'s docker compose |
+| 9. Model Serving | Ollama | `backend/src/agents/second_opinion.py` | `scan_pipeline.py`, logged only, never affects a saved deal |
+| 10. Pipeline Orchestration | Apache Airflow | `infrastructure/airflow/{docker-compose.yml,dags/vindera_daily_scan.py}` | Comparative to `n8n/Vindera_Daily_Scan.json`; n8n's production workflow is untouched |
+| 11. Capstone | OpenTelemetry | (none - concept only) | Documented in `SETUP.md` §17 as a future exercise |
+
+None of this changes the production write-path rule, the profit engine, or any endpoint's authentication - every module above is either fully optional (off by default, e.g. `ENABLE_SECOND_OPINION_MODEL=false`) or lives entirely outside the request path the real application uses (evals, IaC, a separate sandbox cluster).
+
+## 17. Release Changelog
 
 | Tag | Date | Summary |
 |---|---|---|
+| `v3.0.0` | 2026-09-30 | **Public, structural-only release.** Every module ever built on this codebase (launch-hardening + the 11-module LLMOps sandbox, §16) now exists as real files, but `.venv`/`node_modules`/`.next`/both lockfiles are removed and every `.env` is placeholder-only - **this tag does not run as-is**. To get a working system: follow `SETUP.md` on this tag (reinstall + refill secrets), or `git checkout v2.8.0` for the last fully working, already-configured snapshot. See §15 for the full detail. |
+| `v2.8.0` | 2026-09-22 | Last fully working, deployable snapshot before the `v3.0.0` public-release cleanup. |
 | `v2.7.1` | 2026-09-21 | Launch hardening. The small "WORKSPACE" caption under the logo is removed from Product Master, Manual Entry and Tax & Reports. Authenticated API, atomic SQL writers, sale ledger, one profit engine, lifecycle state machine, reports and CSV, private invoices, storefront SEO, observability, tests and CI, production deployment files. 13 migrations applied to the hosted project by the owner on 2026-09-21 |
 | `v2.7.0` | 2026-09-20 | Click-to-minimize on dashboard panels; documentation update |
 | `v2.6.0` | 2026-09-20 | Austria market calendar in the AI Smart Radar header |
