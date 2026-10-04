@@ -80,7 +80,10 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned, not "latest": resolving "latest" calls the GitHub API on every run and
+          # occasionally hits its rate limit (seen in practice), failing the job for no
+          # code-related reason. Bump this by hand when a reason to upgrade comes up.
+          version: 2.119.0
 
       # Local containers only: no login, no link, nothing is pushed anywhere.
       - name: Start a local Supabase
