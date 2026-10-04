@@ -101,7 +101,7 @@ Konuya hiç aşina olmayan biri için: her araç ne, tek cümleyle ne işe yarı
 
 #### ⚠️ Güvenlik bulgusu: test scan yanlışlıkla hosted Supabase'e gitti
 
-Backend ayağa kalkıp sağlıklı görününce, entegrasyonu doğrulamak için gerçek bir `POST /deals/scan` tetiklendi (ASIN `B09Y2MYL5C`, `X-Vindera-Key` ile). Sonuç local Docker'daki `scan_jobs` tablosunda hiç görünmeyince araştırıldı ve **`backend/.env` içindeki `SUPABASE_URL`'nin baştan beri hosted (gerçek) Supabase projesine işaret ettiği** ortaya çıktı (`https://gkeonnhhcdffxknnwftn.supabase.co`), local (`127.0.0.1:54321`) değil. Yani bu test scan — gerçek Keepa/OpenAI çağrıları dahil — hosted projeye gitmiş olabilir.
+Backend ayağa kalkıp sağlıklı görününce, entegrasyonu doğrulamak için gerçek bir `POST /deals/scan` tetiklendi (ASIN `B09Y2MYL5C`, `X-Vindera-Key` ile). Sonuç local Docker'daki `scan_jobs` tablosunda hiç görünmeyince araştırıldı ve **`backend/.env` içindeki `SUPABASE_URL`'nin baştan beri hosted (gerçek) Supabase projesine işaret ettiği** ortaya çıktı (`https://<redacted-hosted-project-ref>.supabase.co`), local (`127.0.0.1:54321`) değil. Yani bu test scan — gerçek Keepa/OpenAI çağrıları dahil — hosted projeye gitmiş olabilir.
 
 **Önemli ayrım:** Modül 0'daki `supabase db reset --local` ve SQL smoke test'leri her zaman doğru şekilde **local** Docker container'a karşı çalıştırılmıştı (doğrudan `docker exec` ile, backend'in `SUPABASE_URL`'inden bağımsız). Sorun sadece backend sürecinin kendi `.env`'inden okuduğu bağlantı ile ilgili.
 
@@ -116,7 +116,7 @@ Backend ayağa kalkıp sağlıklı görününce, entegrasyonu doğrulamak için 
 - Bunun üzerine Keepa'yı ve veritabanını tamamen atlayan, `DealAnalyzerAgent`'ı sahte `KeepaFacts` ile doğrudan çağıran izole bir test scripti yazıldı (`init_langfuse()` + `deal_analyzer.analyze_deal(...)` + `get_client().flush()`). Sonuç: **gerçek bir OpenAI cağrısı başarıyla yapıldı (deal_score=70, gerçek reasoning metni döndü) ve Langfuse client'ı başarıyla flush etti.**
 - **Kalıcı (opsiyonel) TODO:** Gerçek uçtan uca bir scan için `.env`'e gerçek bir `KEEPA_API_KEY` girilmesi gerekiyor — bu Langfuse'dan tamamen bağımsız, önceden var olan bir eksiklik.
 
-**Doğrulama adımı (kullanıcıya ait):** https://cloud.langfuse.com/project/cmuk2dibl0msbad0cddercmf9/traces adresine gidip bu test çağrısının trace'ini (prompt, token, maliyet, latency ile) görmek.
+**Doğrulama adımı (kullanıcıya ait):** https://cloud.langfuse.com/project/<redacted-langfuse-project-id>/traces adresine gidip bu test çağrısının trace'ini (prompt, token, maliyet, latency ile) görmek.
 
 #### 📚 Langfuse — Kavramdan Uzmanlığa (derin dalış)
 
@@ -150,7 +150,7 @@ cd backend && uv add langfuse
 
 **Dashboard turu (kullanıcı tarafından yapıldı, başarılı):**
 
-- URL: https://cloud.langfuse.com/project/cmuk2dibl0msbad0cddercmf9/traces
+- URL: https://cloud.langfuse.com/project/<redacted-langfuse-project-id>/traces
 - Sol menü: Traces, Sessions, Users, Scores, Datasets, Prompts, Playground, Settings.
 - Bir trace'e tıklayınca: üstte latency+cost, ortada "OpenAI-generation" ağacı, tıklayınca Input/Output/Model parameters/Usage (token sayıları) görülüyor.
 - Settings → API Keys sayfasındaki Public/Secret key'ler `.env`'dekiyle eşleşiyor.
@@ -216,17 +216,17 @@ cd backend && PYTHONPATH=. .venv/bin/python evals/report_to_confident_ai.py
 
 **Sonuç (başarılı çalışma):** 4 gerçek OpenAI çağrısı, 6/6 kontrol PASS, Langfuse'a trace düştü, ve iki ayrı Confident AI test-run linki üretildi:
 
-- https://app.confident-ai.com/project/cmuk83571000sry0tzlejedp8/test-runs/cmuk8si8z000cs10tujbqq1du (structure + forbidden-topics)
-- https://app.confident-ai.com/project/cmuk83571000sry0tzlejedp8/test-runs/cmuk8sjge000js10t99s82dt3 (verbatim-append)
+- https://app.confident-ai.com/project/<redacted-confident-ai-project-id>/test-runs/<redacted-test-run-id-1> (structure + forbidden-topics)
+- https://app.confident-ai.com/project/<redacted-confident-ai-project-id>/test-runs/<redacted-test-run-id-2> (verbatim-append)
 
-Proje dashboard'u: https://app.confident-ai.com/project/cmuk83571000sry0tzlejedp8
+Proje dashboard'u: https://app.confident-ai.com/project/<redacted-confident-ai-project-id>
 
 **Not:** `backend/.deepeval/` ve `.deepeval-cache.json` `.gitignore`'a eklendi — `deepeval login` sonrası oluşan yerel durum dosyaları, repo'ya girmemesi için.
 
-**Confident AI dashboard navigasyonu (yaşanan gerçek kafa karışıklığı):** Bare proje URL'si (`https://app.confident-ai.com/project/cmuk83571000sry0tzlejedp8`) dashboard yerine genel bir "SDK kur" onboarding ekranı (`curl ... setup.sh`) gösteriyor — bu, Confident AI'ın ayrı bir özelliği olan **Tracing** (canlı izleme, Langfuse'un yaptığı işin benzeri) için bir kurulum komutu ve çalıştırılmasına gerek yok. Bizim kullandığımız özellik **Evaluation / Test Runs**; sonuçları görmek için proje köküne değil, doğrudan test-run linklerine gidilmeli:
+**Confident AI dashboard navigasyonu (yaşanan gerçek kafa karışıklığı):** Bare proje URL'si (`https://app.confident-ai.com/project/<redacted-confident-ai-project-id>`) dashboard yerine genel bir "SDK kur" onboarding ekranı (`curl ... setup.sh`) gösteriyor — bu, Confident AI'ın ayrı bir özelliği olan **Tracing** (canlı izleme, Langfuse'un yaptığı işin benzeri) için bir kurulum komutu ve çalıştırılmasına gerek yok. Bizim kullandığımız özellik **Evaluation / Test Runs**; sonuçları görmek için proje köküne değil, doğrudan test-run linklerine gidilmeli:
 
-- https://app.confident-ai.com/project/cmuk83571000sry0tzlejedp8/test-runs/cmuk8si8z000cs10tujbqq1du
-- https://app.confident-ai.com/project/cmuk83571000sry0tzlejedp8/test-runs/cmuk8sjge000js10t99s82dt3
+- https://app.confident-ai.com/project/<redacted-confident-ai-project-id>/test-runs/<redacted-test-run-id-1>
+- https://app.confident-ai.com/project/<redacted-confident-ai-project-id>/test-runs/<redacted-test-run-id-2>
 
 Her linkte: üstte özet (kaç test case, kaçı geçti), altında her test case + uygulanan metrik(ler) + skor, tıklayınca `input`/`actual_output` ve metriğin "reason" açıklaması görülüyor.
 

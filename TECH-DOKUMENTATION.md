@@ -142,9 +142,9 @@ infrastructure/
   k8s-sandbox/                     [sandbox, §16] Helm chart for a local minikube cluster
   airflow/                         [sandbox, §16] single-container Airflow + a comparative DAG
 .github/workflows/ci.yml           backend, frontend, database, deploy-config jobs (no secrets)
-docs/                              LAUNCH-PLAN, LAUNCH-PROGRESS, DEPLOY, MANUEL-ADIMLAR (tr), LAUNCH-CHECKLIST.tr, MANUAL-TEST-SCRIPT (tr),
-                                   llmops-mufredat.md [sandbox, §16] full LLMOps curriculum write-up (tr)
+docs/                              LAUNCH-PLAN, LAUNCH-PROGRESS, DEPLOY, MANUEL-ADIMLAR (tr), LAUNCH-CHECKLIST.tr, MANUAL-TEST-SCRIPT (tr)
 SETUP.md                           zero-to-running local setup guide, incl. the sandbox recipes (§16 here mirrors its §17)
+LLMOPS-MUFREDAT.md                 [sandbox, §16] full LLMOps curriculum write-up, in the Turkish it was taught in
 ```
 
 \* Not present in the `v3.0.0` tag itself - see §15. Regenerate with `cd backend && uv lock`.
@@ -531,7 +531,7 @@ Post-launch backlog (not started): Keepa Deals/Tracking webhooks for discovery b
 
 ## 16. LLMOps / AI Platform Engineering Sandbox
 
-An 11-module, hands-on LLMOps/AI-Platform-Engineering curriculum was built directly on top of this codebase, one tool at a time, each wired into a real (sandboxed) part of Vindera and verified with real commands. **Every file below exists in the repository as of `v3.0.0`**, but none of the packages, containers, clusters or models it depends on are installed - this section documents structure, not a running feature. The complete, original teaching write-up (every real terminal output, every mistake made and fixed, concept dictionaries), in the Turkish it was taught in, lives in this repo at `docs/llmops-mufredat.md` and, as the durable original, at the [Claude Docs artifact](https://claude.ai/code/artifact/82c93842-c385-4045-b7b5-9d1ad351af75) it was authored in. `SETUP.md` §17 has the exact install/run/verify/clean-up commands for each module below, condensed from that write-up.
+An 11-module, hands-on LLMOps/AI-Platform-Engineering curriculum was built directly on top of this codebase, one tool at a time, each wired into a real (sandboxed) part of Vindera and verified with real commands. **Every file below exists in the repository as of `v3.0.0`**, but none of the packages, containers, clusters or models it depends on are installed - this section documents structure, not a running feature. The complete, original teaching write-up (every real terminal output, every mistake made and fixed, concept dictionaries), in the Turkish it was taught in, lives in this repo at [`LLMOPS-MUFREDAT.md`](./LLMOPS-MUFREDAT.md) and, as the durable original, at the [Claude Docs artifact](https://claude.ai/code/artifact/82c93842-c385-4045-b7b5-9d1ad351af75) it was authored in. `SETUP.md` §17 has the exact install/run/verify/clean-up commands for each module below, condensed from that write-up.
 
 | Module | Tool(s) | Files in this repo | Wired into |
 |---|---|---|---|
